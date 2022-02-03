@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Set;
 
 public class XyzUtil {
+  private XyzUtil() {}
+
   public static List<Set<Point>> calculateAllBboxTiles(BoundingBox bbox) {
     List<Set<Point>> allBboxTiles = new ArrayList<>();
     for (int i = 0; i <= bbox.getMaxZoom(); i++) {
@@ -20,7 +22,6 @@ public class XyzUtil {
     Point upperLeft = getTileNumber(bbox.getNorth(), bbox.getWest(), zoom);
     Point lowerLeft = getTileNumber(bbox.getSouth(), bbox.getWest(), zoom);
     Point upperRight = getTileNumber(bbox.getNorth(), bbox.getEast(), zoom);
-    Point lowerRight = getTileNumber(bbox.getSouth(), bbox.getEast(), zoom);
     for (int i = upperLeft.x; i <= upperRight.x; i++) {
       for (int n = upperLeft.y; n <= lowerLeft.y; n++) {
         points.add(new Point(i, n));

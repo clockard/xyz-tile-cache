@@ -34,7 +34,7 @@ public class XyzTileCacheApplication {
 
   @Autowired private XyzConfiguration configuration;
 
-  public static void main(String[] args) throws Exception {
+  public static void main(String[] args) {
 
     SpringApplication app = new SpringApplication(XyzTileCacheApplication.class);
     app.run(args);

@@ -39,7 +39,7 @@ public class XyzConfiguration {
 
   public void setLayers(List<Layer> layers) {
     this.layers.clear();
-    layers.forEach((l) -> this.layers.put(l.getName(), l));
+    layers.forEach(l -> this.layers.put(l.getName(), l));
   }
 
   public List<BoundingBox> getBoundingBoxes() {
