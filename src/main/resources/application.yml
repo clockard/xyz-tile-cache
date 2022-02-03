@@ -7,10 +7,10 @@ xyz:
   layers:
     - name: "satelite"
       urlTemplate: "http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-  boundingBoxes:
-    - preCache: true
-      maxZoom: 5
-      north: 70
-      south: -70
-      east: 179
-      west: -179
+#  boundingBoxes:
+#    - preCache: true
+#      maxZoom: 5
+#      north: 70
+#      south: -70
+#      east: 179
+#      west: -179

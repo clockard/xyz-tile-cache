@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,7 +49,7 @@ public class XyzTileCacheApplication {
       @PathVariable("z") int z) {
     Layer layer = configuration.getLayers().get(layerStr);
     if (layer == null) {
-      new ResponseEntity("Layer " + layerStr + " not configured", HttpStatus.BAD_REQUEST);
+      return new ResponseEntity("Layer " + layerStr + " not configured", HttpStatus.BAD_REQUEST);
     }
     byte[] tileData = tileDirService.getCachedTile(layer, x, y, z);
 
@@ -75,6 +76,17 @@ public class XyzTileCacheApplication {
   }
 
   @EventListener(ApplicationReadyEvent.class)
+  public void initialize() {
+    if (configuration.getLayers().isEmpty()) {
+      LOGGER.warn("No layers are configured. No tiles will be returned");
+      return;
+    }
+    LOGGER.info(
+        "The following layers are configured: {}",
+        configuration.getLayers().keySet().stream().collect(Collectors.joining(",")));
+    initializeBoundingBoxes();
+  }
+
   public void initializeBoundingBoxes() {
     if (configuration.getBoundingBoxes().isEmpty()) {
       return;
