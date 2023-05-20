@@ -43,16 +43,19 @@ public class TileDirService {
         .forEach(
             (layer) -> {
               try {
-                Files.walk(Paths.get(new File(baseFile, layer.getName()).toURI()))
-                    .filter(Files::isRegularFile)
-                    .forEach(
-                        (f) -> {
-                          totalStorageBytes += f.toFile().length();
-                          totalTiles++;
-                          layer.addTileStats(f.toFile().length());
-                        });
+                File layerDir = new File(baseFile, layer.getName());
+                if (layerDir.exists()) {
+                  Files.walk(Paths.get(layerDir.toURI()))
+                      .filter(Files::isRegularFile)
+                      .forEach(
+                          (f) -> {
+                            totalStorageBytes += f.toFile().length();
+                            totalTiles++;
+                            layer.addTileStats(f.toFile().length());
+                          });
+                }
               } catch (IOException e) {
-                LOGGER.error("Failed to calculate the tile store size.", e);
+                LOGGER.error("Failed to calculate the tile store size for {}.", layer.getName(), e);
               }
             });
   }
