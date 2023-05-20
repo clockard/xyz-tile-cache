@@ -1,10 +1,12 @@
 package org.lockard.xyztilecache;
 
 import java.awt.Point;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,9 +16,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.event.EventListener;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
@@ -41,6 +41,13 @@ public class XyzTileCacheApplication {
     app.run(args);
   }
 
+  @GetMapping(value = "/layers")
+  public ResponseEntity<Collection<Layer>> getLayers() {
+    HttpHeaders headers = new HttpHeaders();
+    headers.add("Access-Control-Allow-Origin", "*");
+    return new ResponseEntity<>(configuration.getLayers().values(), headers, HttpStatus.OK);
+  }
+
   @GetMapping(value = "/tilesZYX/{layer}/{z}/{y}/{x}.png")
   public ResponseEntity<byte[]> requestTileZYX(
       @PathVariable("layer") String layerStr,
@@ -51,12 +58,18 @@ public class XyzTileCacheApplication {
     if (layer == null) {
       return new ResponseEntity("Layer " + layerStr + " not configured", HttpStatus.BAD_REQUEST);
     }
+
     byte[] tileData = tileDirService.getCachedTile(layer, x, y, z);
 
     if (tileData == null) {
+      long start = System.currentTimeMillis();
       tileData = getTileFromSource(layer, x, y, z);
+      LOGGER.debug("Tile retrieval time: {}ms", System.currentTimeMillis() - start);
       if (tileData != null) {
         tileDirService.addTitle(tileData, layer, x, y, z);
+        layer.setSourceAvailable(true);
+      } else {
+        layer.setSourceAvailable(false);
       }
     }
     if (tileData == null) {
@@ -65,14 +78,36 @@ public class XyzTileCacheApplication {
     }
     HttpHeaders headers = new HttpHeaders();
     headers.add("Access-Control-Allow-Origin", "*");
+    headers.add("Content-Type", "image/png");
     return new ResponseEntity<>(tileData, headers, HttpStatus.OK);
   }
 
   public byte[] getTileFromSource(Layer layer, int x, int y, int z) {
+    if (!layer.isSourceAvailable()
+        && System.currentTimeMillis() - layer.getSourceLastChecked()
+            < TimeUnit.MINUTES.toMillis(1)) {
+      return null;
+    }
     String urlBase = layer.getUrlTemplate();
     RestTemplate template = new RestTemplate();
     String url = urlBase.replace("{x}", x + "").replace("{y}", y + "").replace("{z}", z + "");
-    return template.getForObject(url, byte[].class);
+    LOGGER.debug("Tile url: {}", url);
+    layer.setSourceLastChecked(System.currentTimeMillis());
+    HttpHeaders headers = new HttpHeaders();
+    // User-Agent needed for some sources to respond properly
+    headers.set(
+        "User-Agent",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36");
+    headers.set("Accept-Encoding", "gzip, deflate, br");
+    HttpEntity entity = new HttpEntity(null, headers);
+
+    try {
+      return template.exchange(url, HttpMethod.GET, entity, byte[].class).getBody();
+    } catch (Exception e) {
+      LOGGER.warn("Error contacting tile source for {}", url);
+      layer.setSourceAvailable(true);
+    }
+    return null;
   }
 
   @EventListener(ApplicationReadyEvent.class)

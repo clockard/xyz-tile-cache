@@ -5,8 +5,10 @@ xyz:
   baseTileDirectory: "/tmp/tiles"
   maxTileStorage: 1000000000
   layers:
-    - name: "satelite"
-      urlTemplate: "http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    - name: "satellite"
+      urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    - name: "osm"
+      urlTemplate: "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
 #  boundingBoxes:
 #    - preCache: true
 #      maxZoom: 5

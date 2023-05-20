@@ -5,7 +5,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import org.apache.commons.collections4.map.LRUMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -13,6 +16,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class TileDirService {
   private static final Logger LOGGER = LoggerFactory.getLogger(TileDirService.class);
+
+  private Map<String, byte[]> tileMemoryCache = Collections.synchronizedMap(new LRUMap<>(500, 500));
 
   private XyzConfiguration configuration;
   private File baseFile;
@@ -32,17 +37,24 @@ public class TileDirService {
    * storage. This could take a while.
    */
   public void initializeTotalStorageUsed() {
-    try {
-      Files.walk(Paths.get(baseFile.toURI()))
-          .filter(Files::isRegularFile)
-          .forEach(
-              (f) -> {
-                totalStorageBytes += f.toFile().length();
-                totalTiles++;
-              });
-    } catch (IOException e) {
-      LOGGER.error("Failed to calculate the tile store size.", e);
-    }
+    configuration
+        .getLayers()
+        .values()
+        .forEach(
+            (layer) -> {
+              try {
+                Files.walk(Paths.get(new File(baseFile, layer.getName()).toURI()))
+                    .filter(Files::isRegularFile)
+                    .forEach(
+                        (f) -> {
+                          totalStorageBytes += f.toFile().length();
+                          totalTiles++;
+                          layer.addTileStats(f.toFile().length());
+                        });
+              } catch (IOException e) {
+                LOGGER.error("Failed to calculate the tile store size.", e);
+              }
+            });
   }
 
   public boolean addTitle(byte[] data, Layer layer, int x, int y, int z) {
@@ -55,10 +67,13 @@ public class TileDirService {
     File dir = new File(baseFile, layer.getName() + "/" + z + "/" + x);
     dir.mkdirs();
     File tileFile = new File(dir, y + ".png");
+    String tileName = layer.getName() + "/" + z + "/" + x + "/" + y + ".png";
+    tileMemoryCache.put(tileName, data);
     try (FileOutputStream outputStream = new FileOutputStream(tileFile)) {
       outputStream.write(data);
       outputStream.flush();
       totalStorageBytes += data.length;
+      totalTiles++;
       return true;
     } catch (IOException e) {
       LOGGER.error("Failed to save tile to storage at {}", dir.getAbsolutePath(), e);
@@ -67,7 +82,11 @@ public class TileDirService {
   }
 
   public byte[] getCachedTile(Layer layer, int x, int y, int z) {
-    File tile = new File(baseFile, layer.getName() + "/" + z + "/" + x + "/" + y + ".png");
+    String tileName = layer.getName() + "/" + z + "/" + x + "/" + y + ".png";
+    File tile = new File(baseFile, tileName);
+    if (tileMemoryCache.containsKey(tileName)) {
+      return tileMemoryCache.get(tileName);
+    }
     if (!tile.exists()) {
       return null;
     }
@@ -78,7 +97,8 @@ public class TileDirService {
       return null;
     }
     try {
-      return Files.readAllBytes(tile.toPath());
+      tileMemoryCache.put(tileName, Files.readAllBytes(tile.toPath()));
+      return tileMemoryCache.get(tileName);
     } catch (IOException e) {
       LOGGER.error("Error reading tile data: " + e);
     }

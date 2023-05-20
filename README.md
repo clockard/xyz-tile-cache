@@ -14,7 +14,7 @@ xyz:
   baseTileDirectory: "/tmp/tiles"
   maxTileStorage: 1000000000
   layers:
-    - name: "satelite"
+    - name: "satellite"
       urlTemplate: "http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
   boundingBoxes:
     - preCache: true
@@ -35,4 +35,4 @@ This example assumes a local tile repository at `/tmp/tiles` and a configuration
 
 `docker run -v /tmp/tiles:/tmp/tiles -v /tmp/application.yml:/app/application.yml --rm --name xyz -p 127.0.0.1:8383:8383/tcp xyz-tile-cache:latest`
 
-By default tile layers will be available at `http://localhost:8383/tilesZYX/satelite/{z}/{y}/{x}.png`
+By default tile layers will be available at `http://localhost:8383/tilesZYX/satellite/{z}/{y}/{x}.png`
