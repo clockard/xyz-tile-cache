@@ -57,4 +57,22 @@ public class BoundingBox {
   public void setWest(double west) {
     this.west = west;
   }
+
+  @Override
+  public String toString() {
+    return "BoundingBox{"
+        + "preCache="
+        + preCache
+        + ", maxZoom="
+        + maxZoom
+        + ", north="
+        + north
+        + ", south="
+        + south
+        + ", east="
+        + east
+        + ", west="
+        + west
+        + '}';
+  }
 }

@@ -6,13 +6,11 @@
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
 		<version>2.5.9</version>
-		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>org.lockard</groupId>
 	<artifactId>xyz-tile-cache</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>0.3.0</version>
 	<name>xyz-tile-cache</name>
-	<description>Demo project for Spring Boot</description>
 	<properties>
 		<java.version>11</java.version>
 	</properties>
@@ -36,7 +34,6 @@
 			<artifactId>commons-collections4</artifactId>
 			<version>4.4</version>
 		</dependency>
-
 	</dependencies>
 
 	<build>
@@ -60,5 +57,4 @@
 			</plugin>
 		</plugins>
 	</build>
-
 </project>

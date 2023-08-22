@@ -1,5 +1,8 @@
 package org.lockard.xyztilecache;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class Layer {
   private String name;
   private String urlTemplate;
@@ -13,6 +16,8 @@ public class Layer {
   private boolean sourceAvailable = true;
 
   private long sourceLastChecked = -1;
+
+  private Map<String, String> headers = new HashMap<>();
 
   public String getName() {
     return name;
@@ -81,5 +86,13 @@ public class Layer {
   public void addTileStats(long tileSize) {
     this.cachedTiles++;
     this.cachedTilesSize += tileSize;
+  }
+
+  public Map<String, String> getHeaders() {
+    return headers;
+  }
+
+  public void setHeaders(Map<String, String> headers) {
+    this.headers = headers;
   }
 }

@@ -77,11 +77,17 @@ public class TileDirService {
       outputStream.flush();
       totalStorageBytes += data.length;
       totalTiles++;
+      layer.addTileStats(data.length);
       return true;
     } catch (IOException e) {
       LOGGER.error("Failed to save tile to storage at {}", dir.getAbsolutePath(), e);
       return false;
     }
+  }
+
+  public boolean isTileCached(Layer layer, int x, int y, int z) {
+    String tileName = layer.getName() + "/" + z + "/" + x + "/" + y + ".png";
+    return new File(baseFile, tileName).exists();
   }
 
   public byte[] getCachedTile(Layer layer, int x, int y, int z) {

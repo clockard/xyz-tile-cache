@@ -9,6 +9,10 @@ xyz:
       urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
     - name: "osm"
       urlTemplate: "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+    - name: "osm-us"
+      urlTemplate: "https://osmap.a.tile.mapcdn.net/en/map/v1/{z}/{x}/{y}.png"
+      headers:
+        Referer: "https://www.osmap.us/"
 #  boundingBoxes:
 #    - preCache: true
 #      maxZoom: 5
