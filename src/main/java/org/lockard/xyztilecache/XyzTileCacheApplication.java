@@ -158,7 +158,7 @@ public class XyzTileCacheApplication {
     }
     LOGGER.info(
         "The following layers are configured: {}",
-            String.join(",", configuration.getLayers().keySet()));
+        String.join(",", configuration.getLayers().keySet()));
     initializeBoundingBoxes();
   }
 
