@@ -92,32 +92,7 @@ public class XyzTileCacheApplication {
       @PathVariable("x") int x,
       @PathVariable("y") int y,
       @PathVariable("z") int z) {
-    Layer layer = configuration.getLayers().get(layerStr);
-    if (layer == null) {
-      return new ResponseEntity("Layer " + layerStr + " not configured", HttpStatus.BAD_REQUEST);
-    }
-
-    byte[] tileData = tileDirService.getCachedTile(layer, x, y, z);
-
-    if (tileData == null) {
-      long start = System.currentTimeMillis();
-      tileData = getTileFromSource(layer, x, y, z);
-      LOGGER.debug("Tile retrieval time: {}ms", System.currentTimeMillis() - start);
-      if (tileData != null) {
-        tileDirService.addTitle(tileData, layer, x, y, z);
-        layer.setSourceAvailable(true);
-      } else {
-        layer.setSourceAvailable(false);
-      }
-    }
-    if (tileData == null) {
-      return new ResponseEntity(
-          "Couldn't retrieve tile data for layer " + layerStr, HttpStatus.NOT_FOUND);
-    }
-    HttpHeaders headers = new HttpHeaders();
-    headers.add("Access-Control-Allow-Origin", "*");
-    headers.add("Content-Type", "image/png");
-    return new ResponseEntity<>(tileData, headers, HttpStatus.OK);
+    return requestTileZYX(layerStr, x, y, z);
   }
 
   private void cacheTile(String layerStr, int x, int y, int z) {
