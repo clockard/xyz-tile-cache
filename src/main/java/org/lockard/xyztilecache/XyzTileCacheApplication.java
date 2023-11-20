@@ -86,6 +86,15 @@ public class XyzTileCacheApplication {
     return new ResponseEntity<>(tileData, headers, HttpStatus.OK);
   }
 
+  @GetMapping(value = "/tilesZXY/{layer}/{z}/{x}/{y}.png")
+  public ResponseEntity<byte[]> requestTileZXY(
+      @PathVariable("layer") String layerStr,
+      @PathVariable("x") int x,
+      @PathVariable("y") int y,
+      @PathVariable("z") int z) {
+    return requestTileZYX(layerStr, x, y, z);
+  }
+
   private void cacheTile(String layerStr, int x, int y, int z) {
     Layer layer = configuration.getLayers().get(layerStr);
     if (layer == null) {
