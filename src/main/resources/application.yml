@@ -4,6 +4,8 @@ server:
 xyz:
   baseTileDirectory: "/tmp/tiles"
   maxTileStorage: 1000000000
+  offline: false
+  tileTimeoutSeconds: 1
   layers:
     - name: "satellite"
       urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
