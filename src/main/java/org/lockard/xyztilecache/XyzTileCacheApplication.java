@@ -1,6 +1,7 @@
 package org.lockard.xyztilecache;
 
 import java.awt.Point;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -65,7 +67,7 @@ public class XyzTileCacheApplication {
 
     byte[] tileData = tileDirService.getCachedTile(layer, x, y, z);
 
-    if (tileData == null) {
+    if (tileData == null && !configuration.isOffline()) {
       long start = System.currentTimeMillis();
       tileData = getTileFromSource(layer, x, y, z);
       LOGGER.debug("Tile retrieval time: {}ms", System.currentTimeMillis() - start);
@@ -100,7 +102,7 @@ public class XyzTileCacheApplication {
     if (layer == null) {
       return;
     }
-    if (!tileDirService.isTileCached(layer, x, y, z)) {
+    if (!tileDirService.isTileCached(layer, x, y, z) && !configuration.isOffline()) {
       long start = System.currentTimeMillis();
       byte[] tileData = getTileFromSource(layer, x, y, z);
       LOGGER.debug("Tile retrieval time: {}ms", System.currentTimeMillis() - start);
@@ -134,7 +136,14 @@ public class XyzTileCacheApplication {
       return null;
     }
     String urlBase = layer.getUrlTemplate();
-    RestTemplate template = new RestTemplate();
+    RestTemplate template =
+        new RestTemplateBuilder()
+            .setConnectTimeout(
+                Duration.of(configuration.getTileTimeoutSeconds(), TimeUnit.SECONDS.toChronoUnit()))
+            .setReadTimeout(
+                Duration.of(configuration.getTileTimeoutSeconds(), TimeUnit.SECONDS.toChronoUnit()))
+            .build();
+
     String url = urlBase.replace("{x}", x + "").replace("{y}", y + "").replace("{z}", z + "");
     LOGGER.debug("Tile url: {}", url);
     layer.setSourceLastChecked(System.currentTimeMillis());

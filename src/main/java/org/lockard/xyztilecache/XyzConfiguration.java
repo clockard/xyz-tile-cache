@@ -13,6 +13,10 @@ public class XyzConfiguration {
 
   private long maxTileStorage;
 
+  private boolean offline = false;
+
+  private int tileTimeoutSeconds = 1;
+
   private Map<String, Layer> layers = new HashMap<>();
 
   private List<BoundingBox> boundingBoxes = new ArrayList<>();
@@ -48,5 +52,21 @@ public class XyzConfiguration {
 
   public void setBoundingBoxes(List<BoundingBox> boundingBoxes) {
     this.boundingBoxes = boundingBoxes;
+  }
+
+  public boolean isOffline() {
+    return offline;
+  }
+
+  public void setOffline(boolean offline) {
+    this.offline = offline;
+  }
+
+  public int getTileTimeoutSeconds() {
+    return tileTimeoutSeconds;
+  }
+
+  public void setTileTimeoutSeconds(int tileTimeoutSeconds) {
+    this.tileTimeoutSeconds = tileTimeoutSeconds;
   }
 }
