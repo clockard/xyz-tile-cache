@@ -3,6 +3,7 @@ package org.lockard.xyztilecache;
 import java.awt.Point;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -198,7 +199,10 @@ public class XyzTileCacheApplication {
         Executors.newFixedThreadPool(configuration.getBoundingBoxes().size());
     Set<String> layers = configuration.getLayers().keySet();
     for (BoundingBox bbox : configuration.getBoundingBoxes()) {
-      executorPool.submit(() -> initBoundingBox(new PreloadRequest(layers, bbox)));
+      for (String layer : layers) {
+        executorPool.submit(
+            () -> initBoundingBox(new PreloadRequest(Collections.singleton(layer), bbox)));
+      }
     }
     // all submitted tasks will complete before the executor will actually shutdown
     executorPool.shutdown();
