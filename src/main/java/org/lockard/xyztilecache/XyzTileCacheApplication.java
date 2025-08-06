@@ -1,60 +1,68 @@
 package org.lockard.xyztilecache;
 
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import java.awt.Point;
-import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.event.EventListener;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
 
 @SpringBootApplication
 @RestController
 @EnableConfigurationProperties({
   XyzConfiguration.class,
 })
+@EnableAsync
 public class XyzTileCacheApplication {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(XyzTileCacheApplication.class);
 
-  @Autowired private TileDirService tileDirService;
+  private final XyzConfiguration configuration;
 
-  @Autowired private XyzConfiguration configuration;
+  private final LoadingCache<Tile, byte[]> tileCache;
 
-  private ExecutorService executorService = Executors.newSingleThreadExecutor();
+  private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
-  private Future preloadFuture;
+  private Future<?> preloadFuture;
+
+  private record Stats(long time, long requests) {}
+
+  private final AtomicReference<Stats> stats = new AtomicReference<>(new Stats(0, 0));
 
   public static void main(String[] args) {
-
     SpringApplication app = new SpringApplication(XyzTileCacheApplication.class);
     app.run(args);
+  }
+
+  public XyzTileCacheApplication(
+      final XyzConfiguration configuration, final CacheLoader<Tile, byte[]> cacheLoader) {
+    this.configuration = configuration;
+    tileCache = CacheBuilder.newBuilder().maximumSize(500).build(cacheLoader);
   }
 
   @GetMapping(value = "/layers")
@@ -75,23 +83,21 @@ public class XyzTileCacheApplication {
       return new ResponseEntity("Layer " + layerStr + " not configured", HttpStatus.BAD_REQUEST);
     }
 
-    byte[] tileData = tileDirService.getCachedTile(layer, x, y, z);
-
-    if (tileData == null && !configuration.isOffline()) {
-      long start = System.currentTimeMillis();
-      tileData = getTileFromSource(layer, x, y, z);
-      LOGGER.debug("Tile retrieval time: {}ms", System.currentTimeMillis() - start);
-      if (tileData != null) {
-        tileDirService.addTitle(tileData, layer, x, y, z);
-        layer.setSourceAvailable(true);
-      } else {
-        layer.setSourceAvailable(false);
-      }
-    }
-    if (tileData == null) {
+    final var start = System.currentTimeMillis();
+    Tile tile = new Tile(layer, x, y, z);
+    byte[] tileData;
+    try {
+      tileData = tileCache.get(tile);
+    } catch (ExecutionException e) {
+      LOGGER.info("Failed to retrieve tile {}.", tile);
+      LOGGER.debug("Failed to retrieve tile {}.", tile, e.getCause());
       return new ResponseEntity(
           "Couldn't retrieve tile data for layer " + layerStr, HttpStatus.NOT_FOUND);
     }
+    final var end = System.currentTimeMillis();
+    final var s = stats.updateAndGet(st -> new Stats(st.time + (end - start), st.requests + 1));
+    LOGGER.info("Average request time: {} ms", s.time / s.requests);
+
     HttpHeaders headers = new HttpHeaders();
     headers.add("Access-Control-Allow-Origin", "*");
     headers.add("Content-Type", "image/png");
@@ -107,24 +113,6 @@ public class XyzTileCacheApplication {
     return requestTileZYX(layerStr, x, y, z);
   }
 
-  private void cacheTile(String layerStr, int x, int y, int z) {
-    Layer layer = configuration.getLayers().get(layerStr);
-    if (layer == null) {
-      return;
-    }
-    if (!tileDirService.isTileCached(layer, x, y, z) && !configuration.isOffline()) {
-      long start = System.currentTimeMillis();
-      byte[] tileData = getTileFromSource(layer, x, y, z);
-      LOGGER.debug("Tile retrieval time: {}ms", System.currentTimeMillis() - start);
-      if (tileData != null) {
-        tileDirService.addTitle(tileData, layer, x, y, z);
-        layer.setSourceAvailable(true);
-      } else {
-        layer.setSourceAvailable(false);
-      }
-    }
-  }
-
   @PostMapping(value = "/preload", consumes = MediaType.APPLICATION_JSON_VALUE)
   public void preLoadBoundingBox(@RequestBody PreloadRequest preloadRequest) {
     LOGGER.debug("Request: {}", preloadRequest);
@@ -137,45 +125,6 @@ public class XyzTileCacheApplication {
     }
     LOGGER.debug("Preloading bounding box for layers {}", filteredLayers);
     preloadFuture = executorService.submit(() -> initBoundingBox(preloadRequest));
-  }
-
-  public byte[] getTileFromSource(Layer layer, int x, int y, int z) {
-    if (!layer.isSourceAvailable()
-        && System.currentTimeMillis() - layer.getSourceLastChecked()
-            < TimeUnit.MINUTES.toMillis(1)) {
-      return null;
-    }
-    String urlBase = layer.getUrlTemplate();
-    RestTemplate template =
-        new RestTemplateBuilder()
-            .setConnectTimeout(
-                Duration.of(configuration.getTileTimeoutSeconds(), TimeUnit.SECONDS.toChronoUnit()))
-            .setReadTimeout(
-                Duration.of(configuration.getTileTimeoutSeconds(), TimeUnit.SECONDS.toChronoUnit()))
-            .build();
-
-    String url = urlBase.replace("{x}", x + "").replace("{y}", y + "").replace("{z}", z + "");
-    LOGGER.debug("Tile url: {}", url);
-    layer.setSourceLastChecked(System.currentTimeMillis());
-    HttpHeaders headers = new HttpHeaders();
-    Map<String, String> layerHeaders = layer.getHeaders();
-    for (Map.Entry<String, String> entry : layerHeaders.entrySet()) {
-      headers.set(entry.getKey(), entry.getValue());
-    }
-    // User-Agent needed for some sources to respond properly
-    headers.set(
-        "User-Agent",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36");
-    headers.set("Accept-Encoding", "gzip, deflate, br");
-    HttpEntity entity = new HttpEntity(null, headers);
-
-    try {
-      return template.exchange(url, HttpMethod.GET, entity, byte[].class).getBody();
-    } catch (Exception e) {
-      LOGGER.warn("Error contacting tile source for {}", url);
-      layer.setSourceAvailable(true);
-    }
-    return null;
   }
 
   @EventListener(ApplicationReadyEvent.class)
@@ -210,18 +159,23 @@ public class XyzTileCacheApplication {
 
   public void initBoundingBox(PreloadRequest request) {
     List<Set<Point>> allPoints = XyzUtil.calculateAllBboxTiles(request.getBoundingBox());
-    for (String layer : request.getLayers()) {
+    for (String layerName : request.getLayers()) {
+      Layer layer = configuration.getLayers().get(layerName);
+      if (layer == null) {
+        continue;
+      }
       for (int i = 0; i < allPoints.size(); i++) {
         Set<Point> points = allPoints.get(i);
         for (Point p : points) {
+          Tile tile = new Tile(layer, p.x, p.y, i);
           try {
-            this.cacheTile(layer, p.x, p.y, i);
-          } catch (Exception e) {
-            LOGGER.error("Error pre-loading bounding box tiles for {}", layer, e);
+            tileCache.get(tile);
+          } catch (ExecutionException e) {
+            LOGGER.error("Error pre-loading bounding box tile: {}.", tile, e.getCause());
           }
         }
       }
     }
-    LOGGER.debug("Finished preload");
+    LOGGER.info("Finished preload.");
   }
 }

@@ -2,6 +2,7 @@ package org.lockard.xyztilecache;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class Layer {
   private String name;
@@ -9,13 +10,13 @@ public class Layer {
   private long expiration = -1;
   private int type = 0;
 
-  private long cachedTiles = 0;
+  private final AtomicLong cachedTiles = new AtomicLong();
 
-  private long cachedTilesSize = 0;
+  private final AtomicLong cachedTilesSize = new AtomicLong();
 
-  private boolean sourceAvailable = true;
+  private volatile boolean sourceAvailable = true;
 
-  private long sourceLastChecked = -1;
+  private volatile long sourceLastChecked = -1;
 
   private Map<String, String> headers = new HashMap<>();
 
@@ -68,24 +69,24 @@ public class Layer {
   }
 
   public long getCachedTiles() {
-    return cachedTiles;
+    return cachedTiles.get();
   }
 
   public void setCachedTiles(long cachedTiles) {
-    this.cachedTiles = cachedTiles;
+    this.cachedTiles.set(cachedTiles);
   }
 
   public long getCachedTilesSize() {
-    return cachedTilesSize;
+    return cachedTilesSize.get();
   }
 
   public void setCachedTilesSize(long cachedTilesSize) {
-    this.cachedTilesSize = cachedTilesSize;
+    this.cachedTilesSize.set(cachedTilesSize);
   }
 
   public void addTileStats(long tileSize) {
-    this.cachedTiles++;
-    this.cachedTilesSize += tileSize;
+    this.cachedTiles.incrementAndGet();
+    this.cachedTilesSize.addAndGet(tileSize);
   }
 
   public Map<String, String> getHeaders() {
@@ -94,5 +95,10 @@ public class Layer {
 
   public void setHeaders(Map<String, String> headers) {
     this.headers = headers;
+  }
+
+  @Override
+  public String toString() {
+    return name;
   }
 }
