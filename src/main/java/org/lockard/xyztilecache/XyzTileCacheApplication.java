@@ -12,7 +12,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,10 +49,6 @@ public class XyzTileCacheApplication {
 
   private Future<?> preloadFuture;
 
-  private record Stats(long time, long requests) {}
-
-  private final AtomicReference<Stats> stats = new AtomicReference<>(new Stats(0, 0));
-
   public static void main(String[] args) {
     SpringApplication app = new SpringApplication(XyzTileCacheApplication.class);
     app.run(args);
@@ -83,7 +78,6 @@ public class XyzTileCacheApplication {
       return new ResponseEntity("Layer " + layerStr + " not configured", HttpStatus.BAD_REQUEST);
     }
 
-    final var start = System.currentTimeMillis();
     Tile tile = new Tile(layer, x, y, z);
     byte[] tileData;
     try {
@@ -94,9 +88,6 @@ public class XyzTileCacheApplication {
       return new ResponseEntity(
           "Couldn't retrieve tile data for layer " + layerStr, HttpStatus.NOT_FOUND);
     }
-    final var end = System.currentTimeMillis();
-    final var s = stats.updateAndGet(st -> new Stats(st.time + (end - start), st.requests + 1));
-    LOGGER.info("Average request time: {} ms", s.time / s.requests);
 
     HttpHeaders headers = new HttpHeaders();
     headers.add("Access-Control-Allow-Origin", "*");

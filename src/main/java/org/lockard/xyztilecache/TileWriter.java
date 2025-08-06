@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
@@ -22,10 +21,6 @@ public class TileWriter {
   private final AtomicLong totalStorageBytes = new AtomicLong();
 
   private final AtomicLong totalTiles = new AtomicLong();
-
-  private record Stats(long time, long requests) {}
-
-  private final AtomicReference<Stats> stats = new AtomicReference<>(new Stats(0, 0));
 
   public TileWriter(final XyzConfiguration configuration) {
     this.configuration = configuration;
@@ -75,14 +70,10 @@ public class TileWriter {
       LOGGER.warn("Failed to create parent directory: {}", parent);
       return;
     }
-    final var start = System.currentTimeMillis();
     try (final var fos = new FileOutputStream(output);
         final var bos = new BufferedOutputStream(fos)) {
       bos.write(data);
       bos.flush();
-      final var end = System.currentTimeMillis();
-      final var st = stats.updateAndGet(s -> new Stats(s.time + (end - start), s.requests + 1));
-      LOGGER.info("Average tile write time: {} ms", st.time / st.requests);
       totalStorageBytes.addAndGet(data.length);
       totalTiles.incrementAndGet();
       tile.layer().addTileStats(data.length);
