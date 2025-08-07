@@ -5,6 +5,7 @@ import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +24,7 @@ public class OfflineCacheLoader extends CacheLoader<Tile, byte[]> {
   }
 
   @Override
-  public byte[] load(final Tile tile) throws IOException {
+  public byte[] load(final Tile tile) throws InterruptedException, IOException, URISyntaxException {
     LOGGER.info("Loading tile {} from local file cache.", tile);
     final File file = toFile(tile);
     try (final var fis = new FileInputStream(file);

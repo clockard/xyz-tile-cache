@@ -1,15 +1,16 @@
 package org.lockard.xyztilecache;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
+import java.time.temporal.ChronoUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.web.client.RestTemplateBuilder;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -19,14 +20,20 @@ public class OnlineCacheLoader extends OfflineCacheLoader {
 
   private final TileWriter tileWriter;
 
+  private final HttpClient httpClient;
+
   public OnlineCacheLoader(final XyzConfiguration configuration, final TileWriter tileWriter) {
     super(configuration);
     LOGGER.info("new OnlineCacheLoader()");
     this.tileWriter = tileWriter;
+    httpClient =
+        HttpClient.newBuilder()
+            .connectTimeout(Duration.of(configuration.getTileTimeoutSeconds(), ChronoUnit.SECONDS))
+            .build();
   }
 
   @Override
-  public byte[] load(final Tile tile) throws IOException {
+  public byte[] load(final Tile tile) throws InterruptedException, IOException, URISyntaxException {
     try {
       final var fileBytes = super.load(tile);
       LOGGER.info("Tile {} found in local file cache.", tile);
@@ -41,7 +48,7 @@ public class OnlineCacheLoader extends OfflineCacheLoader {
     final var start = System.currentTimeMillis();
     try {
       tileData = getTileFromSource(tile);
-    } catch (Exception e) {
+    } catch (InterruptedException | IOException | URISyntaxException e) {
       tile.layer().setSourceAvailable(false);
       throw e;
     }
@@ -59,41 +66,29 @@ public class OnlineCacheLoader extends OfflineCacheLoader {
     }
   }
 
-  private byte[] getTileFromSource(Tile tile) throws IOException {
+  private byte[] getTileFromSource(Tile tile)
+      throws InterruptedException, IOException, URISyntaxException {
     final var layer = tile.layer();
     final var urlBase = layer.getUrlTemplate();
-    final var template =
-        new RestTemplateBuilder()
-            .setConnectTimeout(
-                Duration.of(configuration.getTileTimeoutSeconds(), TimeUnit.SECONDS.toChronoUnit()))
-            .setReadTimeout(
-                Duration.of(configuration.getTileTimeoutSeconds(), TimeUnit.SECONDS.toChronoUnit()))
-            .build();
-
     final var url =
         urlBase
             .replace("{x}", String.valueOf(tile.x()))
             .replace("{y}", String.valueOf(tile.y()))
             .replace("{z}", String.valueOf(tile.z()));
     LOGGER.debug("Tile url for {}: {}", tile, url);
-    final var headers = new HttpHeaders();
+    final var requestBuilder =
+        HttpRequest.newBuilder(new URI(url))
+            .GET()
+            .timeout(Duration.of(configuration.getTileTimeoutSeconds(), ChronoUnit.SECONDS));
     final var layerHeaders = layer.getHeaders();
-    for (final var entry : layerHeaders.entrySet()) {
-      headers.set(entry.getKey(), entry.getValue());
-    }
+    layerHeaders.forEach(requestBuilder::header);
     // User-Agent needed for some sources to respond properly
-    headers.set(
+    requestBuilder.header(
         "User-Agent",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36");
-    headers.set("Accept-Encoding", "gzip, deflate, br");
-    final var entity = new HttpEntity<>(null, headers);
+    requestBuilder.header("Accept-Encoding", "gzip, deflate, br");
     layer.setSourceLastChecked(System.currentTimeMillis());
 
-    try {
-      return template.exchange(url, HttpMethod.GET, entity, byte[].class).getBody();
-    } catch (RuntimeException e) {
-      LOGGER.debug("Error contacting tile source for {}", url);
-      throw new IOException(e);
-    }
+    return httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray()).body();
   }
 }
