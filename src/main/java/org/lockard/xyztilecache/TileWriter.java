@@ -70,6 +70,7 @@ public class TileWriter {
       LOGGER.warn("Failed to create parent directory: {}", parent);
       return;
     }
+    LOGGER.debug("Writing tile {} to local file cache: {}.", tile, output);
     try (final var fos = new FileOutputStream(output);
         final var bos = new BufferedOutputStream(fos)) {
       bos.write(data);

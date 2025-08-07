@@ -83,7 +83,6 @@ public class XyzTileCacheApplication {
     try {
       tileData = tileCache.get(tile);
     } catch (ExecutionException e) {
-      LOGGER.info("Failed to retrieve tile {}.", tile);
       LOGGER.debug("Failed to retrieve tile {}.", tile, e.getCause());
       return new ResponseEntity(
           "Couldn't retrieve tile data for layer " + layerStr, HttpStatus.NOT_FOUND);

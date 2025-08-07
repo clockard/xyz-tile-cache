@@ -24,7 +24,6 @@ public class OnlineCacheLoader extends OfflineCacheLoader {
 
   public OnlineCacheLoader(final XyzConfiguration configuration, final TileWriter tileWriter) {
     super(configuration);
-    LOGGER.info("new OnlineCacheLoader()");
     this.tileWriter = tileWriter;
     httpClient =
         HttpClient.newBuilder()
@@ -36,14 +35,13 @@ public class OnlineCacheLoader extends OfflineCacheLoader {
   public byte[] load(final Tile tile) throws InterruptedException, IOException, URISyntaxException {
     try {
       final var fileBytes = super.load(tile);
-      LOGGER.info("Tile {} found in local file cache.", tile);
+      LOGGER.debug("Tile {} found in local file cache.", tile);
       return fileBytes;
     } catch (Exception e) {
-      LOGGER.info("Failed to load tile {} from local file cache.", tile);
       LOGGER.debug("Failed to load tile {} from local file cache.", tile, e);
     }
 
-    LOGGER.info("Loading tile {} from an online source.", tile);
+    LOGGER.debug("Loading tile {} from an online source.", tile);
     final byte[] tileData;
     final var start = System.currentTimeMillis();
     try {
