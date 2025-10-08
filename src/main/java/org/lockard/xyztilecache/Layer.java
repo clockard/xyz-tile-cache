@@ -1,22 +1,25 @@
 package org.lockard.xyztilecache;
 
+import java.time.Clock;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class Layer {
+  private static final Logger LOGGER = LoggerFactory.getLogger(Layer.class);
+
   private String name;
+
   private String urlTemplate;
-  private long expiration = -1;
-  private int type = 0;
 
   private final AtomicLong cachedTiles = new AtomicLong();
 
   private final AtomicLong cachedTilesSize = new AtomicLong();
 
-  private volatile boolean sourceAvailable = true;
-
-  private volatile long sourceLastChecked = -1;
+  private final AtomicReference<Block> sourceBlock = new AtomicReference<>();
 
   private Map<String, String> headers = new HashMap<>();
 
@@ -34,38 +37,6 @@ public class Layer {
 
   public void setUrlTemplate(String urlTemplate) {
     this.urlTemplate = urlTemplate;
-  }
-
-  public long getExpiration() {
-    return expiration;
-  }
-
-  public void setExpiration(long expiration) {
-    this.expiration = expiration;
-  }
-
-  public int getType() {
-    return type;
-  }
-
-  public void setType(int type) {
-    this.type = type;
-  }
-
-  public boolean isSourceAvailable() {
-    return sourceAvailable;
-  }
-
-  public void setSourceAvailable(boolean sourceAvailable) {
-    this.sourceAvailable = sourceAvailable;
-  }
-
-  public long getSourceLastChecked() {
-    return sourceLastChecked;
-  }
-
-  public void setSourceLastChecked(long sourceLastChecked) {
-    this.sourceLastChecked = sourceLastChecked;
   }
 
   public long getCachedTiles() {
@@ -95,6 +66,62 @@ public class Layer {
 
   public void setHeaders(Map<String, String> headers) {
     this.headers = headers;
+  }
+
+  private record Block(Layer layer, long start, long duration) {
+    private static final int DEFAULT_BLOCK_MS = 100;
+
+    private static final int MAX_BLOCK_MS = 60_000;
+
+    static Block defaultBlock(final Layer layer, final Clock clock) {
+      LOGGER.debug("Default block for layer {}.", layer);
+      return new Block(layer, clock.millis(), DEFAULT_BLOCK_MS);
+    }
+
+    Block increase(final Clock clock) {
+      final var newDuration = Math.min(duration * 2, MAX_BLOCK_MS);
+      LOGGER.debug("New block for layer {}: {} {}", layer, clock.millis(), newDuration);
+      return new Block(layer, clock.millis(), newDuration);
+    }
+
+    long expiration() {
+      return start + duration;
+    }
+  }
+
+  void sourceFailed() {
+    sourceFailed(Clock.systemUTC());
+  }
+
+  void sourceFailed(final Clock clock) {
+    sourceBlock.updateAndGet(b -> b == null ? Block.defaultBlock(this, clock) : b.increase(clock));
+  }
+
+  void sourceSucceeded() {
+    sourceBlock.set(null);
+  }
+
+  public enum RequestStrategy {
+    PROCEED,
+    RETRY,
+    BLOCK
+  }
+
+  RequestStrategy requestStrategy() {
+    return requestStrategy(Clock.systemUTC());
+  }
+
+  RequestStrategy requestStrategy(final Clock clock) {
+    final var block = sourceBlock.get();
+    if (block == null) {
+      return RequestStrategy.PROCEED;
+    } else if (clock.millis() < block.expiration()) {
+      LOGGER.debug(
+          "Source for layer {} is blocked for {} ms.", name, block.expiration() - clock.millis());
+      return RequestStrategy.BLOCK;
+    } else {
+      return RequestStrategy.RETRY;
+    }
   }
 
   @Override
