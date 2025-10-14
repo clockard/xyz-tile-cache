@@ -17,7 +17,7 @@ public class XyzConfiguration {
 
   private int tileTimeoutSeconds = 1;
 
-  private Map<String, Layer> layers = new HashMap<>();
+  private final Map<String, Layer> layers = new HashMap<>();
 
   private List<BoundingBox> boundingBoxes = new ArrayList<>();
 
