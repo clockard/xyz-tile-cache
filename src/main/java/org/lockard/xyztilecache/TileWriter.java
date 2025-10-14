@@ -1,10 +1,8 @@
 package org.lockard.xyztilecache;
 
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
@@ -64,17 +62,15 @@ public class TileWriter {
           totalStorageBytes.get() / (1024 * 1024));
       return;
     }
-    final var output = toFile(tile);
-    final var parent = output.getParentFile();
+    final var output = toPath(tile);
+    final var parent = output.toFile().getParentFile();
     if (!parent.exists() && !parent.mkdirs()) {
       LOGGER.warn("Failed to create parent directory: {}", parent);
       return;
     }
     LOGGER.debug("Writing tile {} to local file cache: {}.", tile, output);
-    try (final var fos = new FileOutputStream(output);
-        final var bos = new BufferedOutputStream(fos)) {
-      bos.write(data);
-      bos.flush();
+    try {
+      Files.write(output, data);
       totalStorageBytes.addAndGet(data.length);
       totalTiles.incrementAndGet();
       tile.layer().addTileStats(data.length);
@@ -83,13 +79,12 @@ public class TileWriter {
     }
   }
 
-  protected File toFile(final Tile tile) {
+  protected Path toPath(final Tile tile) {
     return Paths.get(
-            configuration.getBaseTileDirectory(),
-            tile.layer().getName(),
-            String.valueOf(tile.z()),
-            String.valueOf(tile.x()),
-            tile.y() + ".png")
-        .toFile();
+        configuration.getBaseTileDirectory(),
+        tile.layer().getName(),
+        String.valueOf(tile.z()),
+        String.valueOf(tile.x()),
+        tile.y() + ".png");
   }
 }
