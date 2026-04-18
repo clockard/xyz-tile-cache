@@ -93,15 +93,57 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
     }
   }
 
+  private String buildTileUrl(Tile tile) {
+    final var layer = tile.layer();
+    String url =
+        switch (layer.getSourceType()) {
+          case XYZ ->
+              layer
+                  .getUrlTemplate()
+                  .replace("{x}", String.valueOf(tile.x()))
+                  .replace("{y}", String.valueOf(tile.y()))
+                  .replace("{z}", String.valueOf(tile.z()));
+
+          case WMTS_REST ->
+              layer
+                  .getUrlTemplate()
+                  .replace("{TileMatrix}", String.valueOf(tile.z()))
+                  .replace("{TileRow}", String.valueOf(tile.y()))
+                  .replace("{TileCol}", String.valueOf(tile.x()));
+
+          case WMTS_KVP ->
+              layer.getUrlTemplate()
+                  + "?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0"
+                  + "&LAYER="
+                  + layer.getWmtsLayerName()
+                  + "&STYLE="
+                  + layer.getWmtsStyle()
+                  + "&FORMAT="
+                  + layer.getWmtsFormat()
+                  + "&TILEMATRIXSET="
+                  + layer.getWmtsTileMatrixSet()
+                  + "&TILEMATRIX="
+                  + tile.z()
+                  + "&TILEROW="
+                  + tile.y()
+                  + "&TILECOL="
+                  + tile.x();
+        };
+
+    if (tile.layer().doesUrlHaveTime()) {
+      final String timeStr =
+          java.time.Instant.ofEpochMilli(System.currentTimeMillis())
+              .atZone(java.time.ZoneOffset.UTC)
+              .format(java.time.format.DateTimeFormatter.ofPattern(layer.getTimeFormat()));
+      url = url.replace("{time}", timeStr);
+    }
+    return url;
+  }
+
   private byte[] getTileFromSource(Tile tile)
       throws InterruptedException, IOException, URISyntaxException {
     final var layer = tile.layer();
-    final var urlBase = layer.getUrlTemplate();
-    final var url =
-        urlBase
-            .replace("{x}", String.valueOf(tile.x()))
-            .replace("{y}", String.valueOf(tile.y()))
-            .replace("{z}", String.valueOf(tile.z()));
+    final var url = buildTileUrl(tile);
     LOGGER.debug("Tile url for {}: {}", tile, url);
     final var requestBuilder =
         HttpRequest.newBuilder(new URI(url))
@@ -115,6 +157,11 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36");
     requestBuilder.header("Accept-Encoding", "gzip, deflate, br");
 
-    return httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray()).body();
+    var response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray());
+    if (response.statusCode() < 200 || response.statusCode() >= 300) {
+      throw new IOException(
+          "Upstream returned HTTP " + response.statusCode() + " for tile " + tile);
+    }
+    return response.body();
   }
 }

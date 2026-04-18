@@ -25,6 +25,14 @@ public class OfflineCacheLoader extends CacheLoader<Tile, byte[]> {
   public byte[] load(final Tile tile) throws Exception {
     LOGGER.debug("Loading tile {} from local file cache.", tile);
     final File file = toFile(tile);
+    final int expirationMinutes = tile.layer().getTileExpirationMinutes();
+    if (expirationMinutes > 0 && file.exists()) {
+      final long ageMs = System.currentTimeMillis() - file.lastModified();
+      if (ageMs > expirationMinutes * 60_000L) {
+        LOGGER.debug("Tile {} has expired ({} mins old), evicting.", tile, ageMs / 60_000);
+        throw new Exception("Tile expired");
+      }
+    }
     try (final var fis = new FileInputStream(file);
         final var bis = new BufferedInputStream(fis)) {
       return bis.readAllBytes();

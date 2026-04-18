@@ -75,7 +75,12 @@ public class XyzTileCacheApplication {
       @PathVariable("z") int z) {
     Layer layer = configuration.getLayers().get(layerStr);
     if (layer == null) {
-      return new ResponseEntity("Layer " + layerStr + " not configured", HttpStatus.BAD_REQUEST);
+      return ResponseEntity.badRequest().body(("Layer " + layerStr + " not configured").getBytes());
+    }
+
+    if (z > layer.getMaxZoom()) {
+      LOGGER.debug("Zoom {} exceeds maxZoom {} for layer {}", z, layer.getMaxZoom(), layerStr);
+      return ResponseEntity.notFound().build();
     }
 
     Tile tile = new Tile(layer, x, y, z);
@@ -84,8 +89,7 @@ public class XyzTileCacheApplication {
       tileData = tileCache.get(tile);
     } catch (ExecutionException e) {
       LOGGER.debug("Failed to retrieve tile {}.", tile, e.getCause());
-      return new ResponseEntity(
-          "Couldn't retrieve tile data for layer " + layerStr, HttpStatus.NOT_FOUND);
+      return ResponseEntity.notFound().build();
     }
 
     HttpHeaders headers = new HttpHeaders();

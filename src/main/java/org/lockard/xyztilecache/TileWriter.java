@@ -37,8 +37,11 @@ public class TileWriter {
         .values()
         .forEach(
             layer -> {
-              try (final var paths =
-                  Files.walk(Paths.get(configuration.getBaseTileDirectory(), layer.getName()))) {
+              Path tileDir = Paths.get(configuration.getBaseTileDirectory(), layer.getName());
+              if (!tileDir.toFile().exists()) {
+                tileDir.toFile().mkdir();
+              }
+              try (final var paths = Files.walk(tileDir)) {
                 paths
                     .filter(Files::isRegularFile)
                     .forEach(
