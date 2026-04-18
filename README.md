@@ -1,5 +1,8 @@
 # XYZ Tile Cache
-A slippy (xyz) tile proxy server that caches tiles for fast local retrieval or offline loading.
+A slippy (xyz) tile proxy server that caches tiles for fast local retrieval or offline loading. 
+Sources can be XYZ or WMTS and can include a time parameter. 
+
+A set of publicly available sources are included by default but can be removed or update as desired.
 
 Bounding boxes with max zoom levels can be defined for preloading tile data. If a tile is not 
 locally available the server will reach out to the source to try and retrieve the tile. If successful
@@ -15,7 +18,7 @@ xyz:
   maxTileStorage: 1000000000
   layers:
     - name: "satellite"
-      urlTemplate: "http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+      urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
   boundingBoxes:
     - preCache: true
       maxZoom: 5

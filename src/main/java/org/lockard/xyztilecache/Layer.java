@@ -11,6 +11,30 @@ import org.slf4j.LoggerFactory;
 public class Layer {
   private static final Logger LOGGER = LoggerFactory.getLogger(Layer.class);
 
+  public enum SourceType {
+    XYZ,
+    WMTS_REST,
+    WMTS_KVP
+  }
+
+  private SourceType sourceType = SourceType.XYZ;
+
+  // WMTS-specific (used when sourceType = WMTS_KVP)
+  private String wmtsLayerName;
+  private String wmtsTileMatrixSet = "EPSG:3857";
+  private String wmtsStyle = "default";
+  private String wmtsFormat = "image/png";
+
+  private int tileExpirationMinutes = 0; // 0 = never expire
+
+  private int maxZoom = 22;
+
+  private String timeFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
+
+  private Boolean urlHasTime = null;
+
+  private String attribution;
+
   private String name;
 
   private String urlTemplate;
@@ -54,6 +78,83 @@ public class Layer {
   public void setCachedTilesSize(long cachedTilesSize) {
     this.cachedTilesSize.set(cachedTilesSize);
   }
+
+  public SourceType getSourceType() {
+    return sourceType;
+  }
+
+  public void setSourceType(SourceType sourceType) {
+    this.sourceType = sourceType;
+  }
+
+  public String getWmtsFormat() {
+    return wmtsFormat;
+  }
+
+  public void setWmtsFormat(String wmtsFormat) {
+    this.wmtsFormat = wmtsFormat;
+  }
+
+  public String getWmtsStyle() {
+    return wmtsStyle;
+  }
+
+  public void setWmtsStyle(String wmtsStyle) {
+    this.wmtsStyle = wmtsStyle;
+  }
+
+  public String getWmtsTileMatrixSet() {
+    return wmtsTileMatrixSet;
+  }
+
+  public void setWmtsTileMatrixSet(String wmtsTileMatrixSet) {
+    this.wmtsTileMatrixSet = wmtsTileMatrixSet;
+  }
+
+  public String getWmtsLayerName() {
+    return wmtsLayerName;
+  }
+
+  public void setWmtsLayerName(String wmtsLayerName) {
+    this.wmtsLayerName = wmtsLayerName;
+  }
+
+  public int getTileExpirationMinutes() {
+    return tileExpirationMinutes;
+  }
+
+  public void setTileExpirationMinutes(int tileExpirationMinutes) {
+    this.tileExpirationMinutes = tileExpirationMinutes;
+  }
+
+  public int getMaxZoom() {
+    return maxZoom;
+  }
+
+  public void setMaxZoom(int maxZoom) {
+    this.maxZoom = maxZoom;
+  }
+
+  public String getTimeFormat() {
+    return timeFormat;
+  }
+
+  public void setTimeFormat(String timeFormat) {
+    this.timeFormat = timeFormat;
+  }
+
+  public boolean doesUrlHaveTime() {
+    if (urlHasTime == null) {
+      urlHasTime = urlTemplate.contains("{time}");
+    }
+    return urlHasTime;
+  }
+
+  public String getAttribution() {
+    return attribution;
+  }
+
+  public void setAttribution(String attribution) {}
 
   public void addTileStats(long tileSize) {
     this.cachedTiles.incrementAndGet();
