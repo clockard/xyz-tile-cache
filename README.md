@@ -31,7 +31,10 @@ xyz:
 
 
 ## Docker Build
-`docker build . -t xyz-tile-cache:latest`
+```
+mvn clean package
+docker build --build-arg VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout) -t xyz-tile-cache:latest .
+```
 
 ## Docker Run
 This example assumes a local tile repository at `/tmp/tiles` and a configuration file at `/tmp/application.yml`
