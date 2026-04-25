@@ -19,4 +19,4 @@ jobs:
           cache: maven
 
       - name: Build and test
-        run: ./mvnw --no-transfer-progress clean verify
+        run: mvn --no-transfer-progress clean verify
