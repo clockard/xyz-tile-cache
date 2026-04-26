@@ -25,6 +25,8 @@ public class Layer {
   private String wmtsStyle = "default";
   private String wmtsFormat = "image/png";
 
+  private boolean wmtsTime = false;
+
   private int tileExpirationMinutes = 0; // 0 = never expire
 
   private int maxZoom = 22;
@@ -143,9 +145,17 @@ public class Layer {
     this.timeFormat = timeFormat;
   }
 
+  public boolean isWmtsTime() {
+    return wmtsTime;
+  }
+
+  public void setWmtsTime(boolean wmtsTime) {
+    this.wmtsTime = wmtsTime;
+  }
+
   public boolean doesUrlHaveTime() {
     if (urlHasTime == null) {
-      urlHasTime = urlTemplate.contains("{time}");
+      urlHasTime = urlTemplate.contains("{time}") || wmtsTime;
     }
     return urlHasTime;
   }

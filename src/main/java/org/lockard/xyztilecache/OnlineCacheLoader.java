@@ -127,7 +127,8 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
                   + "&TILEROW="
                   + tile.y()
                   + "&TILECOL="
-                  + tile.x();
+                  + tile.x()
+                  + (layer.isWmtsTime() ? "&TIME={time}" : "");
         };
 
     if (tile.layer().doesUrlHaveTime()) {
