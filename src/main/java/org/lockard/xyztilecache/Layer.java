@@ -1,5 +1,6 @@
 package org.lockard.xyztilecache;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.Clock;
 import java.util.HashMap;
 import java.util.Map;
@@ -45,6 +46,8 @@ public class Layer {
 
   private final AtomicLong cachedTilesSize = new AtomicLong();
 
+  private final AtomicLong tilesServed = new AtomicLong();
+
   private final AtomicReference<Block> sourceBlock = new AtomicReference<>();
 
   private Map<String, String> headers = new HashMap<>();
@@ -65,20 +68,33 @@ public class Layer {
     this.urlTemplate = urlTemplate;
   }
 
+  @JsonIgnore
   public long getCachedTiles() {
     return cachedTiles.get();
   }
 
+  @JsonIgnore
   public void setCachedTiles(long cachedTiles) {
     this.cachedTiles.set(cachedTiles);
   }
 
+  @JsonIgnore
   public long getCachedTilesSize() {
     return cachedTilesSize.get();
   }
 
+  @JsonIgnore
   public void setCachedTilesSize(long cachedTilesSize) {
     this.cachedTilesSize.set(cachedTilesSize);
+  }
+
+  @JsonIgnore
+  public long getTilesServed() {
+    return tilesServed.get();
+  }
+
+  public void incrementTilesServed() {
+    tilesServed.incrementAndGet();
   }
 
   public SourceType getSourceType() {

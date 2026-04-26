@@ -1,0 +1,224 @@
+package org.lockard.xyztilecache;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.NoSuchElementException;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class LayerStoreTest {
+
+  @TempDir Path tempDir;
+
+  private final ObjectMapper objectMapper = new ObjectMapper();
+  private XyzConfiguration configuration;
+  private TileWriter tileWriter;
+  private LayerStore layerStore;
+
+  @BeforeEach
+  void setUp() {
+    configuration = new XyzConfiguration();
+    configuration.setBaseTileDirectory(tempDir.toString());
+    configuration.setLayers(List.of(layer("base")));
+    tileWriter = new TileWriter(configuration);
+  }
+
+  @AfterEach
+  void tearDown() throws Exception {
+    if (layerStore != null) {
+      layerStore.close();
+    }
+  }
+
+  private Layer layer(String name) {
+    Layer l = new Layer();
+    l.setName(name);
+    l.setUrlTemplate("https://example.com/{z}/{x}/{y}.png");
+    return l;
+  }
+
+  private LayerStore storeAndInit() throws Exception {
+    // Use a no-op event publisher — unit tests don't need Spring's event bus
+    layerStore = new LayerStore(configuration, tileWriter, objectMapper, event -> {});
+    layerStore.init();
+    return layerStore;
+  }
+
+  @Test
+  void firstRun_createsLayersJsonFile() throws Exception {
+    storeAndInit();
+    assertThat(tempDir.resolve("layers.json")).exists();
+  }
+
+  @Test
+  void firstRun_createsLockFile() throws Exception {
+    storeAndInit();
+    assertThat(tempDir.resolve("layers.lock")).exists();
+  }
+
+  @Test
+  void subsequentRun_loadsLayersFromJsonInsteadOfConfig() throws Exception {
+    storeAndInit(); // writes "base" to JSON, closes channel in tearDown
+
+    layerStore.close(); // release lock so store2 can open it
+    layerStore = null;
+
+    XyzConfiguration config2 = new XyzConfiguration();
+    config2.setBaseTileDirectory(tempDir.toString());
+    TileWriter writer2 = new TileWriter(config2);
+    LayerStore store2 = new LayerStore(config2, writer2, objectMapper, event -> {});
+    store2.init();
+    layerStore = store2; // ensure tearDown closes it
+
+    assertThat(config2.getLayers()).containsKey("base");
+  }
+
+  @Test
+  void addLayer_appearsInConfigAndJson() throws Exception {
+    storeAndInit();
+    layerStore.addLayer(layer("new-layer"));
+
+    assertThat(configuration.getLayers()).containsKey("new-layer");
+    assertThat(tempDir.resolve("layers.json")).content().contains("new-layer");
+  }
+
+  @Test
+  void addLayer_throwsForDuplicateName() throws Exception {
+    storeAndInit();
+    assertThatThrownBy(() -> layerStore.addLayer(layer("base")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("already exists");
+  }
+
+  @Test
+  void addLayer_throwsForBlankName() throws Exception {
+    storeAndInit();
+    Layer bad = new Layer();
+    bad.setName("");
+    bad.setUrlTemplate("https://example.com/{z}/{x}/{y}.png");
+    assertThatThrownBy(() -> layerStore.addLayer(bad)).isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void updateLayer_replacesInConfigAndJson() throws Exception {
+    storeAndInit();
+    Layer updated = layer("base");
+    updated.setMaxZoom(10);
+    layerStore.updateLayer("base", updated);
+
+    assertThat(configuration.getLayers().get("base").getMaxZoom()).isEqualTo(10);
+    assertThat(tempDir.resolve("layers.json")).content().contains("base");
+  }
+
+  @Test
+  void updateLayer_throwsForUnknownName() throws Exception {
+    storeAndInit();
+    assertThatThrownBy(() -> layerStore.updateLayer("missing", layer("missing")))
+        .isInstanceOf(NoSuchElementException.class);
+  }
+
+  @Test
+  void removeLayer_removesFromConfigAndDeletesTileDir() throws Exception {
+    storeAndInit();
+    Path layerDir = tempDir.resolve("base");
+    assertThat(layerDir).exists();
+
+    layerStore.removeLayer("base");
+
+    assertThat(configuration.getLayers()).doesNotContainKey("base");
+    assertThat(layerDir).doesNotExist();
+  }
+
+  @Test
+  void removeLayer_throwsForUnknownName() throws Exception {
+    storeAndInit();
+    assertThatThrownBy(() -> layerStore.removeLayer("missing"))
+        .isInstanceOf(NoSuchElementException.class);
+  }
+
+  @Test
+  void syncLayers_noopWhenFileUnchanged() throws Exception {
+    storeAndInit();
+    int sizeBefore = configuration.getLayers().size();
+    // File has not changed — syncLayers should return immediately with no side effects
+    layerStore.syncLayers();
+    assertThat(configuration.getLayers()).hasSize(sizeBefore);
+  }
+
+  @Test
+  void syncLayers_noEventPublishedWhenLayerIsUnchanged() throws Exception {
+    var eventCount = new java.util.concurrent.atomic.AtomicInteger();
+    layerStore =
+        new LayerStore(configuration, tileWriter, objectMapper, e -> eventCount.incrementAndGet());
+    layerStore.init();
+
+    // Write the same layer list back — no meaningful change
+    objectMapper
+        .writerWithDefaultPrettyPrinter()
+        .writeValue(tempDir.resolve("layers.json").toFile(), List.of(layer("base")));
+    Files.setLastModifiedTime(
+        tempDir.resolve("layers.json"),
+        java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 1000));
+
+    layerStore.syncLayers();
+    assertThat(eventCount.get()).isZero();
+  }
+
+  @Test
+  void syncLayers_picksUpExternallyWrittenChange() throws Exception {
+    storeAndInit();
+    assertThat(configuration.getLayers()).doesNotContainKey("new-layer");
+
+    // Simulate another instance writing a new layer to the file
+    objectMapper
+        .writerWithDefaultPrettyPrinter()
+        .writeValue(
+            tempDir.resolve("layers.json").toFile(), List.of(layer("base"), layer("new-layer")));
+    // Force a future mtime so the change is detected regardless of filesystem resolution
+    Files.setLastModifiedTime(
+        tempDir.resolve("layers.json"),
+        java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 1000));
+
+    layerStore.syncLayers();
+    assertThat(configuration.getLayers()).containsKey("new-layer");
+  }
+
+  @Test
+  void addLayer_throwsForBlankUrlTemplate() throws Exception {
+    storeAndInit();
+    Layer bad = new Layer();
+    bad.setName("valid-name");
+    bad.setUrlTemplate("");
+    assertThatThrownBy(() -> layerStore.addLayer(bad)).isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void addLayer_throwsForNullUrlTemplate() throws Exception {
+    storeAndInit();
+    Layer bad = new Layer();
+    bad.setName("valid-name");
+    assertThatThrownBy(() -> layerStore.addLayer(bad)).isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void close_isIdempotent() throws Exception {
+    storeAndInit();
+    layerStore.close(); // first close — channel open
+    layerStore.close(); // second close — channel already closed, must not throw
+    layerStore = null; // prevent tearDown from closing a third time
+  }
+
+  @Test
+  void writtenJsonDoesNotContainRuntimeStats() throws Exception {
+    storeAndInit();
+    String json = Files.readString(tempDir.resolve("layers.json"));
+    assertThat(json).doesNotContain("cachedTiles").doesNotContain("tilesServed");
+  }
+}

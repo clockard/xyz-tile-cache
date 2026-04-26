@@ -1,9 +1,9 @@
 package org.lockard.xyztilecache;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties("xyz")
@@ -11,13 +11,17 @@ public class XyzConfiguration {
 
   private String baseTileDirectory;
 
-  private long maxTileStorage;
+  private long minFreeDiskBytes = 1_073_741_824L; // 1 GB default
 
   private boolean offline = false;
 
   private int tileTimeoutSeconds = 1;
 
-  private final Map<String, Layer> layers = new HashMap<>();
+  private int layerSyncSeconds = 10;
+
+  private String adminKey = "";
+
+  private final Map<String, Layer> layers = new ConcurrentHashMap<>();
 
   private List<BoundingBox> boundingBoxes = new ArrayList<>();
 
@@ -29,12 +33,20 @@ public class XyzConfiguration {
     this.baseTileDirectory = baseTileDirectory;
   }
 
-  public long getMaxTileStorage() {
-    return maxTileStorage;
+  public long getMinFreeDiskBytes() {
+    return minFreeDiskBytes;
   }
 
-  public void setMaxTileStorage(long maxTileStorageMB) {
-    this.maxTileStorage = maxTileStorageMB;
+  public void setMinFreeDiskBytes(long minFreeDiskBytes) {
+    this.minFreeDiskBytes = minFreeDiskBytes;
+  }
+
+  public int getLayerSyncSeconds() {
+    return layerSyncSeconds;
+  }
+
+  public void setLayerSyncSeconds(int layerSyncSeconds) {
+    this.layerSyncSeconds = layerSyncSeconds;
   }
 
   public Map<String, Layer> getLayers() {
@@ -68,5 +80,13 @@ public class XyzConfiguration {
 
   public void setTileTimeoutSeconds(int tileTimeoutSeconds) {
     this.tileTimeoutSeconds = tileTimeoutSeconds;
+  }
+
+  public String getAdminKey() {
+    return adminKey;
+  }
+
+  public void setAdminKey(String adminKey) {
+    this.adminKey = adminKey;
   }
 }

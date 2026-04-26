@@ -3,9 +3,11 @@ server:
 
 xyz:
   baseTileDirectory: "/tmp/tiles"
-  maxTileStorage: 10000000000
+  minFreeDiskBytes: 1073741824  # Stop caching tiles when free disk space drops below this (default 1 GB)
   offline: false
   tileTimeoutSeconds: 5
+  layerSyncSeconds: 10          # How often to check for layer changes from other instances (seconds)
+  adminKey: "xyz-admin"         # Set to a secret value to enable layer write operations (POST/PUT/DELETE /layers)
   layers:
     - name: "satellite"
       sourceType: XYZ

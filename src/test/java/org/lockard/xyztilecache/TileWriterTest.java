@@ -24,7 +24,6 @@ class TileWriterTest {
 
     configuration = new XyzConfiguration();
     configuration.setBaseTileDirectory(tempDir.toString());
-    configuration.setMaxTileStorage(1_000_000L);
     configuration.setLayers(List.of(layer));
   }
 
@@ -60,17 +59,6 @@ class TileWriterTest {
   }
 
   @Test
-  void storeTile_doesNotWriteWhenStorageFull() {
-    configuration.setMaxTileStorage(1L);
-    TileWriter writer = new TileWriter(configuration);
-    Tile tile = new Tile(layer, 1, 2, 3);
-
-    writer.storeTile(tile, new byte[] {10, 20, 30});
-
-    assertThat(writer.toPath(tile)).doesNotExist();
-  }
-
-  @Test
   void storeTile_writesToPreexistingDirectory() throws IOException {
     Path dir = tempDir.resolve(Path.of("test", "3", "1"));
     Files.createDirectories(dir);
@@ -85,34 +73,41 @@ class TileWriterTest {
   }
 
   @Test
-  void initializeTotalStorageUsed_countsPreExistingTiles() throws IOException {
+  void createLayerDirectories_countsPreExistingTilesInLayerStats() throws IOException {
     Path tileFile = tempDir.resolve(Path.of("test", "3", "1", "2.png"));
     Files.createDirectories(tileFile.getParent());
     byte[] existing = {1, 2, 3, 4, 5};
     Files.write(tileFile, existing);
 
-    // Constructor runs initializeTotalStorageUsed — must count the existing tile
-    TileWriter writer = new TileWriter(configuration);
+    // Constructor runs createLayerDirectories — must count the existing tile in layer stats
+    new TileWriter(configuration);
 
     assertThat(layer.getCachedTiles()).isEqualTo(1);
     assertThat(layer.getCachedTilesSize()).isEqualTo(existing.length);
   }
 
   @Test
-  void storeTile_accountsForExistingStorageWhenEnforcingLimit() throws IOException {
-    // Fill up storage with an existing file
-    Path existing = tempDir.resolve(Path.of("test", "0", "0", "0.png"));
-    Files.createDirectories(existing.getParent());
-    byte[] existingData = new byte[999_999];
-    Files.write(existing, existingData);
-
-    // Limit leaves only 1 byte; trying to store 2 bytes must be rejected
-    configuration.setMaxTileStorage(1_000_000L);
+  void storeTile_skipsWhenFreeDiskBelowMinimum() {
+    // Setting minFreeDiskBytes to Long.MAX_VALUE guarantees the threshold is never met
+    configuration.setMinFreeDiskBytes(Long.MAX_VALUE);
     TileWriter writer = new TileWriter(configuration);
-    Tile tile = new Tile(layer, 5, 6, 7);
+    Tile tile = new Tile(layer, 1, 2, 3);
 
-    writer.storeTile(tile, new byte[] {1, 2});
+    writer.storeTile(tile, new byte[] {1, 2, 3});
 
     assertThat(writer.toPath(tile)).doesNotExist();
+  }
+
+  @Test
+  void deleteLayerDirectory_removesDirectory() throws IOException {
+    Path layerDir = tempDir.resolve("test");
+    Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
+    Files.createDirectories(tileFile.getParent());
+    Files.write(tileFile, new byte[] {1, 2, 3});
+
+    TileWriter writer = new TileWriter(configuration);
+    writer.deleteLayerDirectory("test");
+
+    assertThat(layerDir).doesNotExist();
   }
 }
