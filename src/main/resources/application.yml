@@ -70,13 +70,6 @@ xyz:
       attribution: "© OpenStreetMap contributors © CARTO"
       urlTemplate: "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
 
-    - name: "wikimedia"
-      sourceType: XYZ
-      maxZoom: 18
-      attribution: "© OpenStreetMap contributors, Wikimedia Maps"
-      urlTemplate: "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png"
-      # Intended for Wikimedia projects but publicly accessible.
-
     # ─── XYZ: Satellite / Aerial ───────────────────────────────────────────────
 
     - name: "esri-satellite"
@@ -145,29 +138,6 @@ xyz:
       urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Reference/MapServer/tile/{z}/{y}/{x}"
       # Labels/place-name overlay — layer on top of esri-ocean.
 
-    # ─── XYZ: Artistic / Specialty ─────────────────────────────────────────────
-
-    - name: "stamen-terrain"
-      sourceType: XYZ
-      maxZoom: 18
-      attribution: "Map tiles by Stamen Design, under CC BY 3.0. © OpenStreetMap contributors"
-      urlTemplate: "https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}.png"
-      # Free tier (Stadia account required for >200k tiles/mo).
-      # headers:
-      #   Authorization: "Bearer YOUR_API_KEY"
-
-    - name: "stamen-toner"
-      sourceType: XYZ
-      maxZoom: 20
-      attribution: "Map tiles by Stamen Design, under CC BY 3.0. © OpenStreetMap contributors"
-      urlTemplate: "https://tiles.stadiamaps.com/tiles/stamen_toner/{z}/{x}/{y}.png"
-
-    - name: "stamen-watercolor"
-      sourceType: XYZ
-      maxZoom: 18
-      attribution: "Map tiles by Stamen Design, under CC BY 3.0. © OpenStreetMap contributors"
-      urlTemplate: "https://tiles.stadiamaps.com/tiles/stamen_watercolor/{z}/{x}/{y}.jpg"
-
     # ─── WMTS REST: USGS National Map (US coverage only) ───────────────────────
 
     - name: "usgs-topo"
@@ -223,7 +193,9 @@ xyz:
       wmtsTileMatrixSet: "GoogleMapsCompatible_Level9"
       wmtsStyle: "default"
       wmtsFormat: "image/jpeg"
-      # Daily composite — returns most recent available date by default.
+      wmtsTime: true
+      timeFormat: "yyyy-MM-dd"
+      tileExpirationMinutes: 1440
 
     - name: "nasa-land-surface-temp"
       sourceType: WMTS_KVP
@@ -234,16 +206,22 @@ xyz:
       wmtsTileMatrixSet: "GoogleMapsCompatible_Level7"
       wmtsStyle: "default"
       wmtsFormat: "image/png"
+      wmtsTime: true
+      timeFormat: "yyyy-MM-dd"
+      tileExpirationMinutes: 1440
 
     - name: "nasa-snow-ice"
       sourceType: WMTS_KVP
       maxZoom: 8
       attribution: "Imagery provided by NASA GIBS (EOSDIS) — MODIS/Terra"
       urlTemplate: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi"
-      wmtsLayerName: "MODIS_Terra_Snow_Cover"
+      wmtsLayerName: "MODIS_Terra_NDSI_Snow_Cover"
       wmtsTileMatrixSet: "GoogleMapsCompatible_Level8"
       wmtsStyle: "default"
       wmtsFormat: "image/png"
+      wmtsTime: true
+      timeFormat: "yyyy-MM-dd"
+      tileExpirationMinutes: 1440
 
     # ─── Weather ───────────────────────────────────────────────────────────────
     - name: "iem-nexrad-radar"
