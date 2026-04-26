@@ -1,0 +1,27 @@
+name: Scheduled Vulnerability Scan
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'  # every Monday at 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - name: Scan published image with Trivy
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          image-ref: ${{ secrets.DOCKER_USERNAME }}/xyz-tile-cache:latest
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: '0'
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
