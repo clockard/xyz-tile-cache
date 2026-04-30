@@ -73,14 +73,14 @@ class TileWriterTest {
   }
 
   @Test
-  void createLayerDirectories_countsPreExistingTilesInLayerStats() throws IOException {
+  void inventoryExistingTiles_countsPreExistingTilesInLayerStats() throws IOException {
     Path tileFile = tempDir.resolve(Path.of("test", "3", "1", "2.png"));
     Files.createDirectories(tileFile.getParent());
     byte[] existing = {1, 2, 3, 4, 5};
     Files.write(tileFile, existing);
 
-    // Constructor runs createLayerDirectories — must count the existing tile in layer stats
-    new TileWriter(configuration);
+    TileWriter writer = new TileWriter(configuration);
+    writer.inventoryExistingTiles();
 
     assertThat(layer.getCachedTiles()).isEqualTo(1);
     assertThat(layer.getCachedTilesSize()).isEqualTo(existing.length);
@@ -99,15 +99,28 @@ class TileWriterTest {
   }
 
   @Test
-  void deleteLayerDirectory_removesDirectory() throws IOException {
+  void onLayerChanged_deletesDirectoryWhenLayerNoLongerConfigured() throws IOException {
+    Path layerDir = tempDir.resolve("ghost");
+    Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
+    Files.createDirectories(tileFile.getParent());
+    Files.write(tileFile, new byte[] {1, 2, 3});
+
+    TileWriter writer = new TileWriter(configuration);
+    writer.onLayerChanged(new LayerChangedEvent("ghost"));
+
+    assertThat(layerDir).doesNotExist();
+  }
+
+  @Test
+  void onLayerChanged_keepsDirectoryWhenLayerStillConfigured() throws IOException {
     Path layerDir = tempDir.resolve("test");
     Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
     Files.createDirectories(tileFile.getParent());
     Files.write(tileFile, new byte[] {1, 2, 3});
 
     TileWriter writer = new TileWriter(configuration);
-    writer.deleteLayerDirectory("test");
+    writer.onLayerChanged(new LayerChangedEvent("test"));
 
-    assertThat(layerDir).doesNotExist();
+    assertThat(tileFile).exists();
   }
 }

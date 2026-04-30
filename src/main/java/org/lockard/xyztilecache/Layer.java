@@ -180,7 +180,9 @@ public class Layer {
     return attribution;
   }
 
-  public void setAttribution(String attribution) {}
+  public void setAttribution(String attribution) {
+    this.attribution = attribution;
+  }
 
   public void addTileStats(long tileSize) {
     this.cachedTiles.incrementAndGet();

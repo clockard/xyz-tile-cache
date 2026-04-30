@@ -19,7 +19,6 @@ class LayerStoreTest {
 
   private final ObjectMapper objectMapper = new ObjectMapper();
   private XyzConfiguration configuration;
-  private TileWriter tileWriter;
   private LayerStore layerStore;
 
   @BeforeEach
@@ -27,7 +26,6 @@ class LayerStoreTest {
     configuration = new XyzConfiguration();
     configuration.setBaseTileDirectory(tempDir.toString());
     configuration.setLayers(List.of(layer("base")));
-    tileWriter = new TileWriter(configuration);
   }
 
   @AfterEach
@@ -46,7 +44,7 @@ class LayerStoreTest {
 
   private LayerStore storeAndInit() throws Exception {
     // Use a no-op event publisher — unit tests don't need Spring's event bus
-    layerStore = new LayerStore(configuration, tileWriter, objectMapper, event -> {});
+    layerStore = new LayerStore(configuration, objectMapper, event -> {});
     layerStore.init();
     return layerStore;
   }
@@ -72,8 +70,7 @@ class LayerStoreTest {
 
     XyzConfiguration config2 = new XyzConfiguration();
     config2.setBaseTileDirectory(tempDir.toString());
-    TileWriter writer2 = new TileWriter(config2);
-    LayerStore store2 = new LayerStore(config2, writer2, objectMapper, event -> {});
+    LayerStore store2 = new LayerStore(config2, objectMapper, event -> {});
     store2.init();
     layerStore = store2; // ensure tearDown closes it
 
@@ -125,15 +122,10 @@ class LayerStoreTest {
   }
 
   @Test
-  void removeLayer_removesFromConfigAndDeletesTileDir() throws Exception {
+  void removeLayer_removesFromConfig() throws Exception {
     storeAndInit();
-    Path layerDir = tempDir.resolve("base");
-    assertThat(layerDir).exists();
-
     layerStore.removeLayer("base");
-
     assertThat(configuration.getLayers()).doesNotContainKey("base");
-    assertThat(layerDir).doesNotExist();
   }
 
   @Test
@@ -155,8 +147,7 @@ class LayerStoreTest {
   @Test
   void syncLayers_noEventPublishedWhenLayerIsUnchanged() throws Exception {
     var eventCount = new java.util.concurrent.atomic.AtomicInteger();
-    layerStore =
-        new LayerStore(configuration, tileWriter, objectMapper, e -> eventCount.incrementAndGet());
+    layerStore = new LayerStore(configuration, objectMapper, e -> eventCount.incrementAndGet());
     layerStore.init();
 
     // Write the same layer list back — no meaningful change

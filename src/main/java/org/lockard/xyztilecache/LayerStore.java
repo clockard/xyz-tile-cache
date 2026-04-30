@@ -21,10 +21,14 @@ import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/**
+ * Persists the layer list to {@code layers.json} and keeps it in sync across instances sharing the
+ * same tile directory. All mutations are serialized by an OS-level file lock; in-process callers
+ * are serialized by the same lock since {@link FileChannel#lock()} blocks across threads.
+ */
 @Component
 public class LayerStore {
 
@@ -33,7 +37,6 @@ public class LayerStore {
   private static final String LOCK_FILE = "layers.lock";
 
   private final XyzConfiguration configuration;
-  private final TileWriter tileWriter;
   private final ObjectMapper objectMapper;
   private final ApplicationEventPublisher eventPublisher;
 
@@ -43,11 +46,9 @@ public class LayerStore {
 
   public LayerStore(
       XyzConfiguration configuration,
-      @Lazy TileWriter tileWriter,
       ObjectMapper objectMapper,
       ApplicationEventPublisher eventPublisher) {
     this.configuration = configuration;
-    this.tileWriter = tileWriter;
     this.objectMapper = objectMapper;
     this.eventPublisher = eventPublisher;
   }
@@ -64,14 +65,13 @@ public class LayerStore {
             StandardOpenOption.READ,
             StandardOpenOption.WRITE);
 
-    try (FileLock lock = acquireLock()) {
+    try (FileLock ignored = lockChannel.lock()) {
       if (Files.exists(jsonPath)) {
         LOGGER.info("Loading layers from {}.", jsonPath);
-        reloadFromFileUnlocked();
+        loadFromFile();
       } else {
-        LOGGER.info("No layers.json found — writing current layers to {}.", jsonPath);
-        writeLayersUnlocked();
-        lastKnownMtime = Files.getLastModifiedTime(jsonPath);
+        LOGGER.info("No layers.json found — writing seeded layers to {}.", jsonPath);
+        writeFile();
       }
     }
   }
@@ -89,25 +89,14 @@ public class LayerStore {
   void syncLayers() {
     if (jsonPath == null) return;
     try {
-      FileTime current = Files.getLastModifiedTime(jsonPath);
-      if (current.equals(lastKnownMtime)) return;
+      if (Files.getLastModifiedTime(jsonPath).equals(lastKnownMtime)) return;
 
-      try (FileLock lock = acquireLock()) {
-        FileTime afterLock = Files.getLastModifiedTime(jsonPath);
-        if (afterLock.equals(lastKnownMtime)) return;
+      try (FileLock ignored = lockChannel.lock()) {
+        if (Files.getLastModifiedTime(jsonPath).equals(lastKnownMtime)) return;
 
         Map<String, Layer> before = new HashMap<>(configuration.getLayers());
-        reloadFromFileUnlocked();
-
-        before.forEach(
-            (name, old) -> {
-              Layer updated = configuration.getLayers().get(name);
-              if (updated == null || layerChanged(old, updated)) {
-                eventPublisher.publishEvent(new LayerChangedEvent(name));
-              }
-            });
-        LOGGER.debug(
-            "Synced layers from disk — {} layer(s) loaded.", configuration.getLayers().size());
+        loadFromFile();
+        publishChanges(before, configuration.getLayers());
       }
     } catch (IOException e) {
       LOGGER.error("Failed to sync layers from {}.", jsonPath, e);
@@ -116,75 +105,82 @@ public class LayerStore {
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
 
-  public synchronized void addLayer(Layer layer) throws IOException {
+  public void addLayer(Layer layer) throws IOException {
     validateLayer(layer);
-    try (FileLock lock = acquireLock()) {
-      reloadFromFileUnlocked();
+    try (FileLock ignored = lockChannel.lock()) {
+      loadFromFile();
       if (configuration.getLayers().containsKey(layer.getName())) {
         throw new IllegalArgumentException("Layer '" + layer.getName() + "' already exists.");
       }
       configuration.getLayers().put(layer.getName(), layer);
-      writeLayersUnlocked();
+      writeFile();
     }
     LOGGER.info("Added layer '{}'.", layer.getName());
+    eventPublisher.publishEvent(new LayerChangedEvent(layer.getName()));
   }
 
-  public synchronized void updateLayer(String name, Layer layer) throws IOException {
+  public void updateLayer(String name, Layer layer) throws IOException {
     validateLayer(layer);
-    try (FileLock lock = acquireLock()) {
-      reloadFromFileUnlocked();
+    try (FileLock ignored = lockChannel.lock()) {
+      loadFromFile();
       if (!configuration.getLayers().containsKey(name)) {
         throw new NoSuchElementException("Layer '" + name + "' not found.");
       }
       layer.setName(name);
       configuration.getLayers().put(name, layer);
-      writeLayersUnlocked();
+      writeFile();
     }
     LOGGER.info("Updated layer '{}'.", name);
+    eventPublisher.publishEvent(new LayerChangedEvent(name));
   }
 
-  public synchronized void removeLayer(String name) throws IOException {
-    try (FileLock lock = acquireLock()) {
-      reloadFromFileUnlocked();
-      if (!configuration.getLayers().containsKey(name)) {
+  public void removeLayer(String name) throws IOException {
+    try (FileLock ignored = lockChannel.lock()) {
+      loadFromFile();
+      if (configuration.getLayers().remove(name) == null) {
         throw new NoSuchElementException("Layer '" + name + "' not found.");
       }
-      configuration.getLayers().remove(name);
-      tileWriter.deleteLayerDirectory(name);
-      writeLayersUnlocked();
+      writeFile();
     }
     LOGGER.info("Removed layer '{}'.", name);
+    eventPublisher.publishEvent(new LayerChangedEvent(name));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  private FileLock acquireLock() throws IOException {
-    return lockChannel.lock();
-  }
-
-  private void reloadFromFileUnlocked() throws IOException {
+  private void loadFromFile() throws IOException {
     List<Layer> layers = objectMapper.readValue(jsonPath.toFile(), new TypeReference<>() {});
     configuration.setLayers(layers);
     lastKnownMtime = Files.getLastModifiedTime(jsonPath);
   }
 
-  private void writeLayersUnlocked() throws IOException {
+  private void writeFile() throws IOException {
     List<Layer> layers = new ArrayList<>(configuration.getLayers().values());
     objectMapper.writerWithDefaultPrettyPrinter().writeValue(jsonPath.toFile(), layers);
     lastKnownMtime = Files.getLastModifiedTime(jsonPath);
   }
 
-  private void validateLayer(Layer layer) {
+  private void publishChanges(Map<String, Layer> before, Map<String, Layer> after) {
+    before.forEach(
+        (name, old) -> {
+          Layer updated = after.get(name);
+          if (updated == null || !sameSource(old, updated)) {
+            eventPublisher.publishEvent(new LayerChangedEvent(name));
+          }
+        });
+  }
+
+  private static boolean sameSource(Layer a, Layer b) {
+    return Objects.equals(a.getUrlTemplate(), b.getUrlTemplate())
+        && a.getSourceType() == b.getSourceType();
+  }
+
+  private static void validateLayer(Layer layer) {
     if (layer.getName() == null || layer.getName().isBlank()) {
       throw new IllegalArgumentException("Layer name must not be blank.");
     }
     if (layer.getUrlTemplate() == null || layer.getUrlTemplate().isBlank()) {
       throw new IllegalArgumentException("Layer urlTemplate must not be blank.");
     }
-  }
-
-  private boolean layerChanged(Layer a, Layer b) {
-    return !Objects.equals(a.getUrlTemplate(), b.getUrlTemplate())
-        || a.getSourceType() != b.getSourceType();
   }
 }

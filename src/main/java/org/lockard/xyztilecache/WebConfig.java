@@ -15,6 +15,8 @@ public class WebConfig implements WebMvcConfigurer {
 
   @Override
   public void addInterceptors(InterceptorRegistry registry) {
-    registry.addInterceptor(new AdminKeyInterceptor(configuration)).addPathPatterns("/layers/**");
+    registry
+        .addInterceptor(new AdminKeyInterceptor(configuration))
+        .addPathPatterns("/layers/**", "/vector/preload", "/preloads", "/preloads/**");
   }
 }

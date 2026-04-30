@@ -9,13 +9,6 @@ xyz:
   layerSyncSeconds: 10          # How often to check for layer changes from other instances (seconds)
   adminKey: "xyz-admin"         # Set to a secret value to enable layer write operations (POST/PUT/DELETE /layers)
   layers:
-    - name: "satellite"
-      sourceType: XYZ
-      urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-    - name: "osm"
-      urlTemplate: "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
-
-
     # WMTS RESTful style
     - name: "topo"
       sourceType: WMTS_REST
@@ -242,6 +235,13 @@ xyz:
       timeFormat: "yyyy-MM-dd'T'HH:mm:ss'Z'"
       headers:
         Referer: "https://www.accuweather.com"
+
+  vector:
+    bundledPath: "${xyz.baseTileDirectory}/vector/world_z0-7.pmtiles"
+    downloadDirectory: "${xyz.baseTileDirectory}/vector"
+    sourceUrl: "https://build.protomaps.com/20260425.pmtiles"
+    maxDownloadZoom: 15
+    enabled: true
 
 #  boundingBoxes:
 #    - preCache: true
