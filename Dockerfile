@@ -17,6 +17,10 @@ RUN pmtiles extract "https://build.protomaps.com/${PMTILES_DATE}.pmtiles" /tmp/w
 FROM $JRE_IMAGE
 ARG VERSION
 WORKDIR /app
+# gdal-tools provides gdal2tiles.py used by /layers/geotiff to tile uploaded GeoTIFFs.
+# Alpine splits GDAL drivers into separate packages; png is required for gdal2tiles output,
+# jpeg covers JPEG-compressed input TIFFs commonly used in remote sensing.
+RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg
 COPY target/xyz-tile-cache-${VERSION}.jar /app/xyz-tile-cache.jar
 COPY --from=builder /usr/local/bin/pmtiles /usr/local/bin/pmtiles
 COPY --from=builder /tmp/world_z0-7.pmtiles /app/data/world_z0-7.pmtiles

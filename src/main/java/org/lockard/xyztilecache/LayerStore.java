@@ -179,7 +179,8 @@ public class LayerStore {
     if (layer.getName() == null || layer.getName().isBlank()) {
       throw new IllegalArgumentException("Layer name must not be blank.");
     }
-    if (layer.getUrlTemplate() == null || layer.getUrlTemplate().isBlank()) {
+    if (layer.getSourceType() != Layer.SourceType.LOCAL
+        && (layer.getUrlTemplate() == null || layer.getUrlTemplate().isBlank())) {
       throw new IllegalArgumentException("Layer urlTemplate must not be blank.");
     }
   }

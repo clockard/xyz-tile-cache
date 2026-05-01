@@ -207,6 +207,18 @@ class LayerStoreTest {
   }
 
   @Test
+  void addLayer_acceptsLocalSourceWithoutUrlTemplate() throws Exception {
+    storeAndInit();
+    Layer local = new Layer();
+    local.setName("local-orthophoto");
+    local.setSourceType(Layer.SourceType.LOCAL);
+    layerStore.addLayer(local);
+    assertThat(configuration.getLayers()).containsKey("local-orthophoto");
+    assertThat(configuration.getLayers().get("local-orthophoto").getSourceType())
+        .isEqualTo(Layer.SourceType.LOCAL);
+  }
+
+  @Test
   void writtenJsonDoesNotContainRuntimeStats() throws Exception {
     storeAndInit();
     String json = Files.readString(tempDir.resolve("layers.json"));

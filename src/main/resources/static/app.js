@@ -15,11 +15,12 @@ let currentDownloads = [];
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
-let layerSelect, drawBtn, downloadsBtn;
+let layerSelect, drawBtn, downloadsBtn, uploadGeoTiffBtn;
 let downloadsPanel, downloadsList;
 let preloadOverlay, bboxDisplay, zoomSlider, zoomValue, adminKeyInput, preloadNameInput;
 let preloadLayersContainer, preloadWarningRow;
 let zoomIndicator, attributionEl;
+let geoTiffOverlay, geoTiffNameInput, geoTiffFileInput, geoTiffAdminKeyInput, geoTiffStatus;
 
 const VECTOR_LAYER_KEY = '__vector__';
 const VECTOR_MAX_ZOOM = 15;
@@ -30,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
   layerSelect   = document.getElementById('layer-select');
   drawBtn       = document.getElementById('draw-btn');
   downloadsBtn  = document.getElementById('downloads-btn');
+  uploadGeoTiffBtn = document.getElementById('upload-geotiff-btn');
   downloadsPanel = document.getElementById('downloads-panel');
   downloadsList  = document.getElementById('downloads-list');
   preloadOverlay = document.getElementById('preload-overlay');
@@ -42,8 +44,14 @@ document.addEventListener('DOMContentLoaded', () => {
   preloadWarningRow = document.getElementById('preload-warning-row');
   zoomIndicator  = document.getElementById('zoom-indicator');
   attributionEl  = document.getElementById('attribution');
+  geoTiffOverlay = document.getElementById('geotiff-overlay');
+  geoTiffNameInput = document.getElementById('geotiff-name-input');
+  geoTiffFileInput = document.getElementById('geotiff-file-input');
+  geoTiffAdminKeyInput = document.getElementById('geotiff-admin-key-input');
+  geoTiffStatus = document.getElementById('geotiff-status');
 
   adminKeyInput.value = localStorage.getItem('xyz-admin-key') || '';
+  geoTiffAdminKeyInput.value = localStorage.getItem('xyz-admin-key') || '';
 
   zoomSlider.addEventListener('input', () => {
     zoomValue.textContent = zoomSlider.value;
@@ -53,9 +61,12 @@ document.addEventListener('DOMContentLoaded', () => {
   layerSelect.addEventListener('change', () => switchLayer(layerSelect.value));
   drawBtn.addEventListener('click', toggleDraw);
   downloadsBtn.addEventListener('click', toggleDownloadsPanel);
+  uploadGeoTiffBtn.addEventListener('click', showGeoTiffModal);
   document.getElementById('close-downloads').addEventListener('click', closeDownloadsPanel);
   document.getElementById('submit-preload').addEventListener('click', submitPreload);
   document.getElementById('cancel-preload').addEventListener('click', hidePreloadModal);
+  document.getElementById('submit-geotiff').addEventListener('click', submitGeoTiff);
+  document.getElementById('cancel-geotiff').addEventListener('click', hideGeoTiffModal);
 
   downloadsList.addEventListener('click', (e) => {
     const item = e.target.closest('.download-item');
@@ -71,6 +82,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   preloadOverlay.addEventListener('click', (e) => {
     if (e.target === preloadOverlay) hidePreloadModal();
+  });
+
+  geoTiffOverlay.addEventListener('click', (e) => {
+    if (e.target === geoTiffOverlay) hideGeoTiffModal();
   });
 
   initMap();
@@ -827,6 +842,90 @@ function escapeHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// ── GeoTIFF upload ────────────────────────────────────────────────────────────
+
+function showGeoTiffModal() {
+  geoTiffNameInput.value = '';
+  geoTiffFileInput.value = '';
+  geoTiffStatus.textContent = '';
+  geoTiffOverlay.classList.remove('hidden');
+}
+
+function hideGeoTiffModal() {
+  geoTiffOverlay.classList.add('hidden');
+}
+
+async function submitGeoTiff() {
+  const name = geoTiffNameInput.value.trim();
+  const file = geoTiffFileInput.files[0];
+  const adminKey = geoTiffAdminKeyInput.value.trim();
+
+  if (!name) {
+    geoTiffStatus.textContent = 'Layer name is required.';
+    return;
+  }
+  if (!file) {
+    geoTiffStatus.textContent = 'Choose a GeoTIFF file.';
+    return;
+  }
+
+  if (adminKey) {
+    localStorage.setItem('xyz-admin-key', adminKey);
+  }
+
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('file', file);
+
+  geoTiffStatus.textContent = 'Uploading and tiling — this may take a while…';
+  const submitBtn = document.getElementById('submit-geotiff');
+  submitBtn.disabled = true;
+
+  try {
+    const resp = await fetch('/layers/geotiff', {
+      method: 'POST',
+      headers: { 'X-Admin-Key': adminKey },
+      body: fd
+    });
+    if (resp.status === 201) {
+      const layer = await resp.json();
+      hideGeoTiffModal();
+      showToast(`Layer '${layer.name}' created (max zoom ${layer.maxZoom})`, 'success');
+      addLayerToSelect(layer);
+      switchLayer(layer.name);
+      layerSelect.value = layer.name;
+      return;
+    }
+    const text = await resp.text();
+    if (resp.status === 401 || resp.status === 403) {
+      geoTiffStatus.textContent = 'Invalid or missing admin key.';
+    } else if (resp.status === 409) {
+      geoTiffStatus.textContent = text || 'Layer already exists.';
+    } else if (resp.status === 422) {
+      geoTiffStatus.textContent = text || 'Tiling failed.';
+    } else {
+      geoTiffStatus.textContent = `Upload failed (${resp.status}): ${text}`;
+    }
+  } catch (e) {
+    geoTiffStatus.textContent = 'Network error during upload.';
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
+function addLayerToSelect(layer) {
+  layerMap[layer.name] = layer;
+  const opt = document.createElement('option');
+  opt.value = layer.name;
+  opt.textContent = layer.name;
+  const vectorOpt = layerSelect.querySelector('option[value="__vector__"]');
+  if (vectorOpt) {
+    layerSelect.insertBefore(opt, vectorOpt);
+  } else {
+    layerSelect.appendChild(opt);
+  }
 }
 
 function showToast(message, type) {

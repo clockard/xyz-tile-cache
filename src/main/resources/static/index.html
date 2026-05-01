@@ -14,6 +14,7 @@
       <label for="layer-select">Layer</label>
       <select id="layer-select"></select>
       <button id="draw-btn">Draw Preload</button>
+      <button id="upload-geotiff-btn">Upload GeoTIFF</button>
       <button id="downloads-btn">Downloads</button>
     </div>
   </div>
@@ -66,6 +67,31 @@
       <div class="modal-buttons">
         <button id="submit-preload">Start Download</button>
         <button id="cancel-preload" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="geotiff-overlay" class="hidden">
+    <div id="geotiff-modal">
+      <h3>Upload GeoTIFF</h3>
+      <div class="form-row">
+        <label for="geotiff-name-input">Layer Name</label>
+        <input type="text" id="geotiff-name-input" placeholder="e.g. my-orthophoto">
+      </div>
+      <div class="form-row">
+        <label for="geotiff-file-input">File</label>
+        <input type="file" id="geotiff-file-input" accept=".tif,.tiff,image/tiff">
+      </div>
+      <div class="form-row">
+        <label for="geotiff-admin-key-input">Admin Key</label>
+        <input type="password" id="geotiff-admin-key-input" placeholder="X-Admin-Key value" autocomplete="current-password">
+      </div>
+      <div class="form-row">
+        <div id="geotiff-status"></div>
+      </div>
+      <div class="modal-buttons">
+        <button id="submit-geotiff">Upload &amp; Tile</button>
+        <button id="cancel-geotiff" class="secondary">Cancel</button>
       </div>
     </div>
   </div>

@@ -84,6 +84,13 @@ class OfflineCacheLoaderTest {
   }
 
   @Test
+  void load_throwsWhenFileMissingAndExpirationConfigured() {
+    layer.setTileExpirationMinutes(60);
+    Tile tile = new Tile(layer, 1, 2, 3);
+    assertThatThrownBy(() -> loader.load(tile)).isInstanceOf(java.io.FileNotFoundException.class);
+  }
+
+  @Test
   void load_skipsExpirationCheckWhenExpirationIsZero() throws Exception {
     layer.setTileExpirationMinutes(0);
     Tile tile = new Tile(layer, 1, 2, 3);

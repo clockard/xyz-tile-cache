@@ -15,7 +15,8 @@ public class Layer {
   public enum SourceType {
     XYZ,
     WMTS_REST,
-    WMTS_KVP
+    WMTS_KVP,
+    LOCAL
   }
 
   private SourceType sourceType = SourceType.XYZ;
@@ -171,7 +172,7 @@ public class Layer {
 
   public boolean doesUrlHaveTime() {
     if (urlHasTime == null) {
-      urlHasTime = urlTemplate.contains("{time}") || wmtsTime;
+      urlHasTime = (urlTemplate != null && urlTemplate.contains("{time}")) || wmtsTime;
     }
     return urlHasTime;
   }

@@ -228,7 +228,8 @@ body {
 
 /* ── Preload modal ─────────────────────────────────────────────────────────── */
 
-#preload-overlay {
+#preload-overlay,
+#geotiff-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
@@ -238,11 +239,13 @@ body {
   z-index: 200;
 }
 
-#preload-overlay.hidden {
+#preload-overlay.hidden,
+#geotiff-overlay.hidden {
   display: none;
 }
 
-#preload-modal {
+#preload-modal,
+#geotiff-modal {
   background: #fff;
   border-radius: 8px;
   padding: 1.5rem;
@@ -251,10 +254,45 @@ body {
   box-shadow: 0 6px 30px rgba(0, 0, 0, 0.35);
 }
 
-#preload-modal h3 {
+#preload-modal h3,
+#geotiff-modal h3 {
   margin: 0 0 1.1rem;
   font-size: 0.95rem;
   color: #1a1a2e;
+}
+
+#geotiff-name-input,
+#geotiff-admin-key-input,
+#geotiff-file-input,
+#preload-name-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.83rem;
+}
+
+#geotiff-status {
+  font-size: 0.78rem;
+  color: #555;
+  min-height: 1.2em;
+  line-height: 1.4;
+}
+
+#submit-geotiff {
+  background: #4a6fa5;
+  color: #fff;
+  border-color: #4a6fa5;
+}
+
+#submit-geotiff:hover {
+  background: #3a5f95;
+}
+
+#submit-geotiff:disabled {
+  background: #8a9bbf;
+  border-color: #8a9bbf;
+  cursor: not-allowed;
 }
 
 .form-row {

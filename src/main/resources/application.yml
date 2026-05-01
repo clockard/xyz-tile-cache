@@ -1,6 +1,12 @@
 server:
   port: 8383
 
+spring:
+  servlet:
+    multipart:
+      max-file-size: 2GB
+      max-request-size: 2GB
+
 xyz:
   baseTileDirectory: "/tmp/tiles"
   minFreeDiskBytes: 1073741824  # Stop caching tiles when free disk space drops below this (default 1 GB)
