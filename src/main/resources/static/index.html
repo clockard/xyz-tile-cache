@@ -13,9 +13,16 @@
     <div class="toolbar-controls">
       <label for="layer-select">Layer</label>
       <select id="layer-select"></select>
-      <button id="draw-btn">Draw Preload</button>
-      <button id="upload-geotiff-btn">Upload GeoTIFF</button>
+      <button id="manage-layers-btn" class="admin-only hidden">Manage Layers</button>
+      <button id="draw-btn" class="admin-only hidden">Draw Preload</button>
+      <button id="upload-geotiff-btn" class="admin-only hidden">Upload GeoTIFF</button>
       <button id="downloads-btn">Downloads</button>
+    </div>
+    <div class="toolbar-spacer"></div>
+    <div class="auth-controls">
+      <span id="user-display" class="hidden"></span>
+      <button id="login-btn">Login</button>
+      <button id="logout-btn" class="hidden">Logout</button>
     </div>
   </div>
 
@@ -61,8 +68,12 @@
         </div>
       </div>
       <div class="form-row">
-        <label for="admin-key-input">Admin Key</label>
-        <input type="password" id="admin-key-input" placeholder="X-Admin-Key value" autocomplete="current-password">
+        <label for="preload-allowed-users">Allowed Users <span class="field-hint">(comma-separated; empty = public)</span></label>
+        <input type="text" id="preload-allowed-users" placeholder="alice, bob">
+      </div>
+      <div class="form-row">
+        <label for="preload-allowed-groups">Allowed Groups <span class="field-hint">(comma-separated)</span></label>
+        <input type="text" id="preload-allowed-groups" placeholder="team-foresters, team-imagery">
       </div>
       <div class="modal-buttons">
         <button id="submit-preload">Start Download</button>
@@ -75,7 +86,7 @@
     <div id="geotiff-modal">
       <h3>Upload GeoTIFF</h3>
       <div class="form-row">
-        <label for="geotiff-name-input">Layer Name</label>
+        <label for="geotiff-name-input">Layer ID</label>
         <input type="text" id="geotiff-name-input" placeholder="e.g. my-orthophoto">
       </div>
       <div class="form-row">
@@ -83,8 +94,12 @@
         <input type="file" id="geotiff-file-input" accept=".tif,.tiff,image/tiff">
       </div>
       <div class="form-row">
-        <label for="geotiff-admin-key-input">Admin Key</label>
-        <input type="password" id="geotiff-admin-key-input" placeholder="X-Admin-Key value" autocomplete="current-password">
+        <label for="geotiff-allowed-users">Allowed Users <span class="field-hint">(comma-separated; empty = public)</span></label>
+        <input type="text" id="geotiff-allowed-users" placeholder="alice, bob">
+      </div>
+      <div class="form-row">
+        <label for="geotiff-allowed-groups">Allowed Groups <span class="field-hint">(comma-separated)</span></label>
+        <input type="text" id="geotiff-allowed-groups" placeholder="team-foresters, team-imagery">
       </div>
       <div class="form-row">
         <div id="geotiff-status"></div>
@@ -92,6 +107,115 @@
       <div class="modal-buttons">
         <button id="submit-geotiff">Upload &amp; Tile</button>
         <button id="cancel-geotiff" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="login-overlay" class="hidden">
+    <div id="login-modal">
+      <h3>Admin Login</h3>
+      <div class="form-row">
+        <label for="login-token-input">Admin Token</label>
+        <input type="password" id="login-token-input" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <div id="login-status"></div>
+      </div>
+      <div class="modal-buttons">
+        <button id="submit-login">Save</button>
+        <button id="cancel-login" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="layer-manager-overlay" class="hidden">
+    <div id="layer-manager-modal">
+      <div class="lm-header">
+        <h3 id="layer-manager-title">Manage Layers</h3>
+        <button id="close-layer-manager" aria-label="Close">&times;</button>
+      </div>
+
+      <div id="lm-list-view">
+        <div id="lm-layer-list"></div>
+        <div class="modal-buttons">
+          <button id="lm-add-btn">+ Add Layer</button>
+          <button id="lm-done-btn" class="secondary">Close</button>
+        </div>
+      </div>
+
+      <div id="lm-form-view" class="hidden">
+        <div class="lm-form-scroll">
+          <div class="form-row">
+            <label for="lf-id">ID * <span class="field-hint">(used in tile URLs, cannot change after creation)</span></label>
+            <input type="text" id="lf-id" placeholder="e.g. osm-standard">
+          </div>
+          <div class="form-row">
+            <label for="lf-name">Display Name</label>
+            <input type="text" id="lf-name" placeholder="e.g. OpenStreetMap Standard">
+          </div>
+          <div class="form-row">
+            <label for="lf-source-type">Source Type</label>
+            <select id="lf-source-type">
+              <option value="XYZ">XYZ</option>
+              <option value="WMTS_REST">WMTS REST</option>
+              <option value="WMTS_KVP">WMTS KVP</option>
+              <option value="LOCAL">Local</option>
+            </select>
+          </div>
+          <div class="form-row" id="lf-url-row">
+            <label for="lf-url">URL Template *</label>
+            <input type="text" id="lf-url" placeholder="https://tile.openstreetmap.org/{z}/{x}/{y}.png">
+          </div>
+          <div id="lf-wmts-section" class="hidden">
+            <div class="form-row">
+              <label for="lf-wmts-layer">WMTS Layer Name</label>
+              <input type="text" id="lf-wmts-layer" placeholder="layer name">
+            </div>
+            <div class="form-row">
+              <label for="lf-wmts-matrix">Tile Matrix Set</label>
+              <input type="text" id="lf-wmts-matrix">
+            </div>
+            <div class="form-row">
+              <label for="lf-wmts-style">Style</label>
+              <input type="text" id="lf-wmts-style">
+            </div>
+            <div class="form-row">
+              <label for="lf-wmts-format">Format</label>
+              <input type="text" id="lf-wmts-format">
+            </div>
+            <div class="form-row">
+              <label class="checkbox-label">
+                <input type="checkbox" id="lf-wmts-time"> Has time dimension
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="lf-attribution">Attribution</label>
+            <input type="text" id="lf-attribution" placeholder="© OpenStreetMap contributors">
+          </div>
+          <div class="form-row form-row-half">
+            <div>
+              <label for="lf-max-zoom">Max Zoom</label>
+              <input type="number" id="lf-max-zoom" min="1" max="22" value="22">
+            </div>
+            <div>
+              <label for="lf-expiration">Expiration (min, 0=never)</label>
+              <input type="number" id="lf-expiration" min="0" value="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="lf-allowed-users">Allowed Users <span class="field-hint">(comma-separated; empty = public)</span></label>
+            <input type="text" id="lf-allowed-users" placeholder="alice, bob">
+          </div>
+          <div class="form-row">
+            <label for="lf-allowed-groups">Allowed Groups <span class="field-hint">(comma-separated)</span></label>
+            <input type="text" id="lf-allowed-groups" placeholder="team-foresters, team-imagery">
+          </div>
+        </div>
+        <div class="modal-buttons">
+          <button id="lm-save-btn">Save Layer</button>
+          <button id="lm-back-btn" class="secondary">Cancel</button>
+        </div>
       </div>
     </div>
   </div>

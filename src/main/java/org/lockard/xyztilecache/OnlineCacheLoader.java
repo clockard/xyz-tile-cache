@@ -60,12 +60,12 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
     if (requestStrategy == Layer.RequestStrategy.PROCEED) {
       return loadTileOnline(tile);
     } else if (requestStrategy == Layer.RequestStrategy.RETRY
-        && layerLocks.add(tile.layer().getName())) {
+        && layerLocks.add(tile.layer().getEffectiveId())) {
       LOGGER.info("Retrying source for layer {}.", tile.layer());
       try {
         return loadTileOnline(tile);
       } finally {
-        layerLocks.remove(tile.layer().getName());
+        layerLocks.remove(tile.layer().getEffectiveId());
       }
     } else {
       throw new IOException("Source for layer %s is temporarily blocked.".formatted(tile.layer()));

@@ -1,16 +1,21 @@
 ARG JRE_IMAGE=eclipse-temurin:25-jre-alpine
 
-# ── Stage 1: download go-pmtiles CLI and world z0-7 basemap ──────────────────
-FROM alpine:3 AS builder
+# ── Stage 1: build go-pmtiles from source and download world z0-7 basemap ────
+# golang:1.26-alpine tracks the latest Go 1.26.x patch, ensuring stdlib CVE
+# fixes (CVE-2026-32280/32281/32283/33810 fixed in 1.26.2) are included.
+FROM golang:1.26-alpine AS builder
 ARG PMTILES_VERSION=1.30.2
-ARG PMTILES_DATE=20260425
-ARG TARGETARCH
-RUN apk add --no-cache wget \
- && PMTILES_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x86_64" || echo "arm64") \
- && wget -qO- "https://github.com/protomaps/go-pmtiles/releases/download/v${PMTILES_VERSION}/go-pmtiles_${PMTILES_VERSION}_Linux_${PMTILES_ARCH}.tar.gz" \
-    | tar -xz -C /usr/local/bin pmtiles
+ARG PMTILES_DATE
+RUN apk add --no-cache git
+RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
+WORKDIR /src
+# Upgrade otel/sdk to 1.43.0+ to fix CVE-2026-39883 (PATH hijacking via kenv)
+RUN go get go.opentelemetry.io/otel/sdk@v1.43.0 \
+ && go mod tidy \
+ && CGO_ENABLED=0 go build -o /usr/local/bin/pmtiles .
 # Uses HTTP range requests — downloads only the tiles needed, not the full planet file
-RUN pmtiles extract "https://build.protomaps.com/${PMTILES_DATE}.pmtiles" /tmp/world_z0-7.pmtiles \
+RUN PMTILES_DATE=${PMTILES_DATE:-$(date +%Y%m%d)} \
+ && pmtiles extract "https://build.protomaps.com/${PMTILES_DATE}.pmtiles" /tmp/world_z0-7.pmtiles \
     --maxzoom=7
 
 # ── Stage 2: runtime image ────────────────────────────────────────────────────

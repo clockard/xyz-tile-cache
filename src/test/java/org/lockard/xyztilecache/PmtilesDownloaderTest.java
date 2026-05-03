@@ -8,6 +8,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -38,6 +40,27 @@ class PmtilesDownloaderTest {
     p.setIncludesVector(true);
     p.setPmtilesFilename("test.pmtiles");
     return p;
+  }
+
+  // ── resolveSourceUrl ─────────────────────────────────────────────────────
+
+  @Test
+  void resolveSourceUrl_noPlaceholder_unchanged() {
+    String url = "https://example.com/planet.pmtiles";
+    assertThat(PmtilesDownloader.resolveSourceUrl(url)).isEqualTo(url);
+  }
+
+  @Test
+  void resolveSourceUrl_datePlaceholder_replacedWithToday() {
+    String today = LocalDate.now().minusDays(1).format(DateTimeFormatter.BASIC_ISO_DATE);
+    String resolved =
+        PmtilesDownloader.resolveSourceUrl("https://build.protomaps.com/{date}.pmtiles");
+    assertThat(resolved).isEqualTo("https://build.protomaps.com/" + today + ".pmtiles");
+  }
+
+  @Test
+  void resolveSourceUrl_null_returnsNull() {
+    assertThat(PmtilesDownloader.resolveSourceUrl(null)).isNull();
   }
 
   // ── CLI argument tests ────────────────────────────────────────────────────

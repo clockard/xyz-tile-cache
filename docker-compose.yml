@@ -1,0 +1,35 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: xyz-tile-cache-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./scripts/keycloak/xyz-tile-cache-realm.json:/opt/keycloak/data/import/xyz-tile-cache-realm.json:ro
+
+  xyz-tile-cache:
+    image: xyz-tile-cache:latest
+    container_name: xyz
+    depends_on:
+      - keycloak
+    ports:
+      - "8383:8383/tcp"
+    volumes:
+      - /tmp/tiles:/tmp/tiles
+    environment:
+#      XYZ_AUTH_MODE: jwt
+#      XYZ_AUTH_ADMIN_TOKEN: xyz-admin
+#      XYZ_UI_ENABLED: true
+#      XYZ_ADMIN_ROLE: admin
+      # Tokens are fetched from the host at http://localhost:8080, so the iss
+      # claim is http://localhost:8080/... — that's what Spring validates against.
+      KEYCLOAK_ISSUER_URI: http://localhost:8080/realms/xyz-tile-cache
+      # JWKS is fetched from inside the docker network; setting jwk-set-uri
+      # also skips OIDC discovery at startup, so tile-cache doesn't crash if
+      # Keycloak isn't fully ready yet.
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/xyz-tile-cache/protocol/openid-connect/certs

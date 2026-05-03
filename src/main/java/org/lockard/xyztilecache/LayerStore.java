@@ -107,43 +107,44 @@ public class LayerStore {
 
   public void addLayer(Layer layer) throws IOException {
     validateLayer(layer);
+    String id = layer.getEffectiveId();
     try (FileLock ignored = lockChannel.lock()) {
       loadFromFile();
-      if (configuration.getLayers().containsKey(layer.getName())) {
-        throw new IllegalArgumentException("Layer '" + layer.getName() + "' already exists.");
+      if (configuration.getLayers().containsKey(id)) {
+        throw new IllegalArgumentException("Layer '" + id + "' already exists.");
       }
-      configuration.getLayers().put(layer.getName(), layer);
+      configuration.getLayers().put(id, layer);
       writeFile();
     }
-    LOGGER.info("Added layer '{}'.", layer.getName());
-    eventPublisher.publishEvent(new LayerChangedEvent(layer.getName()));
+    LOGGER.info("Added layer '{}'.", id);
+    eventPublisher.publishEvent(new LayerChangedEvent(id));
   }
 
-  public void updateLayer(String name, Layer layer) throws IOException {
+  public void updateLayer(String id, Layer layer) throws IOException {
     validateLayer(layer);
     try (FileLock ignored = lockChannel.lock()) {
       loadFromFile();
-      if (!configuration.getLayers().containsKey(name)) {
-        throw new NoSuchElementException("Layer '" + name + "' not found.");
+      if (!configuration.getLayers().containsKey(id)) {
+        throw new NoSuchElementException("Layer '" + id + "' not found.");
       }
-      layer.setName(name);
-      configuration.getLayers().put(name, layer);
+      layer.setId(id);
+      configuration.getLayers().put(id, layer);
       writeFile();
     }
-    LOGGER.info("Updated layer '{}'.", name);
-    eventPublisher.publishEvent(new LayerChangedEvent(name));
+    LOGGER.info("Updated layer '{}'.", id);
+    eventPublisher.publishEvent(new LayerChangedEvent(id));
   }
 
-  public void removeLayer(String name) throws IOException {
+  public void removeLayer(String id) throws IOException {
     try (FileLock ignored = lockChannel.lock()) {
       loadFromFile();
-      if (configuration.getLayers().remove(name) == null) {
-        throw new NoSuchElementException("Layer '" + name + "' not found.");
+      if (configuration.getLayers().remove(id) == null) {
+        throw new NoSuchElementException("Layer '" + id + "' not found.");
       }
       writeFile();
     }
-    LOGGER.info("Removed layer '{}'.", name);
-    eventPublisher.publishEvent(new LayerChangedEvent(name));
+    LOGGER.info("Removed layer '{}'.", id);
+    eventPublisher.publishEvent(new LayerChangedEvent(id));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -176,8 +177,8 @@ public class LayerStore {
   }
 
   private static void validateLayer(Layer layer) {
-    if (layer.getName() == null || layer.getName().isBlank()) {
-      throw new IllegalArgumentException("Layer name must not be blank.");
+    if (layer.getEffectiveId() == null || layer.getEffectiveId().isBlank()) {
+      throw new IllegalArgumentException("Layer id must not be blank.");
     }
     if (layer.getSourceType() != Layer.SourceType.LOCAL
         && (layer.getUrlTemplate() == null || layer.getUrlTemplate().isBlank())) {

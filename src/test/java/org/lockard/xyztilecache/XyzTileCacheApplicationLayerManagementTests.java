@@ -1,6 +1,7 @@
 package org.lockard.xyztilecache;
 
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import java.io.File;
@@ -12,19 +13,29 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 class XyzTileCacheApplicationLayerManagementTests {
 
-  static final String ADMIN_KEY = "test-secret";
-
   @TempDir static File tileDir;
+
+  static RequestPostProcessor adminJwt() {
+    return jwt()
+        .jwt(j -> j.subject("alice").claim("preferred_username", "alice"))
+        .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"));
+  }
+
+  static RequestPostProcessor nonAdminJwt() {
+    return jwt().jwt(j -> j.subject("dan").claim("preferred_username", "dan"));
+  }
 
   @RegisterExtension
   static WireMockExtension wireMock =
@@ -35,7 +46,6 @@ class XyzTileCacheApplicationLayerManagementTests {
   @DynamicPropertySource
   static void testProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
-    registry.add("xyz.adminKey", () -> ADMIN_KEY);
     registry.add(
         "xyz.layers",
         () -> {
@@ -49,7 +59,7 @@ class XyzTileCacheApplicationLayerManagementTests {
   // ── Auth tests ────────────────────────────────────────────────────────────
 
   @Test
-  void postLayerWithoutKey_returns401(@Autowired MockMvc mvc) throws Exception {
+  void postLayerWithoutJwt_returns401(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post("/layers")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -58,13 +68,13 @@ class XyzTileCacheApplicationLayerManagementTests {
   }
 
   @Test
-  void postLayerWithWrongKey_returns401(@Autowired MockMvc mvc) throws Exception {
+  void postLayerWithNonAdminJwt_returns403(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post("/layers")
-                .header(AdminKeyInterceptor.HEADER, "wrong")
+                .with(nonAdminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"x\",\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
-        .andExpect(MockMvcResultMatchers.status().isUnauthorized());
+        .andExpect(MockMvcResultMatchers.status().isForbidden());
   }
 
   // ── Layer CRUD tests ──────────────────────────────────────────────────────
@@ -73,7 +83,7 @@ class XyzTileCacheApplicationLayerManagementTests {
   void addLayer_returns201AndAppearsInGetLayers(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post("/layers")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"added\",\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
         .andExpect(MockMvcResultMatchers.status().isCreated())
@@ -88,7 +98,7 @@ class XyzTileCacheApplicationLayerManagementTests {
   void addDuplicateLayer_returns409(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post("/layers")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"name\":\"existing\",\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
@@ -99,7 +109,7 @@ class XyzTileCacheApplicationLayerManagementTests {
   void updateLayer_returns200WithUpdatedLayer(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.put("/layers/existing")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"name\":\"existing\",\"urlTemplate\":\"https://updated.co/{z}/{x}/{y}.png\",\"maxZoom\":12}"))
@@ -111,7 +121,7 @@ class XyzTileCacheApplicationLayerManagementTests {
   void updateUnknownLayer_returns404(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.put("/layers/no-such-layer")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"name\":\"no-such-layer\",\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
@@ -123,15 +133,13 @@ class XyzTileCacheApplicationLayerManagementTests {
     // Add a layer to delete so we don't remove "existing" from other tests
     mvc.perform(
             MockMvcRequestBuilders.post("/layers")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"name\":\"to-delete\",\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
         .andExpect(MockMvcResultMatchers.status().isCreated());
 
-    mvc.perform(
-            MockMvcRequestBuilders.delete("/layers/to-delete")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY))
+    mvc.perform(MockMvcRequestBuilders.delete("/layers/to-delete").with(adminJwt()))
         .andExpect(MockMvcResultMatchers.status().isNoContent());
 
     mvc.perform(MockMvcRequestBuilders.get("/layers"))
@@ -140,9 +148,7 @@ class XyzTileCacheApplicationLayerManagementTests {
 
   @Test
   void deleteUnknownLayer_returns404(@Autowired MockMvc mvc) throws Exception {
-    mvc.perform(
-            MockMvcRequestBuilders.delete("/layers/ghost")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY))
+    mvc.perform(MockMvcRequestBuilders.delete("/layers/ghost").with(adminJwt()))
         .andExpect(MockMvcResultMatchers.status().isNotFound());
   }
 

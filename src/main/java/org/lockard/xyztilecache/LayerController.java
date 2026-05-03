@@ -2,6 +2,7 @@ package org.lockard.xyztilecache;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.List;
 import java.util.NoSuchElementException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +10,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,17 +29,27 @@ class LayerController {
 
   private final XyzConfiguration configuration;
   private final LayerStore layerStore;
+  private final LayerAccessService layerAccessService;
 
-  LayerController(XyzConfiguration configuration, LayerStore layerStore) {
+  LayerController(
+      XyzConfiguration configuration,
+      LayerStore layerStore,
+      LayerAccessService layerAccessService) {
     this.configuration = configuration;
     this.layerStore = layerStore;
+    this.layerAccessService = layerAccessService;
   }
 
   @GetMapping
   ResponseEntity<Collection<Layer>> list() {
     HttpHeaders headers = new HttpHeaders();
     headers.add("Access-Control-Allow-Origin", "*");
-    return new ResponseEntity<>(configuration.getLayers().values(), headers, HttpStatus.OK);
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    List<Layer> visible =
+        configuration.getLayers().values().stream()
+            .filter(l -> layerAccessService.canRead(l, auth))
+            .toList();
+    return new ResponseEntity<>(visible, headers, HttpStatus.OK);
   }
 
   @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -46,36 +59,36 @@ class LayerController {
     } catch (IllegalArgumentException e) {
       return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
     } catch (IOException e) {
-      LOGGER.error("Failed to persist layer '{}'.", layer.getName(), e);
+      LOGGER.error("Failed to persist layer '{}'.", layer.getEffectiveId(), e);
       return ResponseEntity.internalServerError().body("Failed to persist layer.");
     }
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(configuration.getLayers().get(layer.getName()));
+        .body(configuration.getLayers().get(layer.getEffectiveId()));
   }
 
-  @PutMapping(value = "/{name}", consumes = MediaType.APPLICATION_JSON_VALUE)
-  ResponseEntity<?> update(@PathVariable("name") String name, @RequestBody Layer layer) {
+  @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
+  ResponseEntity<?> update(@PathVariable("id") String id, @RequestBody Layer layer) {
     try {
-      layerStore.updateLayer(name, layer);
+      layerStore.updateLayer(id, layer);
     } catch (IllegalArgumentException e) {
       return ResponseEntity.badRequest().body(e.getMessage());
     } catch (NoSuchElementException e) {
       return ResponseEntity.notFound().build();
     } catch (IOException e) {
-      LOGGER.error("Failed to persist update for layer '{}'.", name, e);
+      LOGGER.error("Failed to persist update for layer '{}'.", id, e);
       return ResponseEntity.internalServerError().body("Failed to persist layer.");
     }
-    return ResponseEntity.ok(configuration.getLayers().get(name));
+    return ResponseEntity.ok(configuration.getLayers().get(id));
   }
 
-  @DeleteMapping("/{name}")
-  ResponseEntity<?> delete(@PathVariable("name") String name) {
+  @DeleteMapping("/{id}")
+  ResponseEntity<?> delete(@PathVariable("id") String id) {
     try {
-      layerStore.removeLayer(name);
+      layerStore.removeLayer(id);
     } catch (NoSuchElementException e) {
       return ResponseEntity.notFound().build();
     } catch (IOException e) {
-      LOGGER.error("Failed to persist removal of layer '{}'.", name, e);
+      LOGGER.error("Failed to persist removal of layer '{}'.", id, e);
       return ResponseEntity.internalServerError().body("Failed to persist layer removal.");
     }
     return ResponseEntity.noContent().build();

@@ -12,6 +12,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,23 +31,29 @@ public class PreloadController {
   private final PreloadService preloadService;
   private final PreloadStore preloadStore;
   private final VectorConfiguration vectorConfiguration;
+  private final LayerAccessService layerAccessService;
 
   public PreloadController(
       PreloadService preloadService,
       PreloadStore preloadStore,
-      VectorConfiguration vectorConfiguration) {
+      VectorConfiguration vectorConfiguration,
+      LayerAccessService layerAccessService) {
     this.preloadService = preloadService;
     this.preloadStore = preloadStore;
     this.vectorConfiguration = vectorConfiguration;
+    this.layerAccessService = layerAccessService;
   }
 
   @GetMapping
   public ResponseEntity<List<PreloadInfo>> list() {
     HttpHeaders headers = new HttpHeaders();
     headers.add("Access-Control-Allow-Origin", "*");
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     List<PreloadInfo> infos = new ArrayList<>();
     for (Preload p : preloadStore.listPreloads()) {
-      infos.add(toInfo(p));
+      if (layerAccessService.canViewPreload(p, auth)) {
+        infos.add(toInfo(p));
+      }
     }
     return new ResponseEntity<>(infos, headers, HttpStatus.OK);
   }
@@ -62,7 +70,9 @@ public class PreloadController {
               request.getBoundingBox(),
               request.getMaxZoom(),
               request.getLayers(),
-              request.isIncludeVector());
+              request.isIncludeVector(),
+              request.getAllowedUsers(),
+              request.getAllowedGroups());
       if (preload == null) {
         return ResponseEntity.badRequest().body("No valid layers selected.");
       }
@@ -111,6 +121,8 @@ public class PreloadController {
         p.isIncludesVector(),
         p.getPmtilesFilename(),
         p.getCreatedAt(),
-        sizeBytes);
+        sizeBytes,
+        p.getAllowedUsers(),
+        p.getAllowedGroups());
   }
 }

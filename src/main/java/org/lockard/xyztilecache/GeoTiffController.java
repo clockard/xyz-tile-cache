@@ -4,11 +4,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.List;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,7 +35,10 @@ class GeoTiffController {
 
   @PostMapping(value = "/layers/geotiff", consumes = "multipart/form-data")
   ResponseEntity<?> uploadGeoTiff(
-      @RequestParam("name") String rawName, @RequestParam("file") MultipartFile file) {
+      @RequestParam("name") String rawName,
+      @RequestParam("file") MultipartFile file,
+      @Nullable @RequestParam(value = "allowedUsers", required = false) String allowedUsersRaw,
+      @Nullable @RequestParam(value = "allowedGroups", required = false) String allowedGroupsRaw) {
     String name = rawName == null ? "" : rawName.trim();
     if (!SAFE_NAME.matcher(name).matches()) {
       return ResponseEntity.badRequest()
@@ -83,9 +89,12 @@ class GeoTiffController {
     }
 
     Layer layer = new Layer();
+    layer.setId(name);
     layer.setName(name);
     layer.setSourceType(Layer.SourceType.LOCAL);
     layer.setMaxZoom(tilingResult.maxZoom());
+    layer.setAllowedUsers(parseCommaSeparated(allowedUsersRaw));
+    layer.setAllowedGroups(parseCommaSeparated(allowedGroupsRaw));
 
     try {
       layerStore.addLayer(layer);
@@ -104,6 +113,11 @@ class GeoTiffController {
       registered.setCachedTilesSize(tilingResult.totalBytes());
     }
     return ResponseEntity.status(HttpStatus.CREATED).body(registered);
+  }
+
+  private static List<String> parseCommaSeparated(@Nullable String raw) {
+    if (raw == null || raw.isBlank()) return List.of();
+    return Arrays.stream(raw.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
   }
 
   private static void deleteRecursively(Path root) {

@@ -61,7 +61,13 @@ public class VectorTileController {
     }
     try {
       preloadService.submit(
-          request.getName(), request.getBoundingBox(), request.getMaxZoom(), Set.of(), true);
+          request.getName(),
+          request.getBoundingBox(),
+          request.getMaxZoom(),
+          Set.of(),
+          true,
+          null,
+          null);
     } catch (IllegalArgumentException e) {
       return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(e.getMessage());
     } catch (IllegalStateException e) {

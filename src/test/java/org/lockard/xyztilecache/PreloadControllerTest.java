@@ -1,6 +1,7 @@
 package org.lockard.xyztilecache;
 
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -17,17 +18,27 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 class PreloadControllerTest {
 
-  static final String ADMIN_KEY = "test-secret";
-
   @TempDir static File tileDir;
+
+  static RequestPostProcessor adminJwt() {
+    return jwt()
+        .jwt(j -> j.subject("alice").claim("preferred_username", "alice"))
+        .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"));
+  }
+
+  static RequestPostProcessor userJwt(String username) {
+    return jwt().jwt(j -> j.subject(username).claim("preferred_username", username));
+  }
 
   @RegisterExtension
   static WireMockExtension wireMock =
@@ -38,7 +49,6 @@ class PreloadControllerTest {
   @DynamicPropertySource
   static void testProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
-    registry.add("xyz.adminKey", () -> ADMIN_KEY);
     registry.add(
         "xyz.layers",
         () -> {
@@ -60,7 +70,7 @@ class PreloadControllerTest {
   // ── Auth ───────────────────────────────────────────────────────────────────
 
   @Test
-  void postPreloadWithoutAdminKey_returns401(@Autowired MockMvc mvc) throws Exception {
+  void postPreloadWithoutJwt_returns401(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             post("/preloads")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -77,7 +87,7 @@ class PreloadControllerTest {
   void postPreloadWithoutBoundingBox_returns400(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             post("/preloads")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"maxZoom\":2,\"layers\":[\"test\"]}"))
         .andExpect(status().isBadRequest());
@@ -87,7 +97,7 @@ class PreloadControllerTest {
   void postPreloadWithUnknownLayerAndNoVector_returns400(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             post("/preloads")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"boundingBox\":"
@@ -102,7 +112,7 @@ class PreloadControllerTest {
   void postPreload_returns202_andAppearsInList(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             post("/preloads")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"name\":\"area-1\",\"boundingBox\":"
@@ -117,11 +127,37 @@ class PreloadControllerTest {
         .andExpect(jsonPath("$[?(@.name=='area-1')]").exists());
   }
 
+  // ── ACL filtering ──────────────────────────────────────────────────────────
+
+  @Test
+  void restrictedPreload_hiddenFromOtherUsers(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(
+            post("/preloads")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"restricted-acl\",\"boundingBox\":"
+                        + validBboxJson()
+                        + ",\"maxZoom\":2,\"layers\":[\"test\"],"
+                        + "\"allowedUsers\":[\"alice\"]}"))
+        .andExpect(status().isAccepted());
+
+    // admin (alice) sees it
+    mvc.perform(get("/preloads").with(adminJwt()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[?(@.name=='restricted-acl')]").exists());
+
+    // different user (bob) does not
+    mvc.perform(get("/preloads").with(userJwt("bob")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[?(@.name=='restricted-acl')]").doesNotExist());
+  }
+
   // ── Delete ─────────────────────────────────────────────────────────────────
 
   @Test
   void deleteUnknownPreload_returns404(@Autowired MockMvc mvc) throws Exception {
-    mvc.perform(delete("/preloads/does-not-exist").header(AdminKeyInterceptor.HEADER, ADMIN_KEY))
+    mvc.perform(delete("/preloads/does-not-exist").with(adminJwt()))
         .andExpect(status().isNotFound());
   }
 
@@ -130,7 +166,7 @@ class PreloadControllerTest {
     String body =
         mvc.perform(
                 post("/preloads")
-                    .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                    .with(adminJwt())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(
                         "{\"name\":\"deletable\",\"boundingBox\":"
@@ -143,7 +179,6 @@ class PreloadControllerTest {
 
     String id = body.replaceAll(".*\"id\":\"([^\"]+)\".*", "$1");
 
-    mvc.perform(delete("/preloads/" + id).header(AdminKeyInterceptor.HEADER, ADMIN_KEY))
-        .andExpect(status().isNoContent());
+    mvc.perform(delete("/preloads/" + id).with(adminJwt())).andExpect(status().isNoContent());
   }
 }

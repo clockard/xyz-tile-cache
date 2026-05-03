@@ -2,6 +2,7 @@ package org.lockard.xyztilecache;
 
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import java.io.File;
@@ -14,20 +15,30 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 class VectorTileControllerTest {
 
-  static final String ADMIN_KEY = "vector-test-key";
-
   @TempDir static File tileDir;
   @TempDir static File vectorDir;
+
+  static RequestPostProcessor adminJwt() {
+    return jwt()
+        .jwt(j -> j.subject("alice").claim("preferred_username", "alice"))
+        .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"));
+  }
+
+  static RequestPostProcessor nonAdminJwt() {
+    return jwt().jwt(j -> j.subject("dan").claim("preferred_username", "dan"));
+  }
 
   @RegisterExtension
   static WireMockExtension wireMock =
@@ -38,7 +49,6 @@ class VectorTileControllerTest {
   @DynamicPropertySource
   static void testProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
-    registry.add("xyz.adminKey", () -> ADMIN_KEY);
     registry.add("xyz.layers", () -> List.of());
     URL fixture =
         VectorTileControllerTest.class.getClassLoader().getResource("test_fixture_1.pmtiles");
@@ -84,7 +94,7 @@ class VectorTileControllerTest {
   // ── POST /vector/preload ──────────────────────────────────────────────────
 
   @Test
-  void postPreload_withoutAdminKey_returns401(@Autowired MockMvc mvc) throws Exception {
+  void postPreload_withoutJwt_returns401(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post("/vector/preload")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -94,23 +104,23 @@ class VectorTileControllerTest {
   }
 
   @Test
-  void postPreload_withWrongKey_returns401(@Autowired MockMvc mvc) throws Exception {
+  void postPreload_withNonAdminJwt_returns403(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post("/vector/preload")
-                .header(AdminKeyInterceptor.HEADER, "wrong-key")
+                .with(nonAdminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"boundingBox\":{\"north\":41,\"south\":40,\"east\":-73,\"west\":-74},\"maxZoom\":10}"))
-        .andExpect(MockMvcResultMatchers.status().isUnauthorized());
+        .andExpect(MockMvcResultMatchers.status().isForbidden());
   }
 
   @Test
-  void postPreload_withAdminKey_returns202(@Autowired MockMvc mvc) throws Exception {
+  void postPreload_withAdminJwt_returns202(@Autowired MockMvc mvc) throws Exception {
     // 202 Accepted: download starts asynchronously (pmtiles CLI will fail, but that's OK for this
     // test)
     mvc.perform(
             MockMvcRequestBuilders.post("/vector/preload")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"boundingBox\":{\"north\":41,\"south\":40,\"east\":-73,\"west\":-74},\"maxZoom\":5}"))
@@ -121,7 +131,7 @@ class VectorTileControllerTest {
   void postPreload_missingBoundingBox_returns400(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post("/vector/preload")
-                .header(AdminKeyInterceptor.HEADER, ADMIN_KEY)
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"maxZoom\":10}"))
         .andExpect(MockMvcResultMatchers.status().isBadRequest());

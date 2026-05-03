@@ -33,7 +33,6 @@ class VectorTileGzipControllerTest {
   @DynamicPropertySource
   static void testProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
-    registry.add("xyz.adminKey", () -> "test-key");
     registry.add("xyz.layers", () -> List.of());
     URL fixture =
         VectorTileGzipControllerTest.class

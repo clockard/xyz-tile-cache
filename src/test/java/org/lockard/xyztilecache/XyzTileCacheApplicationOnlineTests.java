@@ -5,6 +5,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.notFound;
 import static com.github.tomakehurst.wiremock.client.WireMock.ok;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
@@ -19,10 +20,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
 @SpringBootTest
@@ -30,6 +33,12 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 class XyzTileCacheApplicationOnlineTests {
 
   @TempDir static File tileDir;
+
+  static RequestPostProcessor adminJwt() {
+    return jwt()
+        .jwt(j -> j.subject("alice").claim("preferred_username", "alice"))
+        .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"));
+  }
 
   @RegisterExtension
   static WireMockExtension wireMock =
@@ -121,6 +130,7 @@ class XyzTileCacheApplicationOnlineTests {
             + "\"maxZoom\":0,\"preCache\":false}}";
     mvc.perform(
             MockMvcRequestBuilders.post("/preload")
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
         .andExpect(MockMvcResultMatchers.status().isOk());
@@ -134,6 +144,7 @@ class XyzTileCacheApplicationOnlineTests {
             + "\"maxZoom\":0,\"preCache\":false}}";
     mvc.perform(
             MockMvcRequestBuilders.post("/preload")
+                .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
         .andExpect(MockMvcResultMatchers.status().isOk());

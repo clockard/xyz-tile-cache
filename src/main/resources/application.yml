@@ -6,22 +6,38 @@ spring:
     multipart:
       max-file-size: 2GB
       max-request-size: 2GB
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Set KEYCLOAK_ISSUER_URI when running in xyz.auth.mode=jwt; leave empty for token mode.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:}
 
 xyz:
+  auth:
+    mode: jwt                   # jwt | token. token = single static admin token (no Keycloak)
+    adminToken: ""              # used when mode=token; presented as Authorization: Bearer <token>
+    clientId: xyz-tile-cache    # OAuth2 client id reported to the UI (jwt mode)
   baseTileDirectory: "/tmp/tiles"
   minFreeDiskBytes: 1073741824  # Stop caching tiles when free disk space drops below this (default 1 GB)
   offline: false
   tileTimeoutSeconds: 5
   layerSyncSeconds: 10          # How often to check for layer changes from other instances (seconds)
-  adminKey: "xyz-admin"         # Set to a secret value to enable layer write operations (POST/PUT/DELETE /layers)
+  uiEnabled: true               # Set to false to disable the web UI (all UI paths return 404)
+  adminRole: admin              # Keycloak realm role required for write operations
   layers:
+    # Each layer requires an "id" (used in tile URLs/API paths) and a "name" (shown in the UI).
+    # For backward compatibility, if "id" is omitted the value of "name" is used as the id.
+
     # WMTS RESTful style
-    - name: "topo"
+    - id: "topo"
+      name: "USGS Topo (ArcGIS)"
       sourceType: WMTS_REST
       urlTemplate: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/WMTS/tile/1.0.0/USGSTopo/default/GoogleMapsCompatible/{TileMatrix}/{TileRow}/{TileCol}"
 
     # WMTS KVP (query-parameter) style
-    - name: "imagery-wmts"
+    - id: "imagery-wmts"
+      name: "World Imagery (WMTS)"
       sourceType: WMTS_KVP
       urlTemplate: "https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/WMTS"
       wmtsLayerName: "World_Imagery"
@@ -29,7 +45,8 @@ xyz:
       wmtsStyle: "default"
       wmtsFormat: "image/png"
 
-    - name: "accu-weather"
+    - id: "accu-weather-legacy"
+      name: "AccuWeather Radar (legacy)"
       sourceType: XYZ
       urlTemplate: 'https://api.accuweather.com/maps/v1/radar/globalSIR/zxy/{time}/{z}/{x}/{y}.png?apikey=de13920f574d420984d3080b1fa6132b'
       timeFormat: "yyyy-MM-dd'T'HH:mm:ss'Z'"
@@ -38,7 +55,8 @@ xyz:
 
     # ─── XYZ: Streets & General ────────────────────────────────────────────────
 
-    - name: "osm"
+    - id: "osm"
+      name: "OpenStreetMap"
       sourceType: XYZ
       maxZoom: 19
       attribution: "© OpenStreetMap contributors"
@@ -46,26 +64,30 @@ xyz:
       # Heavy usage requires compliance with OSM tile policy:
       # https://operations.osmfoundation.org/policies/tiles/
 
-    - name: "osm-us"
+    - id: "osm-us"
+      name: "OpenStreetMap (US)"
       urlTemplate: "https://osmap.a.tile.mapcdn.net/en/map/v1/{z}/{x}/{y}.png"
       attribution: "© OpenStreetMap contributors"
       maxZoom: 19
       headers:
         Referer: "https://www.osmap.us/"
 
-    - name: "carto-light"
+    - id: "carto-light"
+      name: "Carto Light"
       sourceType: XYZ
       maxZoom: 20
       attribution: "© OpenStreetMap contributors © CARTO"
       urlTemplate: "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
 
-    - name: "carto-dark"
+    - id: "carto-dark"
+      name: "Carto Dark"
       sourceType: XYZ
       maxZoom: 20
       attribution: "© OpenStreetMap contributors © CARTO"
       urlTemplate: "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 
-    - name: "carto-voyager"
+    - id: "carto-voyager"
+      name: "Carto Voyager"
       sourceType: XYZ
       maxZoom: 20
       attribution: "© OpenStreetMap contributors © CARTO"
@@ -73,7 +95,8 @@ xyz:
 
     # ─── XYZ: Satellite / Aerial ───────────────────────────────────────────────
 
-    - name: "esri-satellite"
+    - id: "esri-satellite"
+      name: "ESRI World Imagery"
       sourceType: XYZ
       maxZoom: 19
       # Zoom 20-22 exists in limited high-resolution areas but returns blank
@@ -81,7 +104,8 @@ xyz:
       attribution: "Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
       urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 
-    - name: "esri-satellite-labels"
+    - id: "esri-satellite-labels"
+      name: "ESRI World Imagery Labels"
       sourceType: XYZ
       maxZoom: 19
       attribution: "Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS user community"
@@ -90,7 +114,8 @@ xyz:
 
     # ─── XYZ: Topo & Terrain ───────────────────────────────────────────────────
 
-    - name: "opentopomap"
+    - id: "opentopomap"
+      name: "OpenTopoMap"
       sourceType: XYZ
       maxZoom: 17
       # Tiles at z16-17 exist but can be unreliable in sparse coverage areas.
@@ -98,26 +123,30 @@ xyz:
       attribution: "© OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)"
       urlTemplate: "https://tile.opentopomap.org/{z}/{x}/{y}.png"
 
-    - name: "esri-topo"
+    - id: "esri-topo"
+      name: "ESRI World Topo"
       sourceType: XYZ
       maxZoom: 19
       attribution: "Tiles © Esri — Esri, HERE, Garmin, Intermap, increment P Corp., GEBCO, USGS, FAO, NPS, NRCAN, GeoBase, IGN, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community"
       urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
 
-    - name: "esri-natgeo"
+    - id: "esri-natgeo"
+      name: "ESRI National Geographic"
       sourceType: XYZ
       maxZoom: 16
       attribution: "Tiles © Esri — National Geographic, Esri, HERE, Garmin, Intermap, INCREMENTP, NRCan, Esri Japan, METI, Esri China (Hong Kong), Esri Korea, Esri (Thailand), NGCC, © OpenStreetMap contributors, and the GIS User Community"
       urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}"
 
-    - name: "esri-relief"
+    - id: "esri-relief"
+      name: "ESRI Shaded Relief"
       sourceType: XYZ
       maxZoom: 13
       attribution: "Tiles © Esri — Source: Esri"
       urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}"
       # Hillshade only — good as a base layer under vector overlays.
 
-    - name: "esri-physical"
+    - id: "esri-physical"
+      name: "ESRI Physical Map"
       sourceType: XYZ
       maxZoom: 8
       attribution: "Tiles © Esri — Source: US National Park Service"
@@ -126,13 +155,15 @@ xyz:
 
     # ─── XYZ: Ocean & Nautical ─────────────────────────────────────────────────
 
-    - name: "esri-ocean"
+    - id: "esri-ocean"
+      name: "ESRI Ocean Base"
       sourceType: XYZ
       maxZoom: 13
       attribution: "Tiles © Esri — Sources: GEBCO, NOAA, CHS, OSU, UNH, CSUMB, National Geographic, DeLorme, NAVTEQ, and Esri"
       urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}"
 
-    - name: "esri-ocean-reference"
+    - id: "esri-ocean-reference"
+      name: "ESRI Ocean Reference"
       sourceType: XYZ
       maxZoom: 13
       attribution: "Tiles © Esri — Sources: Esri, HERE, Garmin, Intermap, increment P Corp., GEBCO, USGS, FAO, NPS, NRCAN, GeoBase, IGN, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community"
@@ -141,31 +172,36 @@ xyz:
 
     # ─── WMTS REST: USGS National Map (US coverage only) ───────────────────────
 
-    - name: "usgs-topo"
+    - id: "usgs-topo"
+      name: "USGS Topo"
       sourceType: WMTS_REST
       maxZoom: 17
       attribution: "USGS The National Map: National Boundaries Dataset, 3DEP Elevation Program, Geographic Names Information System, National Hydrography Dataset, National Land Cover Database, National Structures Dataset, and National Transportation Dataset"
       urlTemplate: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/WMTS/tile/1.0.0/USGSTopo/default/GoogleMapsCompatible/{TileMatrix}/{TileRow}/{TileCol}"
 
-    - name: "usgs-imagery"
+    - id: "usgs-imagery"
+      name: "USGS Imagery"
       sourceType: WMTS_REST
       maxZoom: 16
       attribution: "USGS The National Map: Orthoimagery. Data refreshed annually."
       urlTemplate: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/WMTS/tile/1.0.0/USGSImageryOnly/default/GoogleMapsCompatible/{TileMatrix}/{TileRow}/{TileCol}"
 
-    - name: "usgs-imagery-topo"
+    - id: "usgs-imagery-topo"
+      name: "USGS Imagery + Topo"
       sourceType: WMTS_REST
       maxZoom: 17
       attribution: "USGS The National Map: Orthoimagery and US Topo"
       urlTemplate: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/WMTS/tile/1.0.0/USGSImageryTopo/default/GoogleMapsCompatible/{TileMatrix}/{TileRow}/{TileCol}"
 
-    - name: "usgs-hydro"
+    - id: "usgs-hydro"
+      name: "USGS Hydro"
       sourceType: WMTS_REST
       maxZoom: 16
       attribution: "USGS The National Map: National Hydrography Dataset"
       urlTemplate: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSHydroCached/MapServer/WMTS/tile/1.0.0/USGSHydroCached/default/GoogleMapsCompatible/{TileMatrix}/{TileRow}/{TileCol}"
 
-    - name: "usgs-shaded-relief"
+    - id: "usgs-shaded-relief"
+      name: "USGS Shaded Relief"
       sourceType: WMTS_REST
       maxZoom: 13
       attribution: "USGS The National Map: 3DEP Elevation Program"
@@ -175,7 +211,8 @@ xyz:
     # All NASA GIBS layers are public domain — no attribution legally required
     # but crediting NASA/GIBS is strongly encouraged per their data use policy.
 
-    - name: "nasa-blue-marble"
+    - id: "nasa-blue-marble"
+      name: "NASA Blue Marble"
       sourceType: WMTS_KVP
       maxZoom: 8
       attribution: "Imagery provided by NASA GIBS (EOSDIS)"
@@ -185,7 +222,8 @@ xyz:
       wmtsStyle: "default"
       wmtsFormat: "image/jpeg"
 
-    - name: "nasa-terra-truecolor"
+    - id: "nasa-terra-truecolor"
+      name: "NASA Terra True Color"
       sourceType: WMTS_KVP
       maxZoom: 9
       attribution: "Imagery provided by NASA GIBS (EOSDIS) — MODIS/Terra"
@@ -198,7 +236,8 @@ xyz:
       timeFormat: "yyyy-MM-dd"
       tileExpirationMinutes: 1440
 
-    - name: "nasa-land-surface-temp"
+    - id: "nasa-land-surface-temp"
+      name: "NASA Land Surface Temp"
       sourceType: WMTS_KVP
       maxZoom: 7
       attribution: "Imagery provided by NASA GIBS (EOSDIS) — MODIS/Terra"
@@ -211,7 +250,8 @@ xyz:
       timeFormat: "yyyy-MM-dd"
       tileExpirationMinutes: 1440
 
-    - name: "nasa-snow-ice"
+    - id: "nasa-snow-ice"
+      name: "NASA Snow & Ice Cover"
       sourceType: WMTS_KVP
       maxZoom: 8
       attribution: "Imagery provided by NASA GIBS (EOSDIS) — MODIS/Terra"
@@ -225,14 +265,16 @@ xyz:
       tileExpirationMinutes: 1440
 
     # ─── Weather ───────────────────────────────────────────────────────────────
-    - name: "iem-nexrad-radar"
+    - id: "iem-nexrad-radar"
+      name: "IEM NEXRAD Radar"
       sourceType: XYZ
       maxZoom: 8
       attribution: "Iowa State University Environmental Mesonet / NOAA NWS"
       urlTemplate: "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png"
       tileExpirationMinutes: 5
 
-    - name: "accu-weather"
+    - id: "accu-weather"
+      name: "AccuWeather Radar"
       sourceType: XYZ
       maxZoom: 7
       attribution: "© AccuWeather"
@@ -245,7 +287,8 @@ xyz:
   vector:
     bundledPath: "${xyz.baseTileDirectory}/vector/world_z0-7.pmtiles"
     downloadDirectory: "${xyz.baseTileDirectory}/vector"
-    sourceUrl: "https://build.protomaps.com/20260425.pmtiles"
+    # {date} is replaced with today's date (YYYYMMDD) at download time.
+    sourceUrl: "${PMTILES_SOURCE_URL:https://build.protomaps.com/{date}.pmtiles}"
     maxDownloadZoom: 15
     enabled: true
 

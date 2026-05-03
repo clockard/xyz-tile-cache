@@ -31,7 +31,7 @@ class StatsController {
     Collection<Layer> layers = configuration.getLayers().values();
     List<StatsResponse.LayerStats> layerStats =
         layers.stream()
-            .map(l -> new StatsResponse.LayerStats(l.getName(), l.getTilesServed()))
+            .map(l -> new StatsResponse.LayerStats(l.getEffectiveId(), l.getTilesServed()))
             .toList();
     long totalServed = layers.stream().mapToLong(Layer::getTilesServed).sum();
 

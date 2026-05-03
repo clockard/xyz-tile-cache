@@ -4,6 +4,7 @@ import com.google.common.cache.LoadingCache;
 import java.awt.Point;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -50,12 +51,24 @@ public class PreloadService {
    * IllegalArgumentException} if vector is requested without a configured download directory.
    */
   public Preload submit(
-      String name, BoundingBox boundingBox, int maxZoom, Set<String> layers, boolean includeVector)
+      String name,
+      BoundingBox boundingBox,
+      int maxZoom,
+      Set<String> layers,
+      boolean includeVector,
+      List<String> allowedUsers,
+      List<String> allowedGroups)
       throws IOException {
     if (includeVector) {
       String dir = vectorConfiguration.getDownloadDirectory();
       if (dir == null || dir.isBlank()) {
         throw new IllegalArgumentException("xyz.vector.downloadDirectory is not configured");
+      }
+      String sourceUrl = vectorConfiguration.getSourceUrl();
+      if (sourceUrl == null || sourceUrl.isBlank()) {
+        throw new IllegalArgumentException(
+            "xyz.vector.sourceUrl is not configured; set PMTILES_SOURCE_URL, e.g."
+                + " https://build.protomaps.com/{date}.pmtiles");
       }
       if (pmtilesDownloader.isDownloadInProgress()) {
         throw new IllegalStateException("A vector download is already in progress");
@@ -81,6 +94,10 @@ public class PreloadService {
     preload.setLayers(List.copyOf(validLayers));
     preload.setIncludesVector(includeVector);
     preload.setCreatedAt(Instant.now());
+    preload.setAllowedUsers(
+        allowedUsers == null ? new ArrayList<>() : new ArrayList<>(allowedUsers));
+    preload.setAllowedGroups(
+        allowedGroups == null ? new ArrayList<>() : new ArrayList<>(allowedGroups));
     if (includeVector) {
       preload.setPmtilesFilename(safeName(preload.getName()) + ".pmtiles");
     }

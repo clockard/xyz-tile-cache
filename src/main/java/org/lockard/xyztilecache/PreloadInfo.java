@@ -12,4 +12,6 @@ record PreloadInfo(
     boolean includesVector,
     String pmtilesFilename,
     Instant createdAt,
-    Long sizeBytes) {}
+    Long sizeBytes,
+    List<String> allowedUsers,
+    List<String> allowedGroups) {}

@@ -19,7 +19,11 @@ public class XyzConfiguration {
 
   private int layerSyncSeconds = 10;
 
-  private String adminKey = "";
+  private boolean uiEnabled = true;
+
+  private String adminRole = "admin";
+
+  private final Auth auth = new Auth();
 
   private final Map<String, Layer> layers = new ConcurrentHashMap<>();
 
@@ -49,13 +53,29 @@ public class XyzConfiguration {
     this.layerSyncSeconds = layerSyncSeconds;
   }
 
+  public boolean isUiEnabled() {
+    return uiEnabled;
+  }
+
+  public void setUiEnabled(boolean uiEnabled) {
+    this.uiEnabled = uiEnabled;
+  }
+
+  public String getAdminRole() {
+    return adminRole;
+  }
+
+  public void setAdminRole(String adminRole) {
+    this.adminRole = adminRole;
+  }
+
   public Map<String, Layer> getLayers() {
     return layers;
   }
 
   public void setLayers(List<Layer> layers) {
     this.layers.clear();
-    layers.forEach(l -> this.layers.put(l.getName(), l));
+    layers.forEach(l -> this.layers.put(l.getEffectiveId(), l));
   }
 
   public List<BoundingBox> getBoundingBoxes() {
@@ -82,11 +102,42 @@ public class XyzConfiguration {
     this.tileTimeoutSeconds = tileTimeoutSeconds;
   }
 
-  public String getAdminKey() {
-    return adminKey;
+  public Auth getAuth() {
+    return auth;
   }
 
-  public void setAdminKey(String adminKey) {
-    this.adminKey = adminKey;
+  public static class Auth {
+    public enum Mode {
+      JWT,
+      TOKEN
+    }
+
+    private Mode mode = Mode.JWT;
+    private String adminToken = "";
+    private String clientId = "xyz-tile-cache";
+
+    public Mode getMode() {
+      return mode;
+    }
+
+    public void setMode(Mode mode) {
+      this.mode = mode;
+    }
+
+    public String getAdminToken() {
+      return adminToken;
+    }
+
+    public void setAdminToken(String adminToken) {
+      this.adminToken = adminToken;
+    }
+
+    public String getClientId() {
+      return clientId;
+    }
+
+    public void setClientId(String clientId) {
+      this.clientId = clientId;
+    }
   }
 }

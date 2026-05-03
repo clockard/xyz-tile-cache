@@ -21,6 +21,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,14 +41,17 @@ public class XyzTileCacheApplication {
   private final XyzConfiguration configuration;
   private final LoadingCache<Tile, byte[]> tileCache;
   private final PreloadService preloadService;
+  private final LayerAccessService layerAccessService;
 
   public XyzTileCacheApplication(
       final XyzConfiguration configuration,
       final LoadingCache<Tile, byte[]> tileCache,
-      final PreloadService preloadService) {
+      final PreloadService preloadService,
+      final LayerAccessService layerAccessService) {
     this.configuration = configuration;
     this.tileCache = tileCache;
     this.preloadService = preloadService;
+    this.layerAccessService = layerAccessService;
   }
 
   public static void main(String[] args) {
@@ -84,6 +89,13 @@ public class XyzTileCacheApplication {
       return ResponseEntity.badRequest()
           .body(("Layer " + layerName + " not configured").getBytes());
     }
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (!layerAccessService.canRead(layer, auth)) {
+      if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+      }
+      return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
     if (z > layer.getMaxZoom()) {
       LOGGER.debug("Zoom {} exceeds maxZoom {} for layer {}", z, layer.getMaxZoom(), layerName);
       return ResponseEntity.notFound().build();
@@ -118,7 +130,9 @@ public class XyzTileCacheApplication {
           preloadRequest.getBoundingBox(),
           preloadRequest.getBoundingBox().getMaxZoom(),
           preloadRequest.getLayers(),
-          false);
+          false,
+          null,
+          null);
     } catch (java.io.IOException e) {
       LOGGER.error("Failed to persist preload", e);
       return ResponseEntity.internalServerError().body("Failed to persist preload.");
@@ -145,7 +159,7 @@ public class XyzTileCacheApplication {
 
   @EventListener
   void onLayerChanged(LayerChangedEvent event) {
-    tileCache.asMap().keySet().removeIf(t -> t.layer().getName().equals(event.layerName()));
+    tileCache.asMap().keySet().removeIf(t -> t.layer().getEffectiveId().equals(event.layerName()));
   }
 
   // ── Bounding-box preload ──────────────────────────────────────────────────

@@ -2,7 +2,9 @@ package org.lockard.xyztilecache;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -39,6 +41,8 @@ public class Layer {
 
   private String attribution;
 
+  private String id;
+
   private String name;
 
   private String urlTemplate;
@@ -53,12 +57,30 @@ public class Layer {
 
   private Map<String, String> headers = new HashMap<>();
 
+  private List<String> allowedUsers = new ArrayList<>();
+
+  private List<String> allowedGroups = new ArrayList<>();
+
+  public String getId() {
+    return id;
+  }
+
+  public void setId(String id) {
+    this.id = id;
+  }
+
   public String getName() {
     return name;
   }
 
   public void setName(String name) {
     this.name = name;
+  }
+
+  /** Returns the identifier used in URLs and as map key. Falls back to name for backward compat. */
+  @JsonIgnore
+  public String getEffectiveId() {
+    return (id != null && !id.isBlank()) ? id : name;
   }
 
   public String getUrlTemplate() {
@@ -198,6 +220,27 @@ public class Layer {
     this.headers = headers;
   }
 
+  public List<String> getAllowedUsers() {
+    return allowedUsers;
+  }
+
+  public void setAllowedUsers(List<String> allowedUsers) {
+    this.allowedUsers = allowedUsers == null ? new ArrayList<>() : allowedUsers;
+  }
+
+  public List<String> getAllowedGroups() {
+    return allowedGroups;
+  }
+
+  public void setAllowedGroups(List<String> allowedGroups) {
+    this.allowedGroups = allowedGroups == null ? new ArrayList<>() : allowedGroups;
+  }
+
+  @JsonIgnore
+  public boolean isPublic() {
+    return allowedUsers.isEmpty() && allowedGroups.isEmpty();
+  }
+
   private record Block(Layer layer, long start, long duration) {
     private static final int DEFAULT_BLOCK_MS = 100;
 
@@ -256,6 +299,6 @@ public class Layer {
 
   @Override
   public String toString() {
-    return name;
+    return getEffectiveId();
   }
 }

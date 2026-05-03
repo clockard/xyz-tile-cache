@@ -1,5 +1,6 @@
 package org.lockard.xyztilecache;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -16,6 +17,8 @@ public class Preload {
   private boolean includesVector;
   private String pmtilesFilename;
   private Instant createdAt;
+  private List<String> allowedUsers = new ArrayList<>();
+  private List<String> allowedGroups = new ArrayList<>();
 
   public String getId() {
     return id;
@@ -79,5 +82,26 @@ public class Preload {
 
   public void setCreatedAt(Instant createdAt) {
     this.createdAt = createdAt;
+  }
+
+  public List<String> getAllowedUsers() {
+    return allowedUsers;
+  }
+
+  public void setAllowedUsers(List<String> allowedUsers) {
+    this.allowedUsers = allowedUsers == null ? new ArrayList<>() : allowedUsers;
+  }
+
+  public List<String> getAllowedGroups() {
+    return allowedGroups;
+  }
+
+  public void setAllowedGroups(List<String> allowedGroups) {
+    this.allowedGroups = allowedGroups == null ? new ArrayList<>() : allowedGroups;
+  }
+
+  @JsonIgnore
+  public boolean isPublic() {
+    return allowedUsers.isEmpty() && allowedGroups.isEmpty();
   }
 }

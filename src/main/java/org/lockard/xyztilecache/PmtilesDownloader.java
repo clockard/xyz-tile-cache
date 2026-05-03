@@ -3,6 +3,8 @@ package org.lockard.xyztilecache;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -56,6 +58,11 @@ public class PmtilesDownloader {
       return;
     }
 
+    LOGGER.info(
+        "Starting pmtiles extract: source={} output={}",
+        resolveSourceUrl(config.getSourceUrl()),
+        outputPath);
+
     Process process;
     try {
       process = buildProcess(preload, outputPath).start();
@@ -106,15 +113,24 @@ public class PmtilesDownloader {
             bbox.getSouth(),
             bbox.getEast(),
             bbox.getNorth());
+    String sourceUrl = resolveSourceUrl(config.getSourceUrl());
     ProcessBuilder pb =
         new ProcessBuilder(
             "pmtiles",
             "extract",
-            config.getSourceUrl(),
+            sourceUrl,
             outputPath.toString(),
             "--bbox=" + bboxArg,
             "--maxzoom=" + preload.getMaxZoom());
     pb.redirectErrorStream(true);
     return pb;
+  }
+
+  static String resolveSourceUrl(String sourceUrl) {
+    if (sourceUrl == null || !sourceUrl.contains("{date}")) {
+      return sourceUrl;
+    }
+    String date = LocalDate.now().minusDays(1).format(DateTimeFormatter.BASIC_ISO_DATE);
+    return sourceUrl.replace("{date}", date);
   }
 }

@@ -31,7 +31,8 @@ public class TileWriter {
         .values()
         .forEach(
             layer -> {
-              Path tileDir = Paths.get(configuration.getBaseTileDirectory(), layer.getName());
+              Path tileDir =
+                  Paths.get(configuration.getBaseTileDirectory(), layer.getEffectiveId());
               try {
                 Files.createDirectories(tileDir);
                 try (var paths = Files.walk(tileDir)) {
@@ -40,7 +41,8 @@ public class TileWriter {
                       .forEach(f -> layer.addTileStats(f.toFile().length()));
                 }
               } catch (IOException e) {
-                LOGGER.error("Failed to inventory tile directory for {}.", layer.getName(), e);
+                LOGGER.error(
+                    "Failed to inventory tile directory for {}.", layer.getEffectiveId(), e);
               }
             });
   }
@@ -101,7 +103,7 @@ public class TileWriter {
   protected Path toPath(final Tile tile) {
     return Paths.get(
         configuration.getBaseTileDirectory(),
-        tile.layer().getName(),
+        tile.layer().getEffectiveId(),
         String.valueOf(tile.z()),
         String.valueOf(tile.x()),
         tile.y() + ".png");
