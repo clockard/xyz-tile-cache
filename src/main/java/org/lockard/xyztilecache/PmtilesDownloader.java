@@ -109,7 +109,8 @@ public class PmtilesDownloader {
   }
 
   protected ProcessBuilder buildProcess(Preload preload, Path outputPath) {
-    BoundingBox bbox = preload.getBoundingBox();
+    BoundingBox bbox = requireValidBoundingBox(preload.getBoundingBox());
+    int maxZoom = requireValidMaxZoom(preload.getMaxZoom());
     String bboxArg =
         String.format(
             Locale.US,
@@ -126,7 +127,7 @@ public class PmtilesDownloader {
             sourceUrl,
             safePathArg(outputPath.toAbsolutePath().normalize()),
             "--bbox=" + bboxArg,
-            "--maxzoom=" + preload.getMaxZoom());
+            "--maxzoom=" + maxZoom);
     pb.redirectErrorStream(true);
     return pb;
   }
@@ -137,6 +138,33 @@ public class PmtilesDownloader {
       throw new IllegalArgumentException("Path contains unsafe characters: " + s);
     }
     return s;
+  }
+
+  static BoundingBox requireValidBoundingBox(BoundingBox bbox) {
+    if (bbox == null) {
+      throw new IllegalArgumentException("boundingBox is required");
+    }
+    double west = bbox.getWest();
+    double south = bbox.getSouth();
+    double east = bbox.getEast();
+    double north = bbox.getNorth();
+    if (!Double.isFinite(west)
+        || !Double.isFinite(south)
+        || !Double.isFinite(east)
+        || !Double.isFinite(north)) {
+      throw new IllegalArgumentException("boundingBox contains non-finite values");
+    }
+    if (west < -180 || east > 180 || south < -90 || north > 90 || west >= east || south >= north) {
+      throw new IllegalArgumentException("boundingBox is out of range");
+    }
+    return bbox;
+  }
+
+  static int requireValidMaxZoom(int maxZoom) {
+    if (maxZoom < 0 || maxZoom > 22) {
+      throw new IllegalArgumentException("maxZoom out of supported range");
+    }
+    return maxZoom;
   }
 
   static String resolveSourceUrl(String sourceUrl) {
