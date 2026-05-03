@@ -23,12 +23,15 @@ public class GeoTiffTiler {
   private final String tileCommand;
   private final String infoCommand;
   private final String translateCommand;
+  private final XyzConfiguration configuration;
 
-  public GeoTiffTiler() {
-    this("gdal2tiles.py", "gdalinfo", "gdal_translate");
+  public GeoTiffTiler(XyzConfiguration configuration) {
+    this(configuration, "gdal2tiles.py", "gdalinfo", "gdal_translate");
   }
 
-  GeoTiffTiler(String tileCommand, String infoCommand, String translateCommand) {
+  GeoTiffTiler(
+      XyzConfiguration configuration, String tileCommand, String infoCommand, String translateCommand) {
+    this.configuration = configuration;
     this.tileCommand = tileCommand;
     this.infoCommand = infoCommand;
     this.translateCommand = translateCommand;
@@ -46,7 +49,7 @@ public class GeoTiffTiler {
    */
   public Result tile(Path input, Path outputDir) throws IOException, InterruptedException {
     Path safeInput = input.toAbsolutePath().normalize();
-    Path safeOutput = outputDir.toAbsolutePath().normalize();
+    Path safeOutput = validateTrustedOutputPath(outputDir);
     Files.createDirectories(safeOutput);
     Path tileInput = safeInput;
     Path vrt = null;
@@ -117,6 +120,7 @@ public class GeoTiffTiler {
   }
 
   private void runGdal2Tiles(Path input, Path outputDir) throws IOException, InterruptedException {
+    Path safeOutput = validateTrustedOutputPath(outputDir);
     List<String> cmd =
         List.of(
             tileCommand,
@@ -126,17 +130,18 @@ public class GeoTiffTiler {
             "--zoom=0-",
             "--processes=" + Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
             input.toAbsolutePath().normalize().toString(),
-            safePathArg(outputDir.toAbsolutePath().normalize()));
+            safeOutput.toString());
     LOGGER.info("Running {}.", String.join(" ", cmd));
     runOrThrow(cmd, "gdal2tiles.py");
   }
 
-  static String safePathArg(Path path) {
-    String s = path.toString();
-    if (!s.matches("[a-zA-Z0-9/._-]+")) {
-      throw new IllegalArgumentException("Path contains unsafe characters: " + s);
+  private Path validateTrustedOutputPath(Path outputDir) {
+    Path safeOutput = outputDir.toAbsolutePath().normalize();
+    Path baseDir = Path.of(configuration.getBaseTileDirectory()).toAbsolutePath().normalize();
+    if (!safeOutput.startsWith(baseDir)) {
+      throw new IllegalArgumentException("Output path is outside configured base directory: " + safeOutput);
     }
-    return s;
+    return safeOutput;
   }
 
   private static void runOrThrow(List<String> cmd, String label)
