@@ -217,6 +217,17 @@ class GeoTiffTilerTest {
         "");
   }
 
+  @Test
+  void safePathArg_acceptsSafePath() {
+    assertThat(GeoTiffTiler.safePathArg(Path.of("/tmp/safe-output"))).isEqualTo("/tmp/safe-output");
+  }
+
+  @Test
+  void safePathArg_rejectsUnsafeChars() {
+    assertThatThrownBy(() -> GeoTiffTiler.safePathArg(Path.of("/tmp/evil;rm -rf")))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
   private static boolean gdalAvailable() {
     try {
       Process p = new ProcessBuilder("gdal2tiles.py", "--help").redirectErrorStream(true).start();

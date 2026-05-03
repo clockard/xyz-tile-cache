@@ -124,11 +124,19 @@ public class PmtilesDownloader {
             "pmtiles",
             "extract",
             sourceUrl,
-            outputPath.toAbsolutePath().normalize().toString(),
+            safePathArg(outputPath.toAbsolutePath().normalize()),
             "--bbox=" + bboxArg,
             "--maxzoom=" + preload.getMaxZoom());
     pb.redirectErrorStream(true);
     return pb;
+  }
+
+  static String safePathArg(Path path) {
+    String s = path.toString();
+    if (!s.matches("[a-zA-Z0-9/._-]+")) {
+      throw new IllegalArgumentException("Path contains unsafe characters: " + s);
+    }
+    return s;
   }
 
   static String resolveSourceUrl(String sourceUrl) {

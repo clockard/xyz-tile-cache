@@ -90,6 +90,17 @@ class PmtilesDownloaderTest {
   }
 
   @Test
+  void startDownload_blankFilename_throws() {
+    VectorTileService service = mock(VectorTileService.class);
+    VectorConfiguration cfg = config(tempDir);
+    PmtilesDownloader downloader = new PmtilesDownloader(cfg, service);
+    Preload p = preload(-1, -1, 1, 1, 5);
+    p.setPmtilesFilename("   ");
+    assertThatThrownBy(() -> downloader.startDownload(p))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
   void startDownload_missingFilename_throws() {
     VectorTileService service = mock(VectorTileService.class);
     VectorConfiguration cfg = config(tempDir);
@@ -97,6 +108,27 @@ class PmtilesDownloaderTest {
     Preload p = preload(-1, -1, 1, 1, 5);
     p.setPmtilesFilename(null);
     assertThatThrownBy(() -> downloader.startDownload(p))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void startDownload_pathEscape_doesNotRegister() throws Exception {
+    VectorTileService service = mock(VectorTileService.class);
+    VectorConfiguration cfg = config(tempDir);
+    PmtilesDownloader downloader = new PmtilesDownloader(cfg, service);
+    Preload p = preload(-1, -1, 1, 1, 5);
+    p.setPmtilesFilename("../../etc/passwd");
+    downloader.startDownload(p).get();
+    verify(service, never()).registerDownload(any());
+  }
+
+  @Test
+  void buildProcess_rejectsUnsafePath() {
+    VectorTileService service = mock(VectorTileService.class);
+    VectorConfiguration cfg = config(tempDir);
+    PmtilesDownloader downloader = new PmtilesDownloader(cfg, service);
+    Preload p = preload(-1, -1, 1, 1, 5);
+    assertThatThrownBy(() -> downloader.buildProcess(p, Path.of("/tmp/evil;injected")))
         .isInstanceOf(IllegalArgumentException.class);
   }
 

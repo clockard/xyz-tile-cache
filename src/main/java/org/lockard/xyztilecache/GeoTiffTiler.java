@@ -126,9 +126,17 @@ public class GeoTiffTiler {
             "--zoom=0-",
             "--processes=" + Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
             input.toAbsolutePath().normalize().toString(),
-            outputDir.toAbsolutePath().normalize().toString());
+            safePathArg(outputDir.toAbsolutePath().normalize()));
     LOGGER.info("Running {}.", String.join(" ", cmd));
     runOrThrow(cmd, "gdal2tiles.py");
+  }
+
+  static String safePathArg(Path path) {
+    String s = path.toString();
+    if (!s.matches("[a-zA-Z0-9/._-]+")) {
+      throw new IllegalArgumentException("Path contains unsafe characters: " + s);
+    }
+    return s;
   }
 
   private static void runOrThrow(List<String> cmd, String label)
