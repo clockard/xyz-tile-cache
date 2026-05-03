@@ -10,8 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       security-events: write
+    outputs:
+      has_findings: ${{ steps.check.outputs.has_findings }}
     steps:
-      - name: Scan published image with Trivy
+      - name: Scan published image with Trivy (SARIF)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ secrets.DOCKER_USERNAME }}/xyz-tile-cache:latest
@@ -25,3 +27,196 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
+
+      - name: Scan published image with Trivy (JSON)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ secrets.DOCKER_USERNAME }}/xyz-tile-cache:latest
+          format: json
+          output: trivy-results.json
+          exit-code: '0'
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
+      - name: Check for HIGH/CRITICAL findings
+        id: check
+        run: |
+          COUNT=$(jq '[.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length' trivy-results.json)
+          echo "Found ${COUNT} HIGH/CRITICAL vulnerabilities"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "has_findings=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_findings=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload findings artifact
+        if: steps.check.outputs.has_findings == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-findings
+          path: trivy-results.json
+          retention-days: 7
+
+  auto-fix:
+    needs: scan
+    if: needs.scan.outputs.has_findings == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Download Trivy findings
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-findings
+
+      - name: Install Trivy CLI
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Run iterative vulnerability fix loop
+        id: fix-loop
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          BRANCH_NAME="auto-fix/vuln-scan-$(date +%Y%m%d-%H%M%S)"
+          MAX_ITERATIONS=3
+          FIX_STATUS="unfixed"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH_NAME"
+
+          for ITERATION in $(seq 1 $MAX_ITERATIONS); do
+            echo "=== Iteration ${ITERATION}/${MAX_ITERATIONS} ==="
+
+            REMAINING=$(jq '[.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length' trivy-results.json)
+            echo "HIGH/CRITICAL count: ${REMAINING}"
+
+            if [ "$REMAINING" -eq 0 ]; then
+              FIX_STATUS="fixed"
+              break
+            fi
+
+            FINDINGS_SUMMARY=$(jq -r '
+              [.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[]?
+               | select(.Severity == "HIGH" or .Severity == "CRITICAL")]
+              | map("- [\(.Severity)] \(.VulnerabilityID) in \(.PkgName)@\(.InstalledVersion) (fixed in: \(.FixedVersion // "no fix available")) | \(.Title)")
+              | .[]
+            ' trivy-results.json)
+
+            # Ensure baseline is formatted before Claude starts
+            mvn fmt:format --no-transfer-progress -q
+
+            claude --dangerously-skip-permissions -p "You are fixing security vulnerabilities in a Java 25 Spring Boot project.
+
+          This project is an XYZ tile proxy server. It has a multi-stage Dockerfile: a golang builder stage that compiles go-pmtiles from source, and an eclipse-temurin:25-jre-alpine runtime stage. The Maven project builds a Spring Boot fat JAR.
+
+          The following HIGH and CRITICAL vulnerabilities were found by Trivy in the Docker image:
+
+          ${FINDINGS_SUMMARY}
+
+          Instructions:
+          1. Analyze each vulnerability. Fix via: (a) bumping a Maven dependency version in pom.xml, (b) upgrading the Go module or golang base image in the Dockerfile builder stage, (c) upgrading Alpine packages via apk in the Dockerfile, or (d) upgrading the eclipse-temurin base image tag.
+          2. Apply the minimal set of changes to resolve each HIGH/CRITICAL finding.
+          3. After making changes, run: mvn fmt:format --no-transfer-progress -q
+          4. Then run: mvn --no-transfer-progress clean verify
+             If the build fails, diagnose the output and fix the issue, then retry.
+          5. Do NOT change the Java version or overall architecture.
+          6. Stage all changed files and commit with: git add -A && git commit -m 'fix: address HIGH/CRITICAL vulnerabilities (iteration ${ITERATION})'
+             Only commit if the build passes."
+
+            # If Claude made no commits, nothing more can be done
+            COMMITS_ON_BRANCH=$(git rev-list --count "origin/main..HEAD" 2>/dev/null || echo "0")
+            if [ "$COMMITS_ON_BRANCH" -eq 0 ]; then
+              echo "No changes committed by Claude in iteration ${ITERATION}, stopping early"
+              break
+            fi
+
+            # Build local image for re-scan
+            PROJECT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout --no-transfer-progress)
+            docker build --build-arg VERSION="$PROJECT_VERSION" -t xyz-tile-cache:autofix-scan .
+
+            trivy image --format json --severity HIGH,CRITICAL --ignore-unfixed \
+              -o trivy-results.json xyz-tile-cache:autofix-scan
+          done
+
+          if [ "$FIX_STATUS" != "fixed" ]; then
+            COMMITS_ON_BRANCH=$(git rev-list --count "origin/main..HEAD" 2>/dev/null || echo "0")
+            if [ "$COMMITS_ON_BRANCH" -gt 0 ]; then
+              FIX_STATUS="partial"
+            fi
+          fi
+
+          echo "fix_status=${FIX_STATUS}" >> "$GITHUB_OUTPUT"
+          echo "branch_name=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
+
+          if [ "$FIX_STATUS" = "fixed" ] || [ "$FIX_STATUS" = "partial" ]; then
+            git push origin "$BRANCH_NAME"
+          fi
+
+      - name: Create PR (all findings resolved)
+        if: steps.fix-loop.outputs.fix_status == 'fixed'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "${{ steps.fix-loop.outputs.branch_name }}" \
+            --title "fix: resolve HIGH/CRITICAL vulnerabilities (automated)" \
+            --body "$(cat <<'EOF'
+          ## Automated Vulnerability Fix
+
+          This PR was created automatically after the scheduled Trivy scan found HIGH/CRITICAL vulnerabilities.
+
+          ### Result
+          All HIGH/CRITICAL findings resolved. Trivy re-scan of the locally-built image found **0 remaining findings**.
+
+          ### Verification
+          - \`mvn clean verify\` passed
+          - Trivy re-scan confirmed 0 HIGH/CRITICAL findings
+
+          > Auto-generated by the \`auto-fix\` job in \`scan.yml\`
+          EOF
+          )"
+
+      - name: Create PR (partial fix — manual review needed)
+        if: steps.fix-loop.outputs.fix_status == 'partial'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REMAINING=$(jq '[.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length' trivy-results.json)
+          gh pr create \
+            --base main \
+            --head "${{ steps.fix-loop.outputs.branch_name }}" \
+            --title "fix: partial resolution of HIGH/CRITICAL vulnerabilities (manual review needed)" \
+            --body "$(cat <<EOF
+          ## Automated Vulnerability Fix (Partial — Manual Review Needed)
+
+          After 3 fix iterations, **${REMAINING} HIGH/CRITICAL vulnerabilities remain** and need manual intervention.
+
+          Remaining findings may require: waiting for upstream package fixes, replacing a dependency, or adding a justified \`.trivyignore\` entry.
+
+          > Auto-generated by the \`auto-fix\` job in \`scan.yml\`
+          EOF
+          )"
