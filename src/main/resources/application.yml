@@ -61,6 +61,8 @@ xyz:
       maxZoom: 19
       attribution: "© OpenStreetMap contributors"
       urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+      headers:
+        Referer: "https://www.openstreetmap.org/"
       # Heavy usage requires compliance with OSM tile policy:
       # https://operations.osmfoundation.org/policies/tiles/
 
