@@ -49,7 +49,12 @@ public class PmtilesDownloader {
   }
 
   private void doDownload(Preload preload) {
-    Path outputPath = Path.of(config.getDownloadDirectory()).resolve(preload.getPmtilesFilename());
+    Path downloadDir = Path.of(config.getDownloadDirectory()).toAbsolutePath().normalize();
+    Path outputPath = downloadDir.resolve(preload.getPmtilesFilename()).normalize();
+    if (!outputPath.startsWith(downloadDir)) {
+      LOGGER.error("PMTiles filename escapes download directory: {}", preload.getPmtilesFilename());
+      return;
+    }
 
     try {
       Files.createDirectories(outputPath.getParent());
@@ -119,7 +124,7 @@ public class PmtilesDownloader {
             "pmtiles",
             "extract",
             sourceUrl,
-            outputPath.toString(),
+            outputPath.toAbsolutePath().normalize().toString(),
             "--bbox=" + bboxArg,
             "--maxzoom=" + preload.getMaxZoom());
     pb.redirectErrorStream(true);

@@ -45,17 +45,19 @@ public class GeoTiffTiler {
    * input.
    */
   public Result tile(Path input, Path outputDir) throws IOException, InterruptedException {
-    Files.createDirectories(outputDir);
-    Path tileInput = input;
+    Path safeInput = input.toAbsolutePath().normalize();
+    Path safeOutput = outputDir.toAbsolutePath().normalize();
+    Files.createDirectories(safeOutput);
+    Path tileInput = safeInput;
     Path vrt = null;
     try {
-      if (!isAllByte(input)) {
-        LOGGER.info("Input {} is not 8-bit; auto-scaling to Byte VRT for gdal2tiles.", input);
+      if (!isAllByte(safeInput)) {
+        LOGGER.info("Input {} is not 8-bit; auto-scaling to Byte VRT for gdal2tiles.", safeInput);
         vrt = Files.createTempFile("upload-", ".vrt");
-        translateToByteVrt(input, vrt);
-        tileInput = vrt;
+        translateToByteVrt(safeInput, vrt);
+        tileInput = vrt.toAbsolutePath().normalize();
       }
-      runGdal2Tiles(tileInput, outputDir);
+      runGdal2Tiles(tileInput, safeOutput);
     } finally {
       if (vrt != null) {
         try {
@@ -65,11 +67,11 @@ public class GeoTiffTiler {
         }
       }
     }
-    return summarize(outputDir);
+    return summarize(safeOutput);
   }
 
   private boolean isAllByte(Path input) throws IOException, InterruptedException {
-    List<String> cmd = List.of(infoCommand, input.toAbsolutePath().toString());
+    List<String> cmd = List.of(infoCommand, input.toAbsolutePath().normalize().toString());
     LOGGER.debug("Running {}.", String.join(" ", cmd));
     ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
     Process process = pb.start();
@@ -108,8 +110,8 @@ public class GeoTiffTiler {
             "-ot",
             "Byte",
             "-scale",
-            input.toAbsolutePath().toString(),
-            vrt.toAbsolutePath().toString());
+            input.toAbsolutePath().normalize().toString(),
+            vrt.toAbsolutePath().normalize().toString());
     LOGGER.info("Running {}.", String.join(" ", cmd));
     runOrThrow(cmd, "gdal_translate");
   }
@@ -123,8 +125,8 @@ public class GeoTiffTiler {
             "none",
             "--zoom=0-",
             "--processes=" + Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
-            input.toAbsolutePath().toString(),
-            outputDir.toAbsolutePath().toString());
+            input.toAbsolutePath().normalize().toString(),
+            outputDir.toAbsolutePath().normalize().toString());
     LOGGER.info("Running {}.", String.join(" ", cmd));
     runOrThrow(cmd, "gdal2tiles.py");
   }

@@ -27,7 +27,7 @@ class PmtilesReader implements Closeable {
   private final Cache<Long, List<PmtilesEntry>> leafCache;
 
   PmtilesReader(Path path) throws IOException {
-    raf = new RandomAccessFile(path.toFile(), "r");
+    raf = new RandomAccessFile(path.toAbsolutePath().normalize().toFile(), "r");
     try {
       byte[] headerBytes = new byte[127];
       raf.readFully(headerBytes);

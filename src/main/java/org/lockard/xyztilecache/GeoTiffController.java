@@ -54,7 +54,11 @@ class GeoTiffController {
           .body("Layer '" + name + "' already exists.");
     }
 
-    Path outputDir = Paths.get(configuration.getBaseTileDirectory(), name);
+    Path baseDir = Paths.get(configuration.getBaseTileDirectory()).toAbsolutePath().normalize();
+    Path outputDir = baseDir.resolve(name).normalize();
+    if (!outputDir.startsWith(baseDir)) {
+      return ResponseEntity.badRequest().body("Invalid layer name.");
+    }
     if (Files.exists(outputDir)) {
       return ResponseEntity.status(HttpStatus.CONFLICT)
           .body("Tile directory for '" + name + "' already exists. Remove it first.");
