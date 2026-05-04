@@ -6,7 +6,7 @@ ARG JRE_IMAGE=eclipse-temurin:25-jre-alpine
 FROM golang:1.26-alpine AS builder
 ARG PMTILES_VERSION=1.30.2
 ARG PMTILES_DATE
-RUN apk add --no-cache git
+RUN apk add --no-cache git coreutils
 RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
 WORKDIR /src
 # Upgrade otel/sdk to 1.43.0+ to fix CVE-2026-39883 (PATH hijacking via kenv)
@@ -14,7 +14,7 @@ RUN go get go.opentelemetry.io/otel/sdk@v1.43.0 \
  && go mod tidy \
  && CGO_ENABLED=0 go build -o /usr/local/bin/pmtiles .
 # Uses HTTP range requests — downloads only the tiles needed, not the full planet file
-RUN PMTILES_DATE=${PMTILES_DATE:-$(date +%Y%m%d)} \
+RUN PMTILES_DATE=${PMTILES_DATE:-$(date -d "yesterday" +%Y%m%d)} \
  && pmtiles extract "https://build.protomaps.com/${PMTILES_DATE}.pmtiles" /tmp/world_z0-7.pmtiles \
     --maxzoom=7
 
