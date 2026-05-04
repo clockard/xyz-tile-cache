@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.OptionalInt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /** Runs {@code gdal2tiles.py} to convert a GeoTIFF into an XYZ tile pyramid. */
@@ -25,12 +26,16 @@ public class GeoTiffTiler {
   private final String translateCommand;
   private final XyzConfiguration configuration;
 
+  @Autowired
   public GeoTiffTiler(XyzConfiguration configuration) {
     this(configuration, "gdal2tiles.py", "gdalinfo", "gdal_translate");
   }
 
   GeoTiffTiler(
-      XyzConfiguration configuration, String tileCommand, String infoCommand, String translateCommand) {
+      XyzConfiguration configuration,
+      String tileCommand,
+      String infoCommand,
+      String translateCommand) {
     this.configuration = configuration;
     this.tileCommand = tileCommand;
     this.infoCommand = infoCommand;
@@ -139,7 +144,8 @@ public class GeoTiffTiler {
     Path safeOutput = outputDir.toAbsolutePath().normalize();
     Path baseDir = Path.of(configuration.getBaseTileDirectory()).toAbsolutePath().normalize();
     if (!safeOutput.startsWith(baseDir)) {
-      throw new IllegalArgumentException("Output path is outside configured base directory: " + safeOutput);
+      throw new IllegalArgumentException(
+          "Output path is outside configured base directory: " + safeOutput);
     }
     return safeOutput;
   }

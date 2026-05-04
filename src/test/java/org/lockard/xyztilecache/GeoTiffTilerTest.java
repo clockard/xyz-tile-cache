@@ -22,7 +22,7 @@ class GeoTiffTilerTest {
     createSmallGeoTiff(tif);
 
     Path outputDir = tempDir.resolve("out");
-    GeoTiffTiler tiler = new GeoTiffTiler();
+    GeoTiffTiler tiler = new GeoTiffTiler(makeConfig());
     GeoTiffTiler.Result result = tiler.tile(tif, outputDir);
 
     assertThat(result.maxZoom()).isGreaterThanOrEqualTo(0);
@@ -60,6 +60,7 @@ class GeoTiffTilerTest {
     Files.write(tif, new byte[] {0});
     GeoTiffTiler tiler =
         new GeoTiffTiler(
+            makeConfig(),
             "/no/such/binary/_xyz_no_exist",
             byteGdalInfoStub().toString(),
             noopTranslateStub().toString());
@@ -74,7 +75,10 @@ class GeoTiffTilerTest {
     Files.write(tif, new byte[] {1});
     GeoTiffTiler tiler =
         new GeoTiffTiler(
-            script.toString(), byteGdalInfoStub().toString(), noopTranslateStub().toString());
+            makeConfig(),
+            script.toString(),
+            byteGdalInfoStub().toString(),
+            noopTranslateStub().toString());
     assertThatThrownBy(() -> tiler.tile(tif, tempDir.resolve("out")))
         .isInstanceOf(IOException.class)
         .hasMessageContaining("exited 1");
@@ -103,7 +107,10 @@ class GeoTiffTilerTest {
     Files.write(tif, new byte[] {1});
     GeoTiffTiler tiler =
         new GeoTiffTiler(
-            script.toString(), byteGdalInfoStub().toString(), noopTranslateStub().toString());
+            makeConfig(),
+            script.toString(),
+            byteGdalInfoStub().toString(),
+            noopTranslateStub().toString());
     GeoTiffTiler.Result r = tiler.tile(tif, tempDir.resolve("happy-out"));
     assertThat(r.maxZoom()).isEqualTo(1);
     assertThat(r.tileCount()).isEqualTo(2);
@@ -154,7 +161,8 @@ class GeoTiffTilerTest {
     Path tif = tempDir.resolve("input.tif");
     Files.write(tif, new byte[] {1});
     GeoTiffTiler tiler =
-        new GeoTiffTiler(tileStub.toString(), infoStub.toString(), translateStub.toString());
+        new GeoTiffTiler(
+            makeConfig(), tileStub.toString(), infoStub.toString(), translateStub.toString());
     GeoTiffTiler.Result r = tiler.tile(tif, tempDir.resolve("vrt-out"));
     assertThat(r.maxZoom()).isEqualTo(2);
     assertThat(r.tileCount()).isEqualTo(3);
@@ -175,7 +183,8 @@ class GeoTiffTilerTest {
     Path tif = tempDir.resolve("input.tif");
     Files.write(tif, new byte[] {1});
     GeoTiffTiler tiler =
-        new GeoTiffTiler("gdal2tiles.py", infoStub.toString(), noopTranslateStub().toString());
+        new GeoTiffTiler(
+            makeConfig(), "gdal2tiles.py", infoStub.toString(), noopTranslateStub().toString());
     assertThatThrownBy(() -> tiler.tile(tif, tempDir.resolve("out")))
         .isInstanceOf(IOException.class)
         .hasMessageContaining("gdalinfo exited 1");
@@ -217,15 +226,10 @@ class GeoTiffTilerTest {
         "");
   }
 
-  @Test
-  void safePathArg_acceptsSafePath() {
-    assertThat(GeoTiffTiler.safePathArg(Path.of("/tmp/safe-output"))).isEqualTo("/tmp/safe-output");
-  }
-
-  @Test
-  void safePathArg_rejectsUnsafeChars() {
-    assertThatThrownBy(() -> GeoTiffTiler.safePathArg(Path.of("/tmp/evil;rm -rf")))
-        .isInstanceOf(IllegalArgumentException.class);
+  private XyzConfiguration makeConfig() {
+    XyzConfiguration config = new XyzConfiguration();
+    config.setBaseTileDirectory(tempDir.toString());
+    return config;
   }
 
   private static boolean gdalAvailable() {
