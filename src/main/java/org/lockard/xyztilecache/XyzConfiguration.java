@@ -1,9 +1,9 @@
 package org.lockard.xyztilecache;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties("xyz")
@@ -11,13 +11,21 @@ public class XyzConfiguration {
 
   private String baseTileDirectory;
 
-  private long maxTileStorage;
+  private long minFreeDiskBytes = 1_073_741_824L; // 1 GB default
 
   private boolean offline = false;
 
   private int tileTimeoutSeconds = 1;
 
-  private final Map<String, Layer> layers = new HashMap<>();
+  private int layerSyncSeconds = 10;
+
+  private boolean uiEnabled = true;
+
+  private String adminRole = "admin";
+
+  private final Auth auth = new Auth();
+
+  private final Map<String, Layer> layers = new ConcurrentHashMap<>();
 
   private List<BoundingBox> boundingBoxes = new ArrayList<>();
 
@@ -29,12 +37,36 @@ public class XyzConfiguration {
     this.baseTileDirectory = baseTileDirectory;
   }
 
-  public long getMaxTileStorage() {
-    return maxTileStorage;
+  public long getMinFreeDiskBytes() {
+    return minFreeDiskBytes;
   }
 
-  public void setMaxTileStorage(long maxTileStorageMB) {
-    this.maxTileStorage = maxTileStorageMB;
+  public void setMinFreeDiskBytes(long minFreeDiskBytes) {
+    this.minFreeDiskBytes = minFreeDiskBytes;
+  }
+
+  public int getLayerSyncSeconds() {
+    return layerSyncSeconds;
+  }
+
+  public void setLayerSyncSeconds(int layerSyncSeconds) {
+    this.layerSyncSeconds = layerSyncSeconds;
+  }
+
+  public boolean isUiEnabled() {
+    return uiEnabled;
+  }
+
+  public void setUiEnabled(boolean uiEnabled) {
+    this.uiEnabled = uiEnabled;
+  }
+
+  public String getAdminRole() {
+    return adminRole;
+  }
+
+  public void setAdminRole(String adminRole) {
+    this.adminRole = adminRole;
   }
 
   public Map<String, Layer> getLayers() {
@@ -43,7 +75,7 @@ public class XyzConfiguration {
 
   public void setLayers(List<Layer> layers) {
     this.layers.clear();
-    layers.forEach(l -> this.layers.put(l.getName(), l));
+    layers.forEach(l -> this.layers.put(l.getEffectiveId(), l));
   }
 
   public List<BoundingBox> getBoundingBoxes() {
@@ -68,5 +100,44 @@ public class XyzConfiguration {
 
   public void setTileTimeoutSeconds(int tileTimeoutSeconds) {
     this.tileTimeoutSeconds = tileTimeoutSeconds;
+  }
+
+  public Auth getAuth() {
+    return auth;
+  }
+
+  public static class Auth {
+    public enum Mode {
+      JWT,
+      TOKEN
+    }
+
+    private Mode mode = Mode.JWT;
+    private String adminToken = "";
+    private String clientId = "xyz-tile-cache";
+
+    public Mode getMode() {
+      return mode;
+    }
+
+    public void setMode(Mode mode) {
+      this.mode = mode;
+    }
+
+    public String getAdminToken() {
+      return adminToken;
+    }
+
+    public void setAdminToken(String adminToken) {
+      this.adminToken = adminToken;
+    }
+
+    public String getClientId() {
+      return clientId;
+    }
+
+    public void setClientId(String clientId) {
+      this.clientId = clientId;
+    }
   }
 }

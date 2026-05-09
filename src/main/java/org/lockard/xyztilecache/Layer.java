@@ -1,7 +1,10 @@
 package org.lockard.xyztilecache;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -14,7 +17,8 @@ public class Layer {
   public enum SourceType {
     XYZ,
     WMTS_REST,
-    WMTS_KVP
+    WMTS_KVP,
+    LOCAL
   }
 
   private SourceType sourceType = SourceType.XYZ;
@@ -37,6 +41,8 @@ public class Layer {
 
   private String attribution;
 
+  private String id;
+
   private String name;
 
   private String urlTemplate;
@@ -45,9 +51,23 @@ public class Layer {
 
   private final AtomicLong cachedTilesSize = new AtomicLong();
 
+  private final AtomicLong tilesServed = new AtomicLong();
+
   private final AtomicReference<Block> sourceBlock = new AtomicReference<>();
 
   private Map<String, String> headers = new HashMap<>();
+
+  private List<String> allowedUsers = new ArrayList<>();
+
+  private List<String> allowedGroups = new ArrayList<>();
+
+  public String getId() {
+    return id;
+  }
+
+  public void setId(String id) {
+    this.id = id;
+  }
 
   public String getName() {
     return name;
@@ -55,6 +75,12 @@ public class Layer {
 
   public void setName(String name) {
     this.name = name;
+  }
+
+  /** Returns the identifier used in URLs and as map key. Falls back to name for backward compat. */
+  @JsonIgnore
+  public String getEffectiveId() {
+    return (id != null && !id.isBlank()) ? id : name;
   }
 
   public String getUrlTemplate() {
@@ -65,20 +91,33 @@ public class Layer {
     this.urlTemplate = urlTemplate;
   }
 
+  @JsonIgnore
   public long getCachedTiles() {
     return cachedTiles.get();
   }
 
+  @JsonIgnore
   public void setCachedTiles(long cachedTiles) {
     this.cachedTiles.set(cachedTiles);
   }
 
+  @JsonIgnore
   public long getCachedTilesSize() {
     return cachedTilesSize.get();
   }
 
+  @JsonIgnore
   public void setCachedTilesSize(long cachedTilesSize) {
     this.cachedTilesSize.set(cachedTilesSize);
+  }
+
+  @JsonIgnore
+  public long getTilesServed() {
+    return tilesServed.get();
+  }
+
+  public void incrementTilesServed() {
+    tilesServed.incrementAndGet();
   }
 
   public SourceType getSourceType() {
@@ -155,7 +194,7 @@ public class Layer {
 
   public boolean doesUrlHaveTime() {
     if (urlHasTime == null) {
-      urlHasTime = urlTemplate.contains("{time}") || wmtsTime;
+      urlHasTime = (urlTemplate != null && urlTemplate.contains("{time}")) || wmtsTime;
     }
     return urlHasTime;
   }
@@ -164,7 +203,9 @@ public class Layer {
     return attribution;
   }
 
-  public void setAttribution(String attribution) {}
+  public void setAttribution(String attribution) {
+    this.attribution = attribution;
+  }
 
   public void addTileStats(long tileSize) {
     this.cachedTiles.incrementAndGet();
@@ -177,6 +218,27 @@ public class Layer {
 
   public void setHeaders(Map<String, String> headers) {
     this.headers = headers;
+  }
+
+  public List<String> getAllowedUsers() {
+    return allowedUsers;
+  }
+
+  public void setAllowedUsers(List<String> allowedUsers) {
+    this.allowedUsers = allowedUsers == null ? new ArrayList<>() : allowedUsers;
+  }
+
+  public List<String> getAllowedGroups() {
+    return allowedGroups;
+  }
+
+  public void setAllowedGroups(List<String> allowedGroups) {
+    this.allowedGroups = allowedGroups == null ? new ArrayList<>() : allowedGroups;
+  }
+
+  @JsonIgnore
+  public boolean isPublic() {
+    return allowedUsers.isEmpty() && allowedGroups.isEmpty();
   }
 
   private record Block(Layer layer, long start, long duration) {
@@ -237,6 +299,6 @@ public class Layer {
 
   @Override
   public String toString() {
-    return name;
+    return getEffectiveId();
   }
 }

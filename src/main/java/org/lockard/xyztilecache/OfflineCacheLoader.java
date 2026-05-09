@@ -42,7 +42,7 @@ public class OfflineCacheLoader extends CacheLoader<Tile, byte[]> {
   protected File toFile(final Tile tile) {
     return Paths.get(
             configuration.getBaseTileDirectory(),
-            tile.layer().getName(),
+            tile.layer().getEffectiveId(),
             String.valueOf(tile.z()),
             String.valueOf(tile.x()),
             tile.y() + ".png")

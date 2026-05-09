@@ -1,91 +1,109 @@
 package org.lockard.xyztilecache;
 
+import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.Comparator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.DependsOn;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 @Component
+@DependsOn("layerStore")
 public class TileWriter {
   private static final Logger LOGGER = LoggerFactory.getLogger(TileWriter.class);
 
   private final XyzConfiguration configuration;
 
-  private final AtomicLong totalStorageBytes = new AtomicLong();
-
-  private final AtomicLong totalTiles = new AtomicLong();
-
   public TileWriter(final XyzConfiguration configuration) {
     this.configuration = configuration;
-    initializeTotalStorageUsed();
-    LOGGER.info("Total tile storage used: {} bytes", totalStorageBytes);
-    LOGGER.info("Total number of tiles: {}", totalTiles);
   }
 
-  /**
-   * Traverse the base directory and add up all the tiles to get the current total tiles used
-   * storage. This could take a while.
-   */
-  private void initializeTotalStorageUsed() {
+  @PostConstruct
+  void inventoryExistingTiles() {
     configuration
         .getLayers()
         .values()
         .forEach(
             layer -> {
-              Path tileDir = Paths.get(configuration.getBaseTileDirectory(), layer.getName());
-              if (!tileDir.toFile().exists()) {
-                tileDir.toFile().mkdir();
-              }
-              try (final var paths = Files.walk(tileDir)) {
-                paths
-                    .filter(Files::isRegularFile)
-                    .forEach(
-                        f -> {
-                          final var size = f.toFile().length();
-                          totalStorageBytes.addAndGet(size);
-                          totalTiles.incrementAndGet();
-                          layer.addTileStats(size);
-                        });
+              Path tileDir =
+                  Paths.get(configuration.getBaseTileDirectory(), layer.getEffectiveId());
+              try {
+                Files.createDirectories(tileDir);
+                try (var paths = Files.walk(tileDir)) {
+                  paths
+                      .filter(Files::isRegularFile)
+                      .forEach(f -> layer.addTileStats(f.toFile().length()));
+                }
               } catch (IOException e) {
-                LOGGER.error("Failed to calculate the tile store size for {}.", layer.getName(), e);
+                LOGGER.error(
+                    "Failed to inventory tile directory for {}.", layer.getEffectiveId(), e);
               }
             });
   }
 
   @Async
   void storeTile(final Tile tile, final byte[] data) {
-    if (totalStorageBytes.get() + data.length > configuration.getMaxTileStorage()) {
-      LOGGER.warn(
-          "Total tile storage of {} MB filled. No more tiles will be stored.",
-          totalStorageBytes.get() / (1024 * 1024));
-      return;
-    }
-    final var output = toPath(tile);
-    final var parent = output.toFile().getParentFile();
-    if (!parent.exists() && !parent.mkdirs()) {
-      LOGGER.warn("Failed to create parent directory: {}", parent);
-      return;
-    }
-    LOGGER.debug("Writing tile {} to local file cache: {}.", tile, output);
     try {
+      long freeBytes =
+          Files.getFileStore(Paths.get(configuration.getBaseTileDirectory())).getUsableSpace();
+      if (freeBytes < configuration.getMinFreeDiskBytes()) {
+        LOGGER.warn(
+            "Free disk space ({} MB) is below minimum ({} MB). Tile will not be stored.",
+            freeBytes / (1024 * 1024),
+            configuration.getMinFreeDiskBytes() / (1024 * 1024));
+        return;
+      }
+    } catch (IOException e) {
+      LOGGER.warn("Could not check disk free space — proceeding with tile write.", e);
+    }
+
+    Path output = toPath(tile);
+    try {
+      Files.createDirectories(output.getParent());
       Files.write(output, data);
-      totalStorageBytes.addAndGet(data.length);
-      totalTiles.incrementAndGet();
       tile.layer().addTileStats(data.length);
+      LOGGER.debug("Wrote tile {} to {}.", tile, output);
     } catch (IOException e) {
       LOGGER.debug("Failed to write tile {} to {}.", tile, output, e);
+    }
+  }
+
+  /** Removes the on-disk tile directory for a layer that has been deleted from the config. */
+  @EventListener
+  void onLayerChanged(LayerChangedEvent event) {
+    if (configuration.getLayers().containsKey(event.layerName())) {
+      return;
+    }
+    Path layerDir = Paths.get(configuration.getBaseTileDirectory(), event.layerName());
+    if (!Files.exists(layerDir)) {
+      return;
+    }
+    try (var paths = Files.walk(layerDir)) {
+      paths
+          .sorted(Comparator.reverseOrder())
+          .forEach(
+              p -> {
+                try {
+                  Files.delete(p);
+                } catch (IOException e) {
+                  LOGGER.warn("Failed to delete {}", p, e);
+                }
+              });
+    } catch (IOException e) {
+      LOGGER.warn("Failed to delete layer tile dir for {}", event.layerName(), e);
     }
   }
 
   protected Path toPath(final Tile tile) {
     return Paths.get(
         configuration.getBaseTileDirectory(),
-        tile.layer().getName(),
+        tile.layer().getEffectiveId(),
         String.valueOf(tile.z()),
         String.valueOf(tile.x()),
         tile.y() + ".png");

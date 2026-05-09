@@ -52,16 +52,20 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
       LOGGER.debug("Failed to load tile {} from local file cache.", tile, e);
     }
 
+    if (tile.layer().getSourceType() == Layer.SourceType.LOCAL) {
+      throw new IOException("Tile %s not present for LOCAL layer.".formatted(tile));
+    }
+
     final var requestStrategy = tile.layer().requestStrategy();
     if (requestStrategy == Layer.RequestStrategy.PROCEED) {
       return loadTileOnline(tile);
     } else if (requestStrategy == Layer.RequestStrategy.RETRY
-        && layerLocks.add(tile.layer().getName())) {
+        && layerLocks.add(tile.layer().getEffectiveId())) {
       LOGGER.info("Retrying source for layer {}.", tile.layer());
       try {
         return loadTileOnline(tile);
       } finally {
-        layerLocks.remove(tile.layer().getName());
+        layerLocks.remove(tile.layer().getEffectiveId());
       }
     } else {
       throw new IOException("Source for layer %s is temporarily blocked.".formatted(tile.layer()));
@@ -129,6 +133,10 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
                   + "&TILECOL="
                   + tile.x()
                   + (layer.isWmtsTime() ? "&TIME={time}" : "");
+
+          case LOCAL ->
+              throw new IllegalStateException(
+                  "LOCAL layers should not reach buildTileUrl: " + layer);
         };
 
     if (tile.layer().doesUrlHaveTime()) {
