@@ -49,6 +49,8 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers(HttpMethod.GET, "/**")
                     .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/export", "/import")
+                    .authenticated()
                     .anyRequest()
                     .hasRole(configuration.getAdminRole().toUpperCase()));
 

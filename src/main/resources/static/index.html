@@ -16,6 +16,8 @@
       <button id="manage-layers-btn" class="admin-only hidden">Manage Layers</button>
       <button id="draw-btn" class="admin-only hidden">Draw Preload</button>
       <button id="upload-geotiff-btn" class="admin-only hidden">Upload GeoTIFF</button>
+      <button id="export-btn" class="auth-only hidden">Export</button>
+      <button id="import-btn" class="auth-only hidden">Import</button>
       <button id="downloads-btn">Downloads</button>
     </div>
     <div class="toolbar-spacer"></div>
@@ -107,6 +109,58 @@
       <div class="modal-buttons">
         <button id="submit-geotiff">Upload &amp; Tile</button>
         <button id="cancel-geotiff" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="export-overlay" class="hidden">
+    <div id="export-modal">
+      <h3>Export Tiles</h3>
+      <div class="form-row">
+        <label>Layers</label>
+        <div id="export-layers"></div>
+      </div>
+      <div class="form-row">
+        <label>Bounding Box <span class="field-hint">(optional — leave unset to export every cached tile)</span></label>
+        <div id="export-bbox-display">No bounding box — exporting all cached tiles for the selected layers.</div>
+        <div class="export-bbox-buttons">
+          <button id="export-draw-btn" class="secondary" type="button">Draw on Map</button>
+          <button id="export-clear-bbox-btn" class="secondary" type="button" disabled>Clear</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label for="export-max-zoom">Max Zoom <span class="field-hint">(optional — caps zoom level inside bbox)</span></label>
+        <input type="number" id="export-max-zoom" min="0" max="22" placeholder="up to layer max zoom">
+      </div>
+      <div class="form-row">
+        <div id="export-status"></div>
+      </div>
+      <div class="modal-buttons">
+        <button id="submit-export">Download Zip</button>
+        <button id="cancel-export" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="import-overlay" class="hidden">
+    <div id="import-modal">
+      <h3>Import Tiles</h3>
+      <div class="form-row">
+        <label for="import-file-input">Zip File</label>
+        <input type="file" id="import-file-input" accept=".zip,application/zip">
+      </div>
+      <div class="form-row">
+        <div class="field-hint">
+          Tiles overwrite existing files on disk. Layers with an ID that already exists keep their
+          current configuration; only new layers are registered from the zip's <code>layer.json</code>.
+        </div>
+      </div>
+      <div class="form-row">
+        <div id="import-status"></div>
+      </div>
+      <div class="modal-buttons">
+        <button id="submit-import">Upload &amp; Import</button>
+        <button id="cancel-import" class="secondary">Cancel</button>
       </div>
     </div>
   </div>

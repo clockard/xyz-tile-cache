@@ -68,6 +68,10 @@ public class LayerAccessService {
         && !"anonymousUser".equals(String.valueOf(auth.getPrincipal()));
   }
 
+  public boolean isAdmin(Authentication auth) {
+    return hasAdminRole(auth);
+  }
+
   private boolean hasAdminRole(Authentication auth) {
     Collection<? extends GrantedAuthority> authorities =
         auth.getAuthorities() == null ? Collections.emptyList() : auth.getAuthorities();

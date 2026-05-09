@@ -12,6 +12,8 @@ let downloadsPollInterval = null;
 let pendingBbox = null;
 let layerMap = {};
 let currentDownloads = [];
+let pendingExportBbox = null;
+let exportDrawInteraction = null;
 
 // ── Auth state ────────────────────────────────────────────────────────────────
 
@@ -38,6 +40,9 @@ let preloadAllowedUsers, preloadAllowedGroups;
 let zoomIndicator, attributionEl;
 let geoTiffOverlay, geoTiffNameInput, geoTiffFileInput, geoTiffStatus;
 let geoTiffAllowedUsers, geoTiffAllowedGroups;
+let exportOverlay, exportLayersContainer, exportBboxDisplay, exportMaxZoom, exportStatus;
+let exportDrawBtn, exportClearBboxBtn;
+let importOverlay, importFileInput, importStatus;
 let loginBtn, logoutBtn, userDisplay;
 let layerManagerOverlay, layerManagerTitle, lmListView, lmLayerList, lmFormView;
 let lfId, lfName, lfSourceType, lfUrl, lfUrlRow, lfWmtsSection;
@@ -77,6 +82,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   geoTiffStatus = document.getElementById('geotiff-status');
   geoTiffAllowedUsers = document.getElementById('geotiff-allowed-users');
   geoTiffAllowedGroups = document.getElementById('geotiff-allowed-groups');
+  exportOverlay = document.getElementById('export-overlay');
+  exportLayersContainer = document.getElementById('export-layers');
+  exportBboxDisplay = document.getElementById('export-bbox-display');
+  exportMaxZoom = document.getElementById('export-max-zoom');
+  exportStatus = document.getElementById('export-status');
+  exportDrawBtn = document.getElementById('export-draw-btn');
+  exportClearBboxBtn = document.getElementById('export-clear-bbox-btn');
+  importOverlay = document.getElementById('import-overlay');
+  importFileInput = document.getElementById('import-file-input');
+  importStatus = document.getElementById('import-status');
   loginBtn = document.getElementById('login-btn');
   logoutBtn = document.getElementById('logout-btn');
   userDisplay = document.getElementById('user-display');
@@ -127,6 +142,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('cancel-preload').addEventListener('click', hidePreloadModal);
   document.getElementById('submit-geotiff').addEventListener('click', submitGeoTiff);
   document.getElementById('cancel-geotiff').addEventListener('click', hideGeoTiffModal);
+  document.getElementById('export-btn').addEventListener('click', showExportModal);
+  document.getElementById('import-btn').addEventListener('click', showImportModal);
+  document.getElementById('submit-export').addEventListener('click', submitExport);
+  document.getElementById('cancel-export').addEventListener('click', hideExportModal);
+  document.getElementById('submit-import').addEventListener('click', submitImport);
+  document.getElementById('cancel-import').addEventListener('click', hideImportModal);
+  exportDrawBtn.addEventListener('click', startExportDraw);
+  exportClearBboxBtn.addEventListener('click', clearExportBbox);
+  exportOverlay.addEventListener('click', (e) => {
+    if (e.target === exportOverlay) hideExportModal();
+  });
+  importOverlay.addEventListener('click', (e) => {
+    if (e.target === importOverlay) hideImportModal();
+  });
   document.getElementById('submit-login').addEventListener('click', submitLogin);
   document.getElementById('cancel-login').addEventListener('click', hideLoginModal);
   document.getElementById('login-overlay').addEventListener('click', (e) => {
@@ -455,6 +484,9 @@ function applyAuthUiState() {
   }
   document.querySelectorAll('.admin-only').forEach((el) => {
     el.classList.toggle('hidden', !isAdmin());
+  });
+  document.querySelectorAll('.auth-only').forEach((el) => {
+    el.classList.toggle('hidden', !loggedIn);
   });
 }
 
@@ -1602,6 +1634,218 @@ async function executeDeleteLayer(name) {
     else showToast(`Delete failed (${resp.status})`, 'error');
   } catch (e) {
     showToast('Network error deleting layer', 'error');
+  }
+}
+
+// ── Export modal ──────────────────────────────────────────────────────────────
+
+function showExportModal() {
+  if (!isLoggedIn()) { showToast('Login required', 'error'); return; }
+  exportStatus.textContent = '';
+  exportMaxZoom.value = '';
+  buildExportLayerCheckboxes();
+  renderExportBbox();
+  exportOverlay.classList.remove('hidden');
+}
+
+function hideExportModal() {
+  exportOverlay.classList.add('hidden');
+  cancelExportDrawInteraction();
+}
+
+function buildExportLayerCheckboxes() {
+  exportLayersContainer.innerHTML = '';
+  const ids = Object.keys(layerMap).filter((id) => !isVectorLayerEntry(layerMap[id]));
+  if (ids.length === 0) {
+    exportLayersContainer.innerHTML = '<div class="empty-state">No raster layers available</div>';
+    return;
+  }
+  ids.forEach((id) => {
+    const layer = layerMap[id];
+    const row = document.createElement('div');
+    row.className = 'preload-layer-row';
+    row.dataset.key = id;
+    const cbid = `export-layer-${cssEscape(id)}`;
+    row.innerHTML =
+      `<input type="checkbox" id="${cbid}">` +
+      `<label for="${cbid}">${escapeHtml(layer.name || id)}</label>`;
+    exportLayersContainer.appendChild(row);
+  });
+}
+
+function isVectorLayerEntry(layer) {
+  const url = (layer && layer.urlTemplate) || '';
+  const lower = url.toLowerCase();
+  return lower.startsWith('pmtiles://') || lower.endsWith('.pbf') || lower.endsWith('.mvt');
+}
+
+function getSelectedExportLayerKeys() {
+  return Array.from(exportLayersContainer.querySelectorAll('input[type="checkbox"]:checked'))
+    .map((el) => el.parentElement.dataset.key);
+}
+
+function renderExportBbox() {
+  if (pendingExportBbox) {
+    const { north, south, east, west } = pendingExportBbox;
+    exportBboxDisplay.textContent =
+      `N ${north.toFixed(4)}  S ${south.toFixed(4)}\nE ${east.toFixed(4)}  W ${west.toFixed(4)}`;
+    exportClearBboxBtn.disabled = false;
+  } else {
+    exportBboxDisplay.textContent =
+      'No bounding box — exporting all cached tiles for the selected layers.';
+    exportClearBboxBtn.disabled = true;
+  }
+}
+
+function clearExportBbox() {
+  pendingExportBbox = null;
+  drawSource.clear();
+  renderExportBbox();
+}
+
+function startExportDraw() {
+  cancelExportDrawInteraction();
+  drawSource.clear();
+  exportOverlay.classList.add('hidden');
+  exportDrawInteraction = new ol.interaction.Draw({
+    source: drawSource,
+    type: 'Circle',
+    geometryFunction: ol.interaction.Draw.createBox()
+  });
+  exportDrawInteraction.on('drawend', onExportDrawEnd);
+  map.addInteraction(exportDrawInteraction);
+}
+
+function cancelExportDrawInteraction() {
+  if (exportDrawInteraction) {
+    map.removeInteraction(exportDrawInteraction);
+    exportDrawInteraction = null;
+  }
+}
+
+function onExportDrawEnd(event) {
+  cancelExportDrawInteraction();
+  const extent = event.feature.getGeometry().getExtent();
+  const [west, south] = ol.proj.toLonLat([extent[0], extent[1]]);
+  const [east, north] = ol.proj.toLonLat([extent[2], extent[3]]);
+  pendingExportBbox = { north, south, east, west };
+  renderExportBbox();
+  exportOverlay.classList.remove('hidden');
+}
+
+async function submitExport() {
+  if (!isLoggedIn()) {
+    exportStatus.textContent = 'Login required.';
+    return;
+  }
+  const layers = getSelectedExportLayerKeys();
+  if (layers.length === 0) {
+    exportStatus.textContent = 'Select at least one layer.';
+    return;
+  }
+  const body = { layers };
+  if (pendingExportBbox) {
+    body.boundingBox = { ...pendingExportBbox, maxZoom: 22 };
+  }
+  const maxZoomRaw = exportMaxZoom.value.trim();
+  if (maxZoomRaw) {
+    const mz = parseInt(maxZoomRaw, 10);
+    if (Number.isFinite(mz) && mz >= 0) body.maxZoom = mz;
+  }
+
+  const submitBtn = document.getElementById('submit-export');
+  submitBtn.disabled = true;
+  exportStatus.textContent = 'Building zip — this may take a while…';
+  try {
+    const resp = await authFetch('/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      if (resp.status === 401 || resp.status === 403) {
+        exportStatus.textContent = 'Access denied: ' + (text || resp.status);
+      } else if (resp.status === 404) {
+        exportStatus.textContent = text || 'Layer not found.';
+      } else {
+        exportStatus.textContent = `Export failed (${resp.status}): ${text}`;
+      }
+      return;
+    }
+    const disp = resp.headers.get('Content-Disposition') || '';
+    const fnMatch = /filename="?([^";]+)"?/.exec(disp);
+    const filename = fnMatch ? fnMatch[1] : `tile-export-${Date.now()}.zip`;
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    hideExportModal();
+    showToast('Export downloaded', 'success');
+  } catch (e) {
+    exportStatus.textContent = 'Network error during export.';
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
+// ── Import modal ──────────────────────────────────────────────────────────────
+
+function showImportModal() {
+  if (!isLoggedIn()) { showToast('Login required', 'error'); return; }
+  importFileInput.value = '';
+  importStatus.textContent = '';
+  importOverlay.classList.remove('hidden');
+}
+
+function hideImportModal() {
+  importOverlay.classList.add('hidden');
+}
+
+async function submitImport() {
+  if (!isLoggedIn()) {
+    importStatus.textContent = 'Login required.';
+    return;
+  }
+  const file = importFileInput.files[0];
+  if (!file) {
+    importStatus.textContent = 'Choose a zip file.';
+    return;
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  const submitBtn = document.getElementById('submit-import');
+  submitBtn.disabled = true;
+  importStatus.textContent = 'Uploading and ingesting — this may take a while…';
+  try {
+    const resp = await authFetch('/import', { method: 'POST', body: fd });
+    if (!resp.ok) {
+      const text = await resp.text();
+      if (resp.status === 401 || resp.status === 403) {
+        importStatus.textContent = 'Login required.';
+      } else {
+        importStatus.textContent = `Import failed (${resp.status}): ${text}`;
+      }
+      return;
+    }
+    const summary = await resp.json();
+    hideImportModal();
+    const added = (summary.layersAdded || []).length;
+    const skipped = (summary.layersSkipped || []).length;
+    showToast(
+      `Imported ${summary.tilesWritten} tiles · ${added} layer(s) added, ${skipped} skipped`,
+      'success'
+    );
+    await loadLayers();
+  } catch (e) {
+    importStatus.textContent = 'Network error during import.';
+  } finally {
+    submitBtn.disabled = false;
   }
 }
 

@@ -15,7 +15,7 @@ Capabilities:
 
 ```mermaid
 flowchart TD
-    Client([Map Client]) -->|GET /tilesZYX/{layer}/{z}/{y}/{x}.png| App
+    Client([Map Client]) -->|"GET /tilesZYX/#123;layer#125;/#123;z#125;/#123;y#125;/#123;x#125;.png"| App
 
     App --> ACL{Per-layer ACL}
     ACL -->|deny| Forbidden([401 / 403])

@@ -276,6 +276,8 @@ body {
 
 #preload-overlay,
 #geotiff-overlay,
+#export-overlay,
+#import-overlay,
 #login-overlay {
   position: fixed;
   inset: 0;
@@ -288,12 +290,16 @@ body {
 
 #preload-overlay.hidden,
 #geotiff-overlay.hidden,
+#export-overlay.hidden,
+#import-overlay.hidden,
 #login-overlay.hidden {
   display: none;
 }
 
 #preload-modal,
 #geotiff-modal,
+#export-modal,
+#import-modal,
 #login-modal {
   background: #fff;
   border-radius: 8px;
@@ -305,10 +311,43 @@ body {
 
 #preload-modal h3,
 #geotiff-modal h3,
+#export-modal h3,
+#import-modal h3,
 #login-modal h3 {
   margin: 0 0 1.1rem;
   font-size: 0.95rem;
   color: #1a1a2e;
+}
+
+#export-bbox-display {
+  font-size: 0.8rem;
+  color: #444;
+  background: #f3f3f7;
+  padding: 6px 8px;
+  border-radius: 4px;
+  white-space: pre-line;
+}
+
+.export-bbox-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+#export-status,
+#import-status {
+  font-size: 0.83rem;
+  min-height: 1.2em;
+  color: #b91c1c;
+}
+
+#import-file-input,
+#export-max-zoom {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.83rem;
 }
 
 #login-token-input {
