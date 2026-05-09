@@ -11,6 +11,8 @@ public class XyzConfiguration {
 
   private String baseTileDirectory;
 
+  private String importDirectory = "/app/imports";
+
   private long minFreeDiskBytes = 1_073_741_824L; // 1 GB default
 
   private boolean offline = false;
@@ -35,6 +37,14 @@ public class XyzConfiguration {
 
   public void setBaseTileDirectory(String baseTileDirectory) {
     this.baseTileDirectory = baseTileDirectory;
+  }
+
+  public String getImportDirectory() {
+    return importDirectory;
+  }
+
+  public void setImportDirectory(String importDirectory) {
+    this.importDirectory = importDirectory;
   }
 
   public long getMinFreeDiskBytes() {

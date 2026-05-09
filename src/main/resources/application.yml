@@ -45,14 +45,6 @@ xyz:
       wmtsStyle: "default"
       wmtsFormat: "image/png"
 
-    - id: "accu-weather-legacy"
-      name: "AccuWeather Radar (legacy)"
-      sourceType: XYZ
-      urlTemplate: 'https://api.accuweather.com/maps/v1/radar/globalSIR/zxy/{time}/{z}/{x}/{y}.png?apikey=de13920f574d420984d3080b1fa6132b'
-      timeFormat: "yyyy-MM-dd'T'HH:mm:ss'Z'"
-      tileExpirationMinutes: 5
-      maxZoom: 7
-
     # ─── XYZ: Streets & General ────────────────────────────────────────────────
 
     - id: "osm"
@@ -280,7 +272,7 @@ xyz:
       sourceType: XYZ
       maxZoom: 7
       attribution: "© AccuWeather"
-      urlTemplate: "https://api.accuweather.com/maps/v1/radar/globalSIR/zxy/{time}/{z}/{y}/{x}.png?apikey=de13920f574d420984d3080b1fa6132b"
+      urlTemplate: "https://api.accuweather.com/maps/v1/radar/globalSIR/zxy/{time}/{z}/{x}/{y}.png?apikey=de13920f574d420984d3080b1fa6132b"
       tileExpirationMinutes: 5
       timeFormat: "yyyy-MM-dd'T'HH:mm:ss'Z'"
       headers:

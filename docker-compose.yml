@@ -11,7 +11,6 @@ services:
       - "8080:8080"
     volumes:
       - ./scripts/keycloak/xyz-tile-cache-realm.json:/opt/keycloak/data/import/xyz-tile-cache-realm.json:ro
-
   xyz-tile-cache:
     image: xyz-tile-cache:latest
     container_name: xyz
@@ -21,6 +20,7 @@ services:
       - "8383:8383/tcp"
     volumes:
       - /tmp/tiles:/tmp/tiles
+      - /tmp/imports:/app/imports
     environment:
 #      XYZ_AUTH_MODE: jwt
 #      XYZ_AUTH_ADMIN_TOKEN: xyz-admin

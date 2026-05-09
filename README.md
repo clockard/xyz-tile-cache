@@ -9,7 +9,9 @@ Capabilities:
 - User-uploaded local layers — upload a GeoTIFF and the proxy tiles it with `gdal2tiles` and serves it as a `LOCAL` layer.
 - Vector tiles — bundled `world_z0-7.pmtiles` ships in the image; larger areas can be downloaded on demand from a Protomaps-style PMTiles source.
 - Authenticated layer management — JSON-driven CRUD with Keycloak (JWT) or a single shared admin token, plus per-layer ACLs.
-- A web UI on `/` for browsing layers, triggering preloads, and managing layers (toggleable).
+- Tile import/export — download a portable zip of cached raster tiles (optionally clipped to a bounding box), then re-import it on any other instance to seed its disk cache. Per-layer ACLs are enforced on both endpoints.
+- Startup auto-import — drop zip files into a watched directory and the proxy ingests them on boot, skipping files it has already processed.
+- A web UI on `/` for browsing layers, triggering preloads, managing layers, and importing/exporting tiles (toggleable).
 
 ## How It Works
 
@@ -65,7 +67,10 @@ xyz:
   layerSyncSeconds: 10             # how often to re-read layers.json so multiple instances stay in sync
   uiEnabled: true                  # set to false to disable the web UI (UI paths return 404)
   adminRole: admin                 # Keycloak realm role required for write operations
+  importDirectory: "/app/imports"  # directory scanned for zip files to auto-import on startup
 ```
+
+`importDirectory` is scanned once at startup. Any `*.zip` file not yet listed in `{importDirectory}/.imported` is ingested as the admin user, then recorded in `.imported` so it is not re-processed on the next start. The directory is created automatically if it does not exist. Set the property to an empty string to disable startup imports entirely.
 
 `minFreeDiskBytes` replaces the older `maxTileStorage` byte cap. The proxy keeps writing tiles until the underlying filesystem has less than this many bytes free, then stops accepting new tiles. Existing tiles are still served.
 
@@ -286,6 +291,72 @@ The current preload model is a first-class entity with its own ACL. Legacy `POST
 
 If `includeVector` is true, the proxy runs `pmtiles extract` against `xyz.vector.sourceUrl` to materialize a PMTiles bundle covering the bounding box (capped at `xyz.vector.maxDownloadZoom`) and writes it under `xyz.vector.downloadDirectory`. Only one vector download runs at a time.
 
+### Import & Export
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/export` | authenticated | Stream a zip of cached raster tiles for one or more layers. |
+| `POST` | `/import` | authenticated | Upload a zip (same format) to seed the cache on this instance. |
+
+Both endpoints require an authenticated principal. Per-layer ACLs are enforced:
+- **Export** — each requested layer is checked with `layerAccessService.canRead`. Admin users bypass this check; non-admin JWT users may only export layers their token grants access to.
+- **Import** — each zip entry's layer is checked the same way. Importing tiles to a layer the caller cannot read returns 403 and the entire upload is rejected. Creating a brand-new layer via import additionally requires the admin role (consistent with `POST /layers`).
+
+Vector layers (PMTiles URL templates) cannot be exported; the endpoint returns 400.
+
+#### Export request body
+
+```json
+{
+  "layers": ["osm", "esri-satellite"],
+  "boundingBox": {
+    "north": 40.1, "south": 39.8, "east": -74.9, "west": -75.3,
+    "maxZoom": 14
+  },
+  "minZoom": 8,
+  "maxZoom": 14
+}
+```
+
+`boundingBox`, `minZoom`, and `maxZoom` are all optional. When `boundingBox` is omitted every cached tile under each layer directory is included. `minZoom`/`maxZoom` further restrict the zoom range within the bounding box (clamped by each layer's own `maxZoom`). Tiles not present on disk are silently skipped. The response is `Content-Type: application/zip` with a timestamped filename such as `tile-export-20260101-120000.zip`.
+
+#### Export zip layout
+
+```
+osm/layer.json
+osm/8/45/102.png
+osm/8/45/103.png
+...
+esri-satellite/layer.json
+esri-satellite/8/45/102.png
+```
+
+Each layer occupies a top-level directory named by its id, containing `layer.json` (the layer definition) and the tile files in `{z}/{x}/{y}.png` layout.
+
+#### Import response
+
+```json
+{
+  "layersAdded": ["new-layer"],
+  "layersSkipped": ["existing-layer"],
+  "tilesWritten": 1842
+}
+```
+
+`layersAdded` — layers registered from `layer.json` entries not already in the layer store.
+`layersSkipped` — layers whose id already existed; the existing definition is kept but tiles are still written.
+`tilesWritten` — total number of tile files written (existing tiles are overwritten).
+
+#### Startup auto-import
+
+Any `*.zip` files placed in `xyz.importDirectory` (default `/app/imports`) are imported automatically on startup as the admin user. The proxy records processed filenames in `{importDirectory}/.imported` and skips any file already listed there, so files are safe to leave in place across restarts.
+
+```bash
+# Copy a previously exported zip into the watched directory before starting the container
+cp ~/tiles-backup.zip /path/to/imports/
+docker run ... -v /path/to/imports:/app/imports xyz-tile-cache:latest
+```
+
 ### Stats
 
 | Method | Path | Auth | Description |
@@ -408,9 +479,15 @@ bash scripts/keycloak/setup.sh
 
 ## Offline Mode
 
-Set `xyz.offline: true` to prevent any outbound requests. The proxy will serve tiles from the local disk cache only and return 404 for anything not already cached. This is useful for field deployments or air-gapped environments where network access is unavailable.
+Set `xyz.offline: true` to prevent any outbound requests. The proxy will serve tiles from the local disk cache only and return 404 for anything not already cached. This is useful for field deployments or air-gapped environments where network access is unavailable. The web UI is served entirely from the application — no external CDN requests are made at runtime.
 
-Pre-populate the cache by running with `offline: false` and using either the startup `boundingBoxes` config or the `POST /preloads` API (with `includeVector: true` to also stage a vector PMTiles bundle), then switch to `offline: true` for the deployment.
+**Pre-populating the cache** before going offline:
+
+1. **Preload API** — Run with `offline: false` and call `POST /preloads` (or configure `xyz.boundingBoxes`) to fetch and cache tiles from upstream sources. Add `includeVector: true` to also stage a PMTiles bundle.
+
+2. **Export then import** — Export a bounding box of tiles from a connected instance with `POST /export`, then import the resulting zip on the offline target with `POST /import` (or place the zip in `xyz.importDirectory` for automatic ingestion on the next startup).
+
+The two approaches can be combined: preload raster tiles via the API and transfer a separate export zip for layers that require fine-grained bounding-box control.
 
 ## CI/CD
 
