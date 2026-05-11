@@ -701,7 +701,8 @@ function switchLayer(name) {
 function switchToVector() {
   const source = new ol.source.VectorTile({
     url: '/vector/{z}/{x}/{y}',
-    format: new ol.format.MVT()
+    format: new ol.format.MVT(),
+    maxZoom: 15
   });
   source.setTileLoadFunction(authVectorTileLoader);
   setMapTileLayer(
@@ -716,24 +717,29 @@ function switchToVector() {
 
 // ── Vector tile style (Protomaps LIGHT theme) ─────────────────────────────────
 
-const EARTH_STYLE = new ol.style.Style({ fill: new ol.style.Fill({ color: '#e2dfda' }) });
+const EARTH_STYLE = new ol.style.Style({ fill: new ol.style.Fill({ color: '#e2dfda' }), zIndex: 1 });
 
 const WATER_STYLE = new ol.style.Style({
-  fill: new ol.style.Fill({ color: '#80deea' })
+  fill: new ol.style.Fill({ color: '#80deea' }),
+  zIndex: 3
 });
 
 const TRANSIT_RAIL = new ol.style.Style({
-  stroke: new ol.style.Stroke({ color: '#a7b1b3', width: 1.5 })
+  stroke: new ol.style.Stroke({ color: '#a7b1b3', width: 1.5 }),
+  zIndex: 6
 });
 const TRANSIT_OTHER = new ol.style.Style({
-  stroke: new ol.style.Stroke({ color: '#a7b1b3', width: 1, lineDash: [6, 4] })
+  stroke: new ol.style.Stroke({ color: '#a7b1b3', width: 1, lineDash: [6, 4] }),
+  zIndex: 6
 });
 
 const BOUNDARY_COUNTRY = new ol.style.Style({
-  stroke: new ol.style.Stroke({ color: '#adadad', width: 1.5, lineDash: [8, 4] })
+  stroke: new ol.style.Stroke({ color: '#adadad', width: 1.5, lineDash: [8, 4] }),
+  zIndex: 7
 });
 const BOUNDARY_REGION = new ol.style.Style({
-  stroke: new ol.style.Stroke({ color: '#adadad', width: 1, lineDash: [8, 6] })
+  stroke: new ol.style.Stroke({ color: '#adadad', width: 1, lineDash: [8, 6] }),
+  zIndex: 7
 });
 
 const LANDUSE_COLORS = {
@@ -755,22 +761,23 @@ const LANDUSE_COLORS = {
   zoo: '#c6dcdc'
 };
 
+// Colors match OSM Carto standard stylesheet
 const ROAD_SPECS = {
-  highway:       { fill: '#ffffff', case_: '#e0e0e0', base: 6 },
-  motorway:      { fill: '#ffffff', case_: '#e0e0e0', base: 6 },
-  motorway_link: { fill: '#ffffff', case_: '#e0e0e0', base: 4 },
-  trunk:         { fill: '#ffffff', case_: '#e0e0e0', base: 5 },
-  trunk_link:    { fill: '#ffffff', case_: '#e0e0e0', base: 3.5 },
-  primary:       { fill: '#ffffff', case_: '#e0e0e0', base: 4.5 },
-  primary_link:  { fill: '#ffffff', case_: '#e0e0e0', base: 3 },
-  major_road:    { fill: '#ffffff', case_: '#e0e0e0', base: 4.5 },
-  secondary:     { fill: '#ffffff', case_: '#e0e0e0', base: 3.5 },
-  secondary_link:{ fill: '#ffffff', case_: '#e0e0e0', base: 2.5 },
-  tertiary:      { fill: '#ffffff', case_: '#e0e0e0', base: 3 },
-  tertiary_link: { fill: '#ffffff', case_: '#e0e0e0', base: 2 },
-  minor_road:    { fill: '#ebebeb', case_: '#e0e0e0', base: 2 },
-  residential:   { fill: '#ebebeb', case_: '#e0e0e0', base: 2 },
-  service:       { fill: '#ebebeb', case_: '#e0e0e0', base: 1 },
+  highway:       { fill: '#e892a2', case_: '#c0516b', base: 6 },
+  motorway:      { fill: '#e892a2', case_: '#c0516b', base: 6 },
+  motorway_link: { fill: '#e892a2', case_: '#c0516b', base: 4 },
+  trunk:         { fill: '#f9b29c', case_: '#c84816', base: 5 },
+  trunk_link:    { fill: '#f9b29c', case_: '#c84816', base: 3.5 },
+  primary:       { fill: '#fcd966', case_: '#a06b00', base: 4.5 },
+  primary_link:  { fill: '#fcd966', case_: '#a06b00', base: 3 },
+  major_road:    { fill: '#fcd966', case_: '#a06b00', base: 4.5 },
+  secondary:     { fill: '#f7fabf', case_: '#707d05', base: 3.5 },
+  secondary_link:{ fill: '#f7fabf', case_: '#707d05', base: 2.5 },
+  tertiary:      { fill: '#ffffff', case_: '#8f8f8f', base: 3 },
+  tertiary_link: { fill: '#ffffff', case_: '#8f8f8f', base: 2 },
+  minor_road:    { fill: '#ffffff', case_: '#c0c0c0', base: 2 },
+  residential:   { fill: '#ffffff', case_: '#c0c0c0', base: 2 },
+  service:       { fill: '#f5f5f5', case_: '#d0d0d0', base: 1 },
   track:         { fill: '#a0a0a0', case_: null, base: 1.5, dash: [6, 3] },
   path:          { fill: '#a0a0a0', case_: null, base: 1,   dash: [4, 3] },
   footway:       { fill: '#a0a0a0', case_: null, base: 1,   dash: [4, 2] },
@@ -781,25 +788,39 @@ const ROAD_SPECS = {
 const MAIN_ROAD_KINDS = new Set(['highway', 'motorway', 'trunk', 'major_road', 'primary']);
 const HIGH_ZOOM_KINDS = new Set(['path', 'footway', 'cycleway', 'service', 'residential']);
 
+// zIndex bands: cases 10-17, fills 20-27, labels 30-37
+const ROAD_IMPORTANCE = {
+  highway: 7, motorway: 7,
+  trunk: 6,   major_road: 6,
+  motorway_link: 5, trunk_link: 5, primary: 5,
+  primary_link: 4,
+  secondary: 3, secondary_link: 3,
+  tertiary: 2, tertiary_link: 2,
+  minor_road: 1, residential: 1,
+  service: 0, track: 0, path: 0, footway: 0, cycleway: 0, ferry: 0
+};
+
 function roadStyles(kind, z) {
   if (z < 5 && !MAIN_ROAD_KINDS.has(kind)) return null;
   if (z < 7 && !MAIN_ROAD_KINDS.has(kind) && kind !== 'secondary') return null;
   if (z < 10 && HIGH_ZOOM_KINDS.has(kind)) return null;
 
   const spec = ROAD_SPECS[kind] || ROAD_SPECS['minor_road'];
-  const scale = z >= 14 ? 2.0 : z >= 12 ? 1.5 : z >= 10 ? 1.0 : z >= 8 ? 0.7 : 0.5;
+  const scale = z >= 15 ? 2.0 : z >= 14 ? 1.4 : z >= 12 ? 0.9 : z >= 10 ? 0.55 : z >= 8 ? 0.4 : z >= 6 ? 0.3 : 0.2;
   const fillWidth = spec.base * scale;
+  const importance = ROAD_IMPORTANCE[kind] ?? 0;
 
   if (spec.dash) {
     return new ol.style.Style({
-      stroke: new ol.style.Stroke({ color: spec.fill, width: fillWidth, lineDash: spec.dash })
+      stroke: new ol.style.Stroke({ color: spec.fill, width: fillWidth, lineDash: spec.dash }),
+      zIndex: 20 + importance
     });
   }
 
   const caseWidth = fillWidth + (z >= 12 ? 2.5 : 1.5);
   return [
-    new ol.style.Style({ stroke: new ol.style.Stroke({ color: spec.case_, width: caseWidth }) }),
-    new ol.style.Style({ stroke: new ol.style.Stroke({ color: spec.fill, width: fillWidth }) })
+    new ol.style.Style({ stroke: new ol.style.Stroke({ color: spec.case_, width: caseWidth }), zIndex: 10 + importance }),
+    new ol.style.Style({ stroke: new ol.style.Stroke({ color: spec.fill, width: fillWidth }), zIndex: 20 + importance })
   ];
 }
 
@@ -807,42 +828,123 @@ function getLabel(feature) {
   return feature.get('name:en') || feature.get('name');
 }
 
+// Protomaps provides kind (broad: 'highway','major_road','minor_road') and
+// kind_detail (specific: 'motorway','trunk','primary'...). Check both so the
+// thresholds work regardless of which field carries the road classification.
+function roadLabelMinZoom(kind, kindDetail) {
+  if (HIGH_ZOOM_KINDS.has(kind) || HIGH_ZOOM_KINDS.has(kindDetail)) return 14;
+  if (MAIN_ROAD_KINDS.has(kind) || MAIN_ROAD_KINDS.has(kindDetail)) return 8;
+  if (kind === 'secondary' || kindDetail === 'secondary' ||
+      kind === 'secondary_link' || kindDetail === 'secondary_link') return 10;
+  return 12;
+}
+
 function roadNameStyle(feature, z) {
-  if (z < 12) return null;
   const name = getLabel(feature);
   if (!name) return null;
   const kind = feature.get('kind') || '';
-  if (z < 14 && HIGH_ZOOM_KINDS.has(kind)) return null;
+  const kindDetail = feature.get('kind_detail') || '';
+  if (z < roadLabelMinZoom(kind, kindDetail)) return null;
+  const importance = ROAD_IMPORTANCE[kind] ?? ROAD_IMPORTANCE[kindDetail] ?? 0;
   const fontSize = z >= 14 ? 11 : 10;
   return new ol.style.Style({
     text: new ol.style.Text({
       text: name,
       font: `${fontSize}px Arial, sans-serif`,
-      fill: new ol.style.Fill({ color: '#91888b' }),
+      fill: new ol.style.Fill({ color: '#555' }),
       stroke: new ol.style.Stroke({ color: '#ffffff', width: 3 }),
       placement: 'line',
       overflow: false
-    })
+    }),
+    zIndex: 30 + importance
+  });
+}
+
+// Route number shields (ref property). Protomaps includes ref on highway features
+// at low zoom levels, so shields can appear from z6 for major roads.
+// Uses backgroundFill/backgroundStroke to create a badge appearance.
+function roadShieldStyle(feature, z, kind, kindDetail) {
+  const ref = feature.get('ref');
+  if (!ref) return null;
+  const isMain = MAIN_ROAD_KINDS.has(kind) || MAIN_ROAD_KINDS.has(kindDetail);
+  const isTrunkish = kind === 'trunk' || kindDetail === 'trunk' ||
+                     kind === 'highway' || kindDetail === 'motorway';
+  if (isMain && z < 6) return null;
+  if (!isMain && z < 10) return null;
+
+  const spec = ROAD_SPECS[kindDetail] || ROAD_SPECS[kind] || ROAD_SPECS['minor_road'];
+  // Pick text color: dark on light fills (yellow/white), light on dark fills
+  const textColor = (spec.fill === '#e892a2' || spec.fill === '#f9b29c') ? '#ffffff' : '#333333';
+
+  return new ol.style.Style({
+    text: new ol.style.Text({
+      text: String(ref),
+      font: `bold ${z >= 10 ? 10 : 9}px Arial, sans-serif`,
+      fill: new ol.style.Fill({ color: textColor }),
+      backgroundFill: new ol.style.Fill({ color: spec.fill }),
+      backgroundStroke: new ol.style.Stroke({ color: spec.case_ || '#999', width: 1 }),
+      padding: [1, 3, 1, 3],
+      placement: 'point',
+      overflow: true
+    }),
+    zIndex: 38 + (ROAD_IMPORTANCE[kind] ?? ROAD_IMPORTANCE[kindDetail] ?? 0)
   });
 }
 
 const PLACE_SPECS = {
-  continent:    { minZ: 0,  maxSize: 16, minSize: 13, weight: '700', color: '#a3a3a3', upper: true },
-  country:      { minZ: 1,  maxSize: 18, minSize: 13, weight: '700', color: '#a3a3a3', upper: true },
-  state:        { minZ: 4,  maxSize: 15, minSize: 13, weight: '600', color: '#b3b3b3', upper: true },
-  province:     { minZ: 4,  maxSize: 15, minSize: 13, weight: '600', color: '#b3b3b3', upper: true },
-  city:         { minZ: 3,  maxSize: 18, minSize: 14, weight: '700', color: '#5c5c5c' },
-  town:         { minZ: 8,  maxSize: 14, minSize: 12, weight: '500', color: '#5c5c5c' },
-  village:      { minZ: 11, maxSize: 12, minSize: 11, weight: '400', color: '#5c5c5c' },
-  suburb:       { minZ: 12, maxSize: 12, minSize: 11, weight: '400', color: '#8f8f8f' },
-  neighborhood: { minZ: 13, maxSize: 11, minSize: 10, weight: '400', color: '#8f8f8f' },
-  locality:     { minZ: 13, maxSize: 11, minSize: 10, weight: '400', color: '#8f8f8f' }
+  continent:     { minZ: 0,  maxSize: 16, minSize: 13, weight: '700', color: '#a3a3a3', upper: true },
+  macroregion:   { minZ: 2,  maxSize: 14, minSize: 12, weight: '600', color: '#b3b3b3', upper: true },
+  country:       { minZ: 1,  maxSize: 18, minSize: 13, weight: '700', color: '#a3a3a3', upper: true },
+  region:        { minZ: 4,  maxSize: 15, minSize: 12, weight: '600', color: '#b3b3b3', upper: true },
+  state:         { minZ: 4,  maxSize: 15, minSize: 12, weight: '600', color: '#b3b3b3', upper: true },
+  province:      { minZ: 4,  maxSize: 15, minSize: 12, weight: '600', color: '#b3b3b3', upper: true },
+  county:        { minZ: 7,  maxSize: 13, minSize: 11, weight: '500', color: '#999999', upper: true },
+  macrocounty:   { minZ: 6,  maxSize: 13, minSize: 11, weight: '500', color: '#b3b3b3', upper: true },
+  city:          { minZ: 3,  maxSize: 18, minSize: 14, weight: '700', color: '#5c5c5c' },
+  town:          { minZ: 8,  maxSize: 14, minSize: 12, weight: '500', color: '#5c5c5c' },
+  village:       { minZ: 11, maxSize: 12, minSize: 11, weight: '400', color: '#5c5c5c' },
+  hamlet:        { minZ: 12, maxSize: 11, minSize: 10, weight: '400', color: '#7c7c7c' },
+  suburb:        { minZ: 12, maxSize: 12, minSize: 11, weight: '400', color: '#8f8f8f' },
+  neighborhood:  { minZ: 13, maxSize: 11, minSize: 10, weight: '400', color: '#8f8f8f' },
+  neighbourhood: { minZ: 13, maxSize: 11, minSize: 10, weight: '400', color: '#8f8f8f' },
+  locality:      { minZ: 3,  maxSize: 16, minSize: 10, weight: '400', color: '#5c5c5c' }
 };
+
+// Protomaps encodes all settlements (cities, towns, villages) as kind=locality and
+// uses pmap:min_zoom per-feature to distinguish importance (2=major city, 12=hamlet).
+// Tiles are already filtered by zoom, so defaulting to 2 is safe — at z5 only major
+// cities are present in the tile data at all.
+function localityStyle(feature, z, name) {
+  const featureMinZ = feature.get('pmap:min_zoom') ?? feature.get('min_zoom') ?? 2;
+  if (z < featureMinZ) return null;
+  const importance = Math.max(0, 12 - featureMinZ);
+  const fontSize = Math.round(10 + importance * 0.55 + Math.min(1, (z - featureMinZ) / 4) * 3);
+  const weight = featureMinZ <= 4 ? '700' : featureMinZ <= 7 ? '600' : featureMinZ <= 9 ? '500' : '400';
+  const color = featureMinZ <= 7 ? '#4a4a4a' : '#5c5c5c';
+  return new ol.style.Style({
+    text: new ol.style.Text({
+      text: name,
+      font: `${weight} ${fontSize}px Arial, sans-serif`,
+      fill: new ol.style.Fill({ color }),
+      stroke: new ol.style.Stroke({ color: '#e0e0e0', width: 3 }),
+      overflow: true,
+      placement: 'point'
+    })
+  });
+}
 
 function placeStyle(feature, z) {
   const name = getLabel(feature);
   if (!name) return null;
-  const spec = PLACE_SPECS[feature.get('kind')] || PLACE_SPECS['locality'];
+  const kind = feature.get('kind') || '';
+
+  // Protomaps uses locality for all settlements; delegate to per-feature zoom
+  if (kind === 'locality' || kind === 'neighbourhood' || kind === 'neighborhood') {
+    return localityStyle(feature, z, name);
+  }
+
+  const spec = PLACE_SPECS[kind];
+  if (!spec) return null;
   if (z < spec.minZ) return null;
 
   const t = Math.min(1, (z - spec.minZ) / 4);
@@ -862,11 +964,12 @@ function placeStyle(feature, z) {
 
 function buildingStyle(feature, z) {
   if (z < 13) return null;
-  const alpha = Math.min(1, 0.4 + (z - 13) * 0.3).toFixed(2);
+  const alpha = Math.min(1, 0.55 + (z - 13) * 0.25).toFixed(2);
   const styles = [
     new ol.style.Style({
-      fill: new ol.style.Fill({ color: `rgba(204,204,204,${alpha})` }),
-      stroke: new ol.style.Stroke({ color: `rgba(176,176,176,${alpha})`, width: 0.75 })
+      fill: new ol.style.Fill({ color: `rgba(210,200,185,${alpha})` }),
+      stroke: new ol.style.Stroke({ color: `rgba(120,105,90,${alpha})`, width: 1 }),
+      zIndex: 8
     })
   ];
   if (z >= 15) {
@@ -909,7 +1012,7 @@ function vectorStyleFn(feature, resolution) {
     case 'earth':     return EARTH_STYLE;
     case 'landuse': {
       const color = LANDUSE_COLORS[kind];
-      return color ? new ol.style.Style({ fill: new ol.style.Fill({ color }) }) : null;
+      return color ? new ol.style.Style({ fill: new ol.style.Fill({ color }), zIndex: 2 }) : null;
     }
     case 'water': {
       const wname = getLabel(feature);
@@ -928,11 +1031,14 @@ function vectorStyleFn(feature, resolution) {
       ];
     }
     case 'roads': {
+      const kindDetail = feature.get('kind_detail') || '';
       const geomStyle = roadStyles(kind, z);
       const nameStyle = roadNameStyle(feature, z);
-      if (!geomStyle && !nameStyle) return null;
+      const shieldStyle = roadShieldStyle(feature, z, kind, kindDetail);
+      if (!geomStyle && !nameStyle && !shieldStyle) return null;
       const arr = Array.isArray(geomStyle) ? [...geomStyle] : (geomStyle ? [geomStyle] : []);
       if (nameStyle) arr.push(nameStyle);
+      if (shieldStyle) arr.push(shieldStyle);
       return arr.length === 1 ? arr[0] : arr;
     }
     case 'buildings': return buildingStyle(feature, z);
