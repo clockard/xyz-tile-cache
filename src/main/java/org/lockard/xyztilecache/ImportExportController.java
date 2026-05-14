@@ -67,16 +67,16 @@ class ImportExportController {
         }
         Optional<Layer> opt = layerStore.getLayer(id);
         if (opt.isEmpty()) {
-          writeError(response, HttpStatus.NOT_FOUND, "Layer not found: " + id);
+          writeError(response, HttpStatus.NOT_FOUND, "Layer not found");
           return;
         }
         Layer layer = opt.get();
         if (isVectorLayer(layer)) {
-          writeError(response, HttpStatus.BAD_REQUEST, "Vector layers cannot be exported: " + id);
+          writeError(response, HttpStatus.BAD_REQUEST, "Vector layers cannot be exported");
           return;
         }
         if (!layerAccessService.canRead(layer, auth)) {
-          writeError(response, HttpStatus.FORBIDDEN, "Access denied to layer: " + id);
+          writeError(response, HttpStatus.FORBIDDEN, "Access denied to layer");
           return;
         }
         resolved.add(layer);
