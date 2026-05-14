@@ -7,6 +7,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import java.io.File;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -50,9 +52,16 @@ class VectorTileControllerTest {
   static void testProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
     registry.add("xyz.layers", () -> List.of());
-    URL fixture =
-        VectorTileControllerTest.class.getClassLoader().getResource("test_fixture_1.pmtiles");
-    registry.add("xyz.vector.bundledPath", () -> fixture.getPath());
+
+    // Copy fixture to download directory so VectorTileService loads it at startup.
+    try {
+      URL fixture =
+          VectorTileControllerTest.class.getClassLoader().getResource("test_fixture_1.pmtiles");
+      Files.copy(Path.of(fixture.toURI()), vectorDir.toPath().resolve("test_fixture_1.pmtiles"));
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to copy test fixture", e);
+    }
+
     registry.add("xyz.vector.downloadDirectory", () -> vectorDir.getAbsolutePath());
     registry.add("xyz.vector.sourceUrl", () -> wireMock.baseUrl() + "/planet.pmtiles");
     registry.add("xyz.vector.enabled", () -> "true");
@@ -61,7 +70,7 @@ class VectorTileControllerTest {
   // ── GET /vector/{z}/{x}/{y} ───────────────────────────────────────────────
 
   @Test
-  void getTile_presentInBundled_returns200WithProtobufType(@Autowired MockMvc mvc)
+  void getTile_presentInDownloaded_returns200WithProtobufType(@Autowired MockMvc mvc)
       throws Exception {
     // z=0, x=0, y=0 is in the test fixture
     mvc.perform(MockMvcRequestBuilders.get("/vector/0/0/0"))
@@ -138,7 +147,7 @@ class VectorTileControllerTest {
   }
 
   @Test
-  void getTile_noBundledNorDownloads_returns204(@Autowired MockMvc mvc) throws Exception {
+  void getTile_noDownloads_returns204(@Autowired MockMvc mvc) throws Exception {
     // z=5,x=0,y=0 is not in the small test fixture
     mvc.perform(MockMvcRequestBuilders.get("/vector/5/0/0"))
         .andExpect(MockMvcResultMatchers.status().isNoContent());

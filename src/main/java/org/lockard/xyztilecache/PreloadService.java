@@ -105,6 +105,7 @@ public class PreloadService {
     preloadStore.addPreload(preload);
 
     if (!validLayers.isEmpty()) {
+      boundingBox.setMaxZoom(maxZoom);
       submitXyz(validLayers, boundingBox);
     }
     if (includeVector) {

@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -29,7 +30,8 @@ import org.springframework.stereotype.Service;
 /**
  * Streams raster-layer tiles into a zip for download and ingests an uploaded zip back into the
  * cache. Each layer is laid out as {@code <layerId>/layer.json} plus {@code
- * <layerId>/<z>/<x>/<y>.png} entries, matching the on-disk format.
+ * <layerId>/<z>/<x>/<y>.png} entries, matching the on-disk format. Vector tile data is exported
+ * under {@code vector/tiles/<z>/<x>/<y>.pbf} and {@code vector/pmtiles/<name>.pmtiles}.
  */
 @Service
 public class ImportExportService {
@@ -37,31 +39,45 @@ public class ImportExportService {
   private static final Logger LOGGER = LoggerFactory.getLogger(ImportExportService.class);
   private static final Pattern SAFE_LAYER_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
   private static final Pattern TILE_TAIL = Pattern.compile("\\d+/\\d+/\\d+\\.png");
+  private static final Pattern VECTOR_TILE_TAIL = Pattern.compile("\\d+/\\d+/\\d+\\.pbf");
+  private static final Pattern SAFE_PMTILES_NAME =
+      Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}\\.pmtiles");
 
   private final XyzConfiguration configuration;
+  private final VectorConfiguration vectorConfiguration;
+  private final VectorTileService vectorTileService;
   private final LayerStore layerStore;
   private final ObjectMapper objectMapper;
   private final LayerAccessService layerAccessService;
 
   public ImportExportService(
       XyzConfiguration configuration,
+      VectorConfiguration vectorConfiguration,
+      VectorTileService vectorTileService,
       LayerStore layerStore,
       ObjectMapper objectMapper,
       LayerAccessService layerAccessService) {
     this.configuration = configuration;
+    this.vectorConfiguration = vectorConfiguration;
+    this.vectorTileService = vectorTileService;
     this.layerStore = layerStore;
     this.objectMapper = objectMapper;
     this.layerAccessService = layerAccessService;
   }
 
   /**
-   * Writes a zip containing each layer's {@code layer.json} and tile files. If {@code bbox} is
-   * null, every cached tile under the layer directory is included; otherwise only tiles whose (x,y)
-   * coordinates fall inside the bbox at each zoom level (clamped by layer.maxZoom and the optional
-   * zoom overrides) are included. Tiles that don't exist on disk are skipped silently.
+   * Writes a zip containing each layer's {@code layer.json} and tile files. If {@code
+   * includeVector} is true, also exports cached individual vector PBF tiles and downloaded PMTiles
+   * files. If {@code bbox} is null, every cached tile under the layer directory is included;
+   * otherwise only tiles within the bbox are included.
    */
   public void streamExport(
-      List<Layer> layers, BoundingBox bbox, Integer minZoom, Integer maxZoom, OutputStream out)
+      List<Layer> layers,
+      BoundingBox bbox,
+      Integer minZoom,
+      Integer maxZoom,
+      boolean includeVector,
+      OutputStream out)
       throws IOException {
     Path baseDir = Paths.get(configuration.getBaseTileDirectory()).toAbsolutePath().normalize();
     try (ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(out))) {
@@ -101,6 +117,83 @@ public class ImportExportService {
           }
         }
       }
+
+      if (includeVector) {
+        addVectorData(zos, bbox, minZoom, maxZoom);
+      }
+    }
+  }
+
+  private void addVectorData(
+      ZipOutputStream zos, BoundingBox bbox, Integer minZoom, Integer maxZoom) throws IOException {
+    String downloadDirStr = vectorConfiguration.getDownloadDirectory();
+    if (downloadDirStr == null || downloadDirStr.isBlank()) {
+      return;
+    }
+    Path downloadDir = Path.of(downloadDirStr).toAbsolutePath().normalize();
+    if (!Files.isDirectory(downloadDir)) {
+      return;
+    }
+
+    Path remoteCacheDir = downloadDir.resolve("remote-cache");
+    if (Files.isDirectory(remoteCacheDir)) {
+      Map<Integer, Set<Point>> bboxTilesByZoom = new HashMap<>();
+      try (Stream<Path> files = Files.walk(remoteCacheDir)) {
+        files
+            .filter(Files::isRegularFile)
+            .filter(p -> p.getFileName().toString().endsWith(".pbf"))
+            .forEach(
+                p -> {
+                  try {
+                    Path rel = remoteCacheDir.relativize(p);
+                    if (rel.getNameCount() != 3) {
+                      return;
+                    }
+                    int z, x, y;
+                    try {
+                      z = Integer.parseInt(rel.getName(0).toString());
+                      x = Integer.parseInt(rel.getName(1).toString());
+                      y = Integer.parseInt(rel.getName(2).toString().replace(".pbf", ""));
+                    } catch (NumberFormatException e) {
+                      return;
+                    }
+                    if (minZoom != null && z < minZoom) {
+                      return;
+                    }
+                    if (maxZoom != null && z > maxZoom) {
+                      return;
+                    }
+                    if (bbox != null) {
+                      Set<Point> pts =
+                          bboxTilesByZoom.computeIfAbsent(
+                              z, lvl -> XyzUtil.calculateXyTilesForBBox(bbox, lvl));
+                      if (!pts.contains(new Point(x, y))) {
+                        return;
+                      }
+                    }
+                    writeEntry(zos, String.format("vector/tiles/%d/%d/%d.pbf", z, x, y), p);
+                  } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                  }
+                });
+      } catch (UncheckedIOException e) {
+        throw e.getCause();
+      }
+    }
+
+    try (Stream<Path> files = Files.list(downloadDir)) {
+      files
+          .filter(p -> p.getFileName().toString().endsWith(".pmtiles"))
+          .forEach(
+              p -> {
+                try {
+                  writeEntry(zos, "vector/pmtiles/" + p.getFileName().toString(), p);
+                } catch (IOException e) {
+                  throw new UncheckedIOException(e);
+                }
+              });
+    } catch (UncheckedIOException e) {
+      throw e.getCause();
     }
   }
 
@@ -133,15 +226,24 @@ public class ImportExportService {
   /**
    * Ingests a zip in the same shape produced by {@link #streamExport}. For each top-level layer
    * directory: {@code layer.json} is registered with the {@link LayerStore} only if no layer with
-   * that id exists; tile files overwrite any existing files on disk. Path traversal attempts are
-   * rejected.
+   * that id exists; tile files overwrite any existing files on disk. Vector tile entries under
+   * {@code vector/tiles/} and {@code vector/pmtiles/} are restored to the vector download
+   * directory. Path traversal attempts are rejected.
    */
   public ImportSummary importZip(InputStream in, Authentication auth) throws IOException {
     Path baseDir = Paths.get(configuration.getBaseTileDirectory()).toAbsolutePath().normalize();
     Files.createDirectories(baseDir);
+
+    String downloadDirStr = vectorConfiguration.getDownloadDirectory();
+    Path vectorDownloadDir =
+        (downloadDirStr != null && !downloadDirStr.isBlank())
+            ? Path.of(downloadDirStr).toAbsolutePath().normalize()
+            : null;
+
     List<String> added = new ArrayList<>();
     List<String> skipped = new ArrayList<>();
     long tilesWritten = 0L;
+    long pmtilesImported = 0L;
     Map<String, Boolean> layerAccess = new HashMap<>();
 
     try (ZipInputStream zis = new ZipInputStream(in)) {
@@ -154,6 +256,63 @@ public class ImportExportService {
         if (name.startsWith("/") || name.contains("..") || name.contains("\\")) {
           throw new IllegalArgumentException("Illegal entry name: " + name);
         }
+
+        // Handle vector tile entries
+        if (name.startsWith("vector/tiles/") || name.startsWith("vector/pmtiles/")) {
+          if (!layerAccessService.isAdmin(auth)) {
+            throw new AccessDeniedException("Admin access required to import vector tiles");
+          }
+          if (vectorDownloadDir == null) {
+            LOGGER.warn(
+                "Skipping vector entry {}: xyz.vector.downloadDirectory not configured", name);
+            continue;
+          }
+          if (name.startsWith("vector/tiles/")) {
+            String tail = name.substring("vector/tiles/".length());
+            if (!VECTOR_TILE_TAIL.matcher(tail).matches()) {
+              LOGGER.warn("Skipping vector tile entry with unexpected path: {}", name);
+              continue;
+            }
+            String[] parts = tail.replace(".pbf", "").split("/");
+            int z = Integer.parseInt(parts[0]);
+            int x = Integer.parseInt(parts[1]);
+            int y = Integer.parseInt(parts[2]);
+            Path cacheDir =
+                vectorDownloadDir
+                    .resolve("remote-cache")
+                    .resolve(String.valueOf(z))
+                    .resolve(String.valueOf(x));
+            Files.createDirectories(cacheDir);
+            Path tilePath = cacheDir.resolve(y + ".pbf").normalize();
+            if (!tilePath.startsWith(vectorDownloadDir)) {
+              LOGGER.warn("Skipping vector tile entry that escapes download directory: {}", name);
+              continue;
+            }
+            Files.copy(zis, tilePath, StandardCopyOption.REPLACE_EXISTING);
+            tilesWritten++;
+          } else {
+            String filename = name.substring("vector/pmtiles/".length());
+            if (!SAFE_PMTILES_NAME.matcher(filename).matches()) {
+              LOGGER.warn("Skipping PMTiles entry with unsafe name: {}", filename);
+              continue;
+            }
+            Files.createDirectories(vectorDownloadDir);
+            Path target = vectorDownloadDir.resolve(filename).normalize();
+            if (!target.startsWith(vectorDownloadDir)) {
+              LOGGER.warn("Skipping PMTiles entry that escapes download directory: {}", filename);
+              continue;
+            }
+            Files.copy(zis, target, StandardCopyOption.REPLACE_EXISTING);
+            try {
+              vectorTileService.registerDownload(target);
+              pmtilesImported++;
+            } catch (IOException e) {
+              LOGGER.warn("Imported PMTiles file could not be opened: {}", e.getMessage());
+            }
+          }
+          continue;
+        }
+
         int slash = name.indexOf('/');
         if (slash <= 0) {
           continue; // ignore stray top-level files
@@ -186,7 +345,7 @@ public class ImportExportService {
       }
     }
 
-    return new ImportSummary(added, skipped, tilesWritten);
+    return new ImportSummary(added, skipped, tilesWritten, pmtilesImported);
   }
 
   private boolean checkLayerAccess(String layerId, Authentication auth) {

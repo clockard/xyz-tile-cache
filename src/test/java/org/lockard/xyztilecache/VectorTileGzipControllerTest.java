@@ -5,6 +5,8 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMoc
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import java.io.File;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -23,6 +25,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 class VectorTileGzipControllerTest {
 
   @TempDir static File tileDir;
+  @TempDir static File vectorDir;
 
   @RegisterExtension
   static WireMockExtension wireMock =
@@ -34,12 +37,19 @@ class VectorTileGzipControllerTest {
   static void testProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
     registry.add("xyz.layers", () -> List.of());
-    URL fixture =
-        VectorTileGzipControllerTest.class
-            .getClassLoader()
-            .getResource("test_fixture_gzip.pmtiles");
-    registry.add("xyz.vector.bundledPath", () -> fixture.getPath());
-    registry.add("xyz.vector.downloadDirectory", () -> tileDir.getAbsolutePath() + "/vector");
+
+    // Copy gzip fixture to download directory so VectorTileService loads it at startup.
+    try {
+      URL fixture =
+          VectorTileGzipControllerTest.class
+              .getClassLoader()
+              .getResource("test_fixture_gzip.pmtiles");
+      Files.copy(Path.of(fixture.toURI()), vectorDir.toPath().resolve("test_fixture_gzip.pmtiles"));
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to copy gzip test fixture", e);
+    }
+
+    registry.add("xyz.vector.downloadDirectory", () -> vectorDir.getAbsolutePath());
     registry.add("xyz.vector.sourceUrl", () -> wireMock.baseUrl() + "/planet.pmtiles");
     registry.add("xyz.vector.enabled", () -> "true");
   }

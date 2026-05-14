@@ -279,11 +279,15 @@ xyz:
         Referer: "https://www.accuweather.com"
 
   vector:
-    bundledPath: "${xyz.baseTileDirectory}/vector/world_z0-7.pmtiles"
     downloadDirectory: "${xyz.baseTileDirectory}/vector"
-    # {date} is replaced with today's date (YYYYMMDD) at download time.
+    # {date} is replaced with yesterday's date (YYYYMMDD) at startup.
+    # Used for both preload area downloads (pmtiles extract) and individual tile
+    # range-request fallback (RemotePmtilesReader).
     sourceUrl: "${PMTILES_SOURCE_URL:https://build.protomaps.com/{date}.pmtiles}"
     maxDownloadZoom: 15
+    # Set to a zoom level (e.g. 7) to download world vector data on first startup.
+    # 0 or unset means do nothing.
+    initZoom: "${XYZ_VECTOR_INIT_ZOOM:0}"
     enabled: true
 
 #  boundingBoxes:

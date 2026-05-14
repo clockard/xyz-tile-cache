@@ -1761,11 +1761,16 @@ function hideExportModal() {
 
 function buildExportLayerCheckboxes() {
   exportLayersContainer.innerHTML = '';
+  const vectorRow = document.createElement('div');
+  vectorRow.className = 'preload-layer-row';
+  vectorRow.dataset.key = VECTOR_LAYER_KEY;
+  const vectorCbid = `export-layer-${cssEscape(VECTOR_LAYER_KEY)}`;
+  vectorRow.innerHTML =
+    `<input type="checkbox" id="${vectorCbid}">` +
+    `<label for="${vectorCbid}">OSM Vector</label>`;
+  exportLayersContainer.appendChild(vectorRow);
+
   const ids = Object.keys(layerMap).filter((id) => !isVectorLayerEntry(layerMap[id]));
-  if (ids.length === 0) {
-    exportLayersContainer.innerHTML = '<div class="empty-state">No raster layers available</div>';
-    return;
-  }
   ids.forEach((id) => {
     const layer = layerMap[id];
     const row = document.createElement('div');
@@ -1844,12 +1849,14 @@ async function submitExport() {
     exportStatus.textContent = 'Login required.';
     return;
   }
-  const layers = getSelectedExportLayerKeys();
-  if (layers.length === 0) {
+  const allSelected = getSelectedExportLayerKeys();
+  const includeVector = allSelected.includes(VECTOR_LAYER_KEY);
+  const layers = allSelected.filter((k) => k !== VECTOR_LAYER_KEY);
+  if (layers.length === 0 && !includeVector) {
     exportStatus.textContent = 'Select at least one layer.';
     return;
   }
-  const body = { layers };
+  const body = { layers, includeVector };
   if (pendingExportBbox) {
     body.boundingBox = { ...pendingExportBbox, maxZoom: 22 };
   }
@@ -1903,7 +1910,7 @@ async function submitExport() {
 // ── Import modal ──────────────────────────────────────────────────────────────
 
 function showImportModal() {
-  if (!isLoggedIn()) { showToast('Login required', 'error'); return; }
+  if (!isAdmin()) { showToast('Admin role required', 'error'); return; }
   importFileInput.value = '';
   importStatus.textContent = '';
   importOverlay.classList.remove('hidden');
@@ -1914,8 +1921,8 @@ function hideImportModal() {
 }
 
 async function submitImport() {
-  if (!isLoggedIn()) {
-    importStatus.textContent = 'Login required.';
+  if (!isAdmin()) {
+    importStatus.textContent = 'Admin role required.';
     return;
   }
   const file = importFileInput.files[0];

@@ -21,59 +21,55 @@ class VectorTileServiceTest {
     return Paths.get(url.getPath());
   }
 
-  private VectorConfiguration config(String bundledPath, String downloadDir) {
+  private VectorConfiguration config(String downloadDir) {
     VectorConfiguration c = new VectorConfiguration();
-    c.setBundledPath(bundledPath);
     c.setDownloadDirectory(downloadDir);
     c.setEnabled(true);
     return c;
   }
 
+  private VectorTileService service(VectorConfiguration c) {
+    XyzConfiguration xyz = new XyzConfiguration();
+    xyz.setBaseTileDirectory(tempDir.toString());
+    xyz.setOffline(true); // disable remote PMTiles reader in unit tests
+    return new VectorTileService(c, xyz, new VectorTileRemoteCache(c, xyz));
+  }
+
   // ── init() variations ─────────────────────────────────────────────────────
 
   @Test
-  void init_disabled_doesNotLoadBundled() throws IOException {
+  void init_disabled_returnsEmpty() throws IOException {
     VectorConfiguration c = new VectorConfiguration();
     c.setEnabled(false);
-    c.setBundledPath(fixturePath().toString());
-    VectorTileService service = new VectorTileService(c);
+    VectorTileService service = service(c);
     service.init();
     assertThat(service.getTile(0, 0, 0)).isEmpty();
     service.destroy();
   }
 
   @Test
-  void init_bundledFileNotFound_warnsAndContinues() {
-    VectorConfiguration c = config("/nonexistent/world.pmtiles", null);
-    VectorTileService service = new VectorTileService(c);
+  void init_nullDownloadDirectory_returnsEmpty() throws IOException {
+    VectorConfiguration c = config(null);
+    VectorTileService service = service(c);
     service.init();
+    assertThat(service.getTile(0, 0, 0)).isEmpty();
     service.destroy();
   }
 
   @Test
-  void init_nullDownloadDirectory_skipsDownloadScan() throws IOException {
-    VectorConfiguration c = config(fixturePath().toString(), null);
-    VectorTileService service = new VectorTileService(c);
+  void init_blankDownloadDirectory_returnsEmpty() throws IOException {
+    VectorConfiguration c = config("  ");
+    VectorTileService service = service(c);
     service.init();
-    // Bundled is still loaded, so tile (0,0,0) should be present in the fixture.
-    assertThat(service.getTile(0, 0, 0)).isPresent();
-    service.destroy();
-  }
-
-  @Test
-  void init_blankDownloadDirectory_skipsDownloadScan() throws IOException {
-    VectorConfiguration c = config(fixturePath().toString(), "  ");
-    VectorTileService service = new VectorTileService(c);
-    service.init();
-    assertThat(service.getTile(0, 0, 0)).isPresent();
+    assertThat(service.getTile(0, 0, 0)).isEmpty();
     service.destroy();
   }
 
   @Test
   void init_createsDownloadDirectoryIfAbsent() {
     Path newDir = tempDir.resolve("newsubdir");
-    VectorConfiguration c = config(fixturePath().toString(), newDir.toString());
-    VectorTileService service = new VectorTileService(c);
+    VectorConfiguration c = config(newDir.toString());
+    VectorTileService service = service(c);
     service.init();
     assertThat(newDir).isDirectory();
     service.destroy();
@@ -84,39 +80,29 @@ class VectorTileServiceTest {
     Path dest = tempDir.resolve("region.pmtiles");
     Files.copy(fixturePath(), dest);
 
-    VectorConfiguration c = config("/nonexistent.pmtiles", tempDir.toString());
-    VectorTileService service = new VectorTileService(c);
+    VectorConfiguration c = config(tempDir.toString());
+    VectorTileService service = service(c);
     service.init();
 
-    // Tile from the registered downloaded file should be served (no bundled fallback).
     assertThat(service.getTile(0, 0, 0)).isPresent();
     service.destroy();
   }
 
-  // ── getTile() priority ────────────────────────────────────────────────────
+  // ── getTile() ────────────────────────────────────────────────────────────
 
   @Test
-  void getTile_noBundledNoDownloads_returnsEmpty() throws IOException {
-    VectorConfiguration c = config("/nonexistent.pmtiles", null);
-    VectorTileService service = new VectorTileService(c);
+  void getTile_noDownloads_returnsEmpty() throws IOException {
+    VectorConfiguration c = config(null);
+    VectorTileService service = service(c);
     service.init();
     assertThat(service.getTile(0, 0, 0)).isEmpty();
     service.destroy();
   }
 
   @Test
-  void getTile_tileInBundled_returnsResult() throws IOException {
-    VectorConfiguration c = config(fixturePath().toString(), null);
-    VectorTileService service = new VectorTileService(c);
-    service.init();
-    assertThat(service.getTile(0, 0, 0)).isPresent();
-    service.destroy();
-  }
-
-  @Test
-  void getTile_downloadedReaderSearchedBeforeBundled() throws IOException {
-    VectorConfiguration c = config(fixturePath().toString(), tempDir.toString());
-    VectorTileService service = new VectorTileService(c);
+  void getTile_downloadedReader_returnsResult() throws IOException {
+    VectorConfiguration c = config(tempDir.toString());
+    VectorTileService service = service(c);
     service.init();
 
     Path downloadedCopy = tempDir.resolve("downloaded.pmtiles");
@@ -132,8 +118,8 @@ class VectorTileServiceTest {
 
   @Test
   void registerDownload_servesTilesFromRegisteredFile() throws IOException {
-    VectorConfiguration c = config("/nonexistent.pmtiles", tempDir.toString());
-    VectorTileService service = new VectorTileService(c);
+    VectorConfiguration c = config(tempDir.toString());
+    VectorTileService service = service(c);
     service.init();
 
     Path copy = tempDir.resolve("area.pmtiles");
@@ -147,9 +133,9 @@ class VectorTileServiceTest {
   // ── destroy() ────────────────────────────────────────────────────────────
 
   @Test
-  void destroy_withNullBundledReader_doesNotThrow() {
-    VectorConfiguration c = config("/nonexistent.pmtiles", null);
-    VectorTileService service = new VectorTileService(c);
+  void destroy_withNoReaders_doesNotThrow() {
+    VectorConfiguration c = config(null);
+    VectorTileService service = service(c);
     service.init();
     service.destroy();
   }

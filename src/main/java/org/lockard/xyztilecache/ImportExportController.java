@@ -47,32 +47,40 @@ class ImportExportController {
   @PostMapping(value = "/export", consumes = MediaType.APPLICATION_JSON_VALUE)
   public void export(@RequestBody ExportRequest request, HttpServletResponse response)
       throws IOException {
-    if (request == null || request.getLayers() == null || request.getLayers().isEmpty()) {
-      writeError(response, HttpStatus.BAD_REQUEST, "layers must not be empty");
+    boolean hasLayers =
+        request != null && request.getLayers() != null && !request.getLayers().isEmpty();
+    boolean includeVector = request != null && request.isIncludeVector();
+
+    if (!hasLayers && !includeVector) {
+      writeError(response, HttpStatus.BAD_REQUEST, "layers or includeVector must be specified");
       return;
     }
+
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-    List<Layer> resolved = new ArrayList<>(request.getLayers().size());
-    for (String id : request.getLayers()) {
-      if (id == null || id.isBlank()) {
-        writeError(response, HttpStatus.BAD_REQUEST, "Layer id must not be blank.");
-        return;
+    List<Layer> resolved = new ArrayList<>();
+
+    if (hasLayers) {
+      for (String id : request.getLayers()) {
+        if (id == null || id.isBlank()) {
+          writeError(response, HttpStatus.BAD_REQUEST, "Layer id must not be blank.");
+          return;
+        }
+        Optional<Layer> opt = layerStore.getLayer(id);
+        if (opt.isEmpty()) {
+          writeError(response, HttpStatus.NOT_FOUND, "Layer not found: " + id);
+          return;
+        }
+        Layer layer = opt.get();
+        if (isVectorLayer(layer)) {
+          writeError(response, HttpStatus.BAD_REQUEST, "Vector layers cannot be exported: " + id);
+          return;
+        }
+        if (!layerAccessService.canRead(layer, auth)) {
+          writeError(response, HttpStatus.FORBIDDEN, "Access denied to layer: " + id);
+          return;
+        }
+        resolved.add(layer);
       }
-      Optional<Layer> opt = layerStore.getLayer(id);
-      if (opt.isEmpty()) {
-        writeError(response, HttpStatus.NOT_FOUND, "Layer not found: " + id);
-        return;
-      }
-      Layer layer = opt.get();
-      if (isVectorLayer(layer)) {
-        writeError(response, HttpStatus.BAD_REQUEST, "Vector layers cannot be exported: " + id);
-        return;
-      }
-      if (!layerAccessService.canRead(layer, auth)) {
-        writeError(response, HttpStatus.FORBIDDEN, "Access denied to layer: " + id);
-        return;
-      }
-      resolved.add(layer);
     }
 
     String filename = "tile-export-" + FILENAME_TS.format(Instant.now()) + ".zip";
@@ -85,6 +93,7 @@ class ImportExportController {
         request.getBoundingBox(),
         request.getMinZoom(),
         request.getMaxZoom(),
+        includeVector,
         response.getOutputStream());
   }
 

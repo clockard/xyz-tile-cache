@@ -40,10 +40,12 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 class ImportExportControllerTest {
 
   @TempDir static File tileDir;
+  @TempDir static File vectorDir;
 
   @DynamicPropertySource
   static void testProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
+    registry.add("xyz.vector.downloadDirectory", () -> vectorDir.getAbsolutePath());
     registry.add(
         "xyz.layers",
         () -> {
@@ -70,6 +72,7 @@ class ImportExportControllerTest {
   @Autowired MockMvc mvc;
   @Autowired LayerStore layerStore;
   @Autowired ObjectMapper objectMapper;
+  @Autowired VectorConfiguration vectorConfiguration;
 
   static RequestPostProcessor adminJwt() {
     return jwt()
@@ -455,10 +458,10 @@ class ImportExportControllerTest {
   }
 
   @Test
-  void importZip_userWithAccess_canImportToAllowedLayer() throws Exception {
+  void importZip_adminCanImportToAllowedLayer() throws Exception {
     byte[] zip = buildZip(Map.of("alice-only/5/5/5.png", new byte[] {77}));
     MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
-    mvc.perform(multipart("/import").file(file).with(userJwt("alice")))
+    mvc.perform(multipart("/import").file(file).with(adminJwt()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.tilesWritten").value(1));
     Path tile = Paths.get(tileDir.getAbsolutePath(), "alice-only", "5", "5", "5.png");
@@ -466,12 +469,200 @@ class ImportExportControllerTest {
   }
 
   @Test
-  void importZip_userWithPublicLayer_canImportTiles() throws Exception {
+  void importZip_adminCanImportToPublicLayer() throws Exception {
     byte[] zip = buildZip(Map.of("public-layer/5/5/5.png", new byte[] {88}));
     MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
-    mvc.perform(multipart("/import").file(file).with(userJwt("bob")))
+    mvc.perform(multipart("/import").file(file).with(adminJwt()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.tilesWritten").value(1));
+  }
+
+  // ── vector export ─────────────────────────────────────────────────────────
+
+  @Test
+  void export_includeVectorOnly_noLayers_returnsZipWithVectorTiles() throws Exception {
+    // Seed a cached PBF tile in the remote-cache directory
+    Path cacheDir = vectorDir.toPath().resolve("remote-cache").resolve("3").resolve("4");
+    Files.createDirectories(cacheDir);
+    Files.write(cacheDir.resolve("5.pbf"), new byte[] {0x1a, 0x2b});
+
+    MvcResult result =
+        mvc.perform(
+                post("/export")
+                    .with(adminJwt())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"includeVector\":true}"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    assertThat(entries).containsKey("vector/tiles/3/4/5.pbf");
+    assertThat(entries.get("vector/tiles/3/4/5.pbf")).containsExactly(0x1a, 0x2b);
+  }
+
+  @Test
+  void export_noLayersNoVector_returns400() throws Exception {
+    mvc.perform(
+            post("/export").with(adminJwt()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void export_includeVector_withLayers_includesBoth() throws Exception {
+    Path cacheDir = vectorDir.toPath().resolve("remote-cache").resolve("2").resolve("1");
+    Files.createDirectories(cacheDir);
+    Files.write(cacheDir.resolve("0.pbf"), new byte[] {0x0f});
+
+    MvcResult result =
+        mvc.perform(
+                post("/export")
+                    .with(adminJwt())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"layers\":[\"public-layer\"],\"includeVector\":true}"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    assertThat(entries).containsKey("public-layer/layer.json");
+    assertThat(entries).containsKey("vector/tiles/2/1/0.pbf");
+  }
+
+  // ── vector import ─────────────────────────────────────────────────────────
+
+  @Test
+  void importZip_vectorTiles_writesToRemoteCache() throws Exception {
+    byte[] zip = buildZip(Map.of("vector/tiles/4/2/3.pbf", new byte[] {0x0a, 0x0b, 0x0c}));
+    MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
+    mvc.perform(multipart("/import").file(file).with(adminJwt()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tilesWritten").value(1));
+
+    Path tilePath =
+        vectorDir.toPath().resolve("remote-cache").resolve("4").resolve("2").resolve("3.pbf");
+    assertThat(Files.readAllBytes(tilePath)).containsExactly(0x0a, 0x0b, 0x0c);
+  }
+
+  @Test
+  void importZip_vectorTiles_nonAdmin_returns403() throws Exception {
+    byte[] zip = buildZip(Map.of("vector/tiles/4/2/3.pbf", new byte[] {0x01}));
+    MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
+    mvc.perform(multipart("/import").file(file).with(userJwt("bob")))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void importZip_vectorTile_invalidTailPattern_isSkipped() throws Exception {
+    // tail "x/y/z.pbf" doesn't match \d+/\d+/\d+\.pbf
+    byte[] zip = buildZip(Map.of("vector/tiles/x/y/z.pbf", new byte[] {0x01}));
+    MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
+    mvc.perform(multipart("/import").file(file).with(adminJwt()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tilesWritten").value(0));
+  }
+
+  @Test
+  void importZip_vectorPmtiles_unsafeName_isSkipped() throws Exception {
+    // "bad!file.pmtiles" has '!' which is not in [A-Za-z0-9._-]
+    byte[] zip = buildZip(Map.of("vector/pmtiles/bad!file.pmtiles", new byte[] {0x01}));
+    MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
+    mvc.perform(multipart("/import").file(file).with(adminJwt()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pmtilesImported").value(0));
+  }
+
+  @Test
+  void importZip_vectorTiles_noDownloadDir_skips() throws Exception {
+    String original = vectorConfiguration.getDownloadDirectory();
+    vectorConfiguration.setDownloadDirectory("");
+    try {
+      byte[] zip = buildZip(Map.of("vector/tiles/4/2/3.pbf", new byte[] {0x0a}));
+      MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
+      mvc.perform(multipart("/import").file(file).with(adminJwt()))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.tilesWritten").value(0));
+    } finally {
+      vectorConfiguration.setDownloadDirectory(original);
+    }
+  }
+
+  @Test
+  void export_includeVector_downloadDirBlank_returnsEmptyZip() throws Exception {
+    String original = vectorConfiguration.getDownloadDirectory();
+    vectorConfiguration.setDownloadDirectory("");
+    try {
+      MvcResult result =
+          mvc.perform(
+                  post("/export")
+                      .with(adminJwt())
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content("{\"includeVector\":true}"))
+              .andExpect(status().isOk())
+              .andReturn();
+      Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+      assertThat(entries).doesNotContainKey("vector/tiles/0/0/0.pbf");
+    } finally {
+      vectorConfiguration.setDownloadDirectory(original);
+    }
+  }
+
+  @Test
+  void export_includeVector_pmtilesFiles_includedInZip() throws Exception {
+    java.nio.file.Files.write(
+        vectorDir.toPath().resolve("region.pmtiles"), new byte[] {0x01, 0x02});
+
+    MvcResult result =
+        mvc.perform(
+                post("/export")
+                    .with(adminJwt())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"includeVector\":true}"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    assertThat(entries).containsKey("vector/pmtiles/region.pmtiles");
+    assertThat(entries.get("vector/pmtiles/region.pmtiles")).containsExactly(0x01, 0x02);
+  }
+
+  @Test
+  void export_includeVector_zoomFilters_excludeOutOfRangePbfTiles() throws Exception {
+    // Seed tiles at z=0 and z=5; export with minZoom=2, maxZoom=4 — both should be excluded
+    Path cacheZ0 = vectorDir.toPath().resolve("remote-cache").resolve("0").resolve("0");
+    Path cacheZ5 = vectorDir.toPath().resolve("remote-cache").resolve("5").resolve("10");
+    java.nio.file.Files.createDirectories(cacheZ0);
+    java.nio.file.Files.createDirectories(cacheZ5);
+    java.nio.file.Files.write(cacheZ0.resolve("0.pbf"), new byte[] {0x01});
+    java.nio.file.Files.write(cacheZ5.resolve("0.pbf"), new byte[] {0x02});
+
+    MvcResult result =
+        mvc.perform(
+                post("/export")
+                    .with(adminJwt())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"includeVector\":true,\"minZoom\":2,\"maxZoom\":4}"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    assertThat(entries).doesNotContainKey("vector/tiles/0/0/0.pbf");
+    assertThat(entries).doesNotContainKey("vector/tiles/5/10/0.pbf");
+  }
+
+  @Test
+  void importZip_layerJsonWithMismatchedId_takesIdFromDirectory() throws Exception {
+    // layer.json has name="original-name" (used as effectiveId) but directory is "dir-name"
+    Layer mismatch = new Layer();
+    mismatch.setName("original-name");
+    mismatch.setUrlTemplate("https://example.com/m/{z}/{y}/{x}");
+    mismatch.setMaxZoom(4);
+    byte[] zip = buildZip(Map.of("dir-name/layer.json", objectMapper.writeValueAsBytes(mismatch)));
+    MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
+    mvc.perform(multipart("/import").file(file).with(adminJwt()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.layersAdded[0]").value("dir-name"));
+    assertThat(layerStore.getLayer("dir-name")).isPresent();
+    // Name is preserved (non-blank) even though id was fixed
+    assertThat(layerStore.getLayer("dir-name").get().getName()).isEqualTo("original-name");
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────

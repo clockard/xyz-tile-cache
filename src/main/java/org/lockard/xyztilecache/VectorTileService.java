@@ -3,8 +3,11 @@ package org.lockard.xyztilecache;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
+import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
@@ -18,31 +21,24 @@ public class VectorTileService {
   private static final Logger LOGGER = LoggerFactory.getLogger(VectorTileService.class);
 
   private final VectorConfiguration config;
+  private final XyzConfiguration xyzConfig;
+  private final VectorTileRemoteCache remoteCache;
 
-  private volatile PmtilesReader bundledReader;
   private final CopyOnWriteArrayList<PmtilesReader> downloadedReaders =
       new CopyOnWriteArrayList<>();
+  private RemotePmtilesReader remotePmtilesReader;
 
-  public VectorTileService(VectorConfiguration config) {
+  public VectorTileService(
+      VectorConfiguration config, XyzConfiguration xyzConfig, VectorTileRemoteCache remoteCache) {
     this.config = config;
+    this.xyzConfig = xyzConfig;
+    this.remoteCache = remoteCache;
   }
 
   @PostConstruct
   void init() {
     if (!config.isEnabled()) {
       return;
-    }
-
-    Path bundled = Path.of(config.getBundledPath());
-    if (Files.exists(bundled)) {
-      try {
-        bundledReader = new PmtilesReader(bundled);
-        LOGGER.info("Loaded bundled PMTiles: {}", bundled);
-      } catch (IOException e) {
-        LOGGER.warn("Failed to open bundled PMTiles at {}: {}", bundled, e.getMessage());
-      }
-    } else {
-      LOGGER.warn("Bundled PMTiles not found at {}; vector fallback unavailable.", bundled);
     }
 
     String downloadDir = config.getDownloadDirectory();
@@ -72,6 +68,19 @@ public class VectorTileService {
         LOGGER.warn("Could not scan vector download directory {}: {}", dir, e.getMessage());
       }
     }
+
+    if (!xyzConfig.isOffline()) {
+      String sourceUrl = PmtilesDownloader.resolveSourceUrl(config.getSourceUrl());
+      if (sourceUrl != null && !sourceUrl.isBlank()) {
+        HttpClient httpClient =
+            HttpClient.newBuilder()
+                .connectTimeout(Duration.of(xyzConfig.getTileTimeoutSeconds(), ChronoUnit.SECONDS))
+                .build();
+        remotePmtilesReader =
+            new RemotePmtilesReader(sourceUrl, httpClient, xyzConfig.getTileTimeoutSeconds());
+        LOGGER.info("Remote PMTiles reader configured for: {}", sourceUrl);
+      }
+    }
   }
 
   public Optional<TileResult> getTile(int z, int x, int y) throws IOException {
@@ -81,8 +90,16 @@ public class VectorTileService {
         return result;
       }
     }
-    if (bundledReader != null) {
-      return bundledReader.getTile(z, x, y);
+    if (remotePmtilesReader != null) {
+      Optional<TileResult> cached = remoteCache.get(z, x, y);
+      if (cached.isPresent()) {
+        return cached;
+      }
+      Optional<TileResult> result = remotePmtilesReader.getTile(z, x, y);
+      if (result.isPresent()) {
+        remoteCache.store(z, x, y, result.get());
+        return result;
+      }
     }
     return Optional.empty();
   }
@@ -95,7 +112,6 @@ public class VectorTileService {
 
   @PreDestroy
   void destroy() {
-    closeReaderSilently(bundledReader);
     downloadedReaders.forEach(this::closeReaderSilently);
   }
 

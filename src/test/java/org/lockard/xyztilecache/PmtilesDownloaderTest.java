@@ -3,10 +3,12 @@ package org.lockard.xyztilecache;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -264,5 +266,115 @@ class PmtilesDownloaderTest {
 
     latch.countDown();
     first.get();
+  }
+
+  // ── requireValidBoundingBox ───────────────────────────────────────────────
+
+  @Test
+  void requireValidBoundingBox_null_throws() {
+    assertThatThrownBy(() -> PmtilesDownloader.requireValidBoundingBox(null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("required");
+  }
+
+  @Test
+  void requireValidBoundingBox_nonFiniteValues_throws() {
+    BoundingBox bbox = new BoundingBox();
+    bbox.setWest(Double.NaN);
+    bbox.setSouth(-90);
+    bbox.setEast(180);
+    bbox.setNorth(90);
+    assertThatThrownBy(() -> PmtilesDownloader.requireValidBoundingBox(bbox))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("non-finite");
+  }
+
+  @Test
+  void requireValidBoundingBox_westGeqEast_throws() {
+    BoundingBox bbox = new BoundingBox();
+    bbox.setWest(10);
+    bbox.setSouth(-10);
+    bbox.setEast(10);
+    bbox.setNorth(10);
+    assertThatThrownBy(() -> PmtilesDownloader.requireValidBoundingBox(bbox))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("range");
+  }
+
+  @Test
+  void requireValidBoundingBox_southGeqNorth_throws() {
+    BoundingBox bbox = new BoundingBox();
+    bbox.setWest(-10);
+    bbox.setSouth(5);
+    bbox.setEast(10);
+    bbox.setNorth(5);
+    assertThatThrownBy(() -> PmtilesDownloader.requireValidBoundingBox(bbox))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("range");
+  }
+
+  @Test
+  void requireValidBoundingBox_outOfGlobalRange_throws() {
+    BoundingBox bbox = new BoundingBox();
+    bbox.setWest(-181);
+    bbox.setSouth(-90);
+    bbox.setEast(180);
+    bbox.setNorth(90);
+    assertThatThrownBy(() -> PmtilesDownloader.requireValidBoundingBox(bbox))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("range");
+  }
+
+  // ── requireValidMaxZoom ───────────────────────────────────────────────────
+
+  @Test
+  void requireValidMaxZoom_negative_throws() {
+    assertThatThrownBy(() -> PmtilesDownloader.requireValidMaxZoom(-1))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("range");
+  }
+
+  @Test
+  void requireValidMaxZoom_over22_throws() {
+    assertThatThrownBy(() -> PmtilesDownloader.requireValidMaxZoom(23))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("range");
+  }
+
+  // ── safePathArg ───────────────────────────────────────────────────────────
+
+  @Test
+  void safePathArg_unsafeChars_throws() {
+    assertThatThrownBy(() -> PmtilesDownloader.safePathArg(Path.of("/tmp/evil file")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("unsafe");
+  }
+
+  @Test
+  void safePathArg_safePath_returnsSame() {
+    String safe = PmtilesDownloader.safePathArg(Path.of("/tmp/tiles/region.pmtiles"));
+    assertThat(safe).isEqualTo("/tmp/tiles/region.pmtiles");
+  }
+
+  // ── registerDownload IOException ──────────────────────────────────────────
+
+  @Test
+  void startDownload_registerDownloadThrows_isCaughtAndFlagReleased() throws Exception {
+    VectorTileService service = mock(VectorTileService.class);
+    doThrow(new IOException("bad pmtiles")).when(service).registerDownload(any());
+    VectorConfiguration cfg = config(tempDir);
+
+    PmtilesDownloader downloader =
+        new PmtilesDownloader(cfg, service) {
+          @Override
+          protected ProcessBuilder buildProcess(Preload preload, Path out) {
+            return new ProcessBuilder("true"); // exit 0, but no file written
+          }
+        };
+
+    downloader.startDownload(preload(-1, -1, 1, 1, 5)).get();
+
+    assertThat(downloader.isDownloadInProgress()).isFalse();
+    verify(service).registerDownload(any());
   }
 }

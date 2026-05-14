@@ -174,7 +174,7 @@ class PmtilesReader implements Closeable {
   }
 
   // Binary search: find the last entry where entry.tileId() <= target
-  private static PmtilesEntry findEntry(List<PmtilesEntry> dir, long target) {
+  static PmtilesEntry findEntry(List<PmtilesEntry> dir, long target) {
     int lo = 0;
     int hi = dir.size() - 1;
     PmtilesEntry result = null;

@@ -5,23 +5,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("xyz.vector")
 public class VectorConfiguration {
 
-  private String bundledPath = "/app/data/world_z0-7.pmtiles";
-
   private String downloadDirectory;
 
-  private String sourceUrl = "https://build.protomaps.com/planet.pmtiles";
+  private String sourceUrl = "https://build.protomaps.com/{date}.pmtiles";
 
   private int maxDownloadZoom = 15;
 
+  private int initZoom = 0;
+
   private boolean enabled = true;
-
-  public String getBundledPath() {
-    return bundledPath;
-  }
-
-  public void setBundledPath(String bundledPath) {
-    this.bundledPath = bundledPath;
-  }
 
   public String getDownloadDirectory() {
     return downloadDirectory;
@@ -45,6 +37,14 @@ public class VectorConfiguration {
 
   public void setMaxDownloadZoom(int maxDownloadZoom) {
     this.maxDownloadZoom = maxDownloadZoom;
+  }
+
+  public int getInitZoom() {
+    return initZoom;
+  }
+
+  public void setInitZoom(int initZoom) {
+    this.initZoom = initZoom;
   }
 
   public boolean isEnabled() {
