@@ -21,7 +21,7 @@ jobs:
           cache: maven
 
       - name: Build and test
-        run: mvn --no-transfer-progress clean verify
+        run: mvn --no-transfer-progress clean verify -Ddocker.skip=true
 
       - name: Get project version
         id: version

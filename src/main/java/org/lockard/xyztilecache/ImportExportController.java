@@ -7,7 +7,6 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,10 +70,6 @@ class ImportExportController {
           return;
         }
         Layer layer = opt.get();
-        if (isVectorLayer(layer)) {
-          writeError(response, HttpStatus.BAD_REQUEST, "Vector layers cannot be exported");
-          return;
-        }
         if (!layerAccessService.canRead(layer, auth)) {
           writeError(response, HttpStatus.FORBIDDEN, "Access denied to layer");
           return;
@@ -121,12 +116,5 @@ class ImportExportController {
     response.setStatus(status.value());
     response.setContentType(MediaType.TEXT_PLAIN_VALUE);
     response.getWriter().write(message);
-  }
-
-  private static boolean isVectorLayer(Layer layer) {
-    String url = layer.getUrlTemplate();
-    if (url == null) return false;
-    String lower = url.toLowerCase(Locale.ROOT);
-    return lower.startsWith("pmtiles://") || lower.endsWith(".pbf") || lower.endsWith(".mvt");
   }
 }

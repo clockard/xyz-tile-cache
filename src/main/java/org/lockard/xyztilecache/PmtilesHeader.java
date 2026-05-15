@@ -17,7 +17,11 @@ record PmtilesHeader(
     int tileCompression,
     int tileType,
     int minZoom,
-    int maxZoom) {
+    int maxZoom,
+    double minLon,
+    double minLat,
+    double maxLon,
+    double maxLat) {
 
   static final int COMPRESSION_NONE = 1;
   static final int COMPRESSION_GZIP = 2;
@@ -65,6 +69,11 @@ record PmtilesHeader(
     int minZoom = bb.get() & 0xFF;
     int maxZoom = bb.get() & 0xFF;
 
+    double minLon = bb.getInt() / 10_000_000.0;
+    double minLat = bb.getInt() / 10_000_000.0;
+    double maxLon = bb.getInt() / 10_000_000.0;
+    double maxLat = bb.getInt() / 10_000_000.0;
+
     return new PmtilesHeader(
         rootDirOffset,
         rootDirLength,
@@ -79,6 +88,10 @@ record PmtilesHeader(
         tileCompression,
         tileType,
         minZoom,
-        maxZoom);
+        maxZoom,
+        minLon,
+        minLat,
+        maxLon,
+        maxLat);
   }
 }

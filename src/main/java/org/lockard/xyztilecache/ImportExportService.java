@@ -13,8 +13,10 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -135,6 +137,7 @@ public class ImportExportService {
       return;
     }
 
+    Set<String> writtenTileEntries = new HashSet<>();
     Path remoteCacheDir = downloadDir.resolve("remote-cache");
     if (Files.isDirectory(remoteCacheDir)) {
       Map<Integer, Set<Point>> bboxTilesByZoom = new HashMap<>();
@@ -171,7 +174,9 @@ public class ImportExportService {
                         return;
                       }
                     }
-                    writeEntry(zos, String.format("vector/tiles/%d/%d/%d.pbf", z, x, y), p);
+                    String entryName = String.format("vector/tiles/%d/%d/%d.pbf", z, x, y);
+                    writeEntry(zos, entryName, p);
+                    writtenTileEntries.add(entryName);
                   } catch (IOException e) {
                     throw new UncheckedIOException(e);
                   }
@@ -181,19 +186,72 @@ public class ImportExportService {
       }
     }
 
-    try (Stream<Path> files = Files.list(downloadDir)) {
-      files
-          .filter(p -> p.getFileName().toString().endsWith(".pmtiles"))
-          .forEach(
-              p -> {
-                try {
-                  writeEntry(zos, "vector/pmtiles/" + p.getFileName().toString(), p);
-                } catch (IOException e) {
-                  throw new UncheckedIOException(e);
-                }
-              });
-    } catch (UncheckedIOException e) {
-      throw e.getCause();
+    List<Path> pmtilesFiles;
+    try (Stream<Path> stream = Files.list(downloadDir)) {
+      pmtilesFiles = stream.filter(p -> p.getFileName().toString().endsWith(".pmtiles")).toList();
+    }
+    for (Path p : pmtilesFiles) {
+      if (bbox == null) {
+        writeEntry(zos, "vector/pmtiles/" + p.getFileName().toString(), p);
+      } else {
+        addPmtilesInBbox(zos, p, bbox, minZoom, maxZoom, writtenTileEntries);
+      }
+    }
+  }
+
+  private void addPmtilesInBbox(
+      ZipOutputStream zos,
+      Path pmtilesPath,
+      BoundingBox bbox,
+      Integer minZoom,
+      Integer maxZoom,
+      Set<String> writtenTileEntries)
+      throws IOException {
+    PmtilesReader reader;
+    try {
+      reader = new PmtilesReader(pmtilesPath);
+    } catch (IOException | IllegalArgumentException e) {
+      LOGGER.warn(
+          "Skipping unreadable PMTiles file {}: {}", pmtilesPath.getFileName(), e.getMessage());
+      return;
+    }
+    try (reader) {
+      PmtilesHeader header = reader.getHeader();
+
+      if (header.maxLon() < bbox.getWest()
+          || header.minLon() > bbox.getEast()
+          || header.maxLat() < bbox.getSouth()
+          || header.minLat() > bbox.getNorth()) {
+        return;
+      }
+
+      if (header.minLon() >= bbox.getWest()
+          && header.maxLon() <= bbox.getEast()
+          && header.minLat() >= bbox.getSouth()
+          && header.maxLat() <= bbox.getNorth()) {
+        writeEntry(zos, "vector/pmtiles/" + pmtilesPath.getFileName().toString(), pmtilesPath);
+        return;
+      }
+
+      int zStart = Math.max(header.minZoom(), minZoom != null ? minZoom : 0);
+      int zEnd = Math.min(header.maxZoom(), bbox.getMaxZoom());
+      if (maxZoom != null) {
+        zEnd = Math.min(zEnd, maxZoom);
+      }
+      for (int z = zStart; z <= zEnd; z++) {
+        Set<Point> tiles = XyzUtil.calculateXyTilesForBBox(bbox, z);
+        for (Point pt : tiles) {
+          Optional<TileResult> tile = reader.getTile(z, pt.x, pt.y);
+          if (tile.isPresent()) {
+            String entryName = String.format("vector/tiles/%d/%d/%d.pbf", z, pt.x, pt.y);
+            if (writtenTileEntries.add(entryName)) {
+              zos.putNextEntry(new ZipEntry(entryName));
+              zos.write(tile.get().data());
+              zos.closeEntry();
+            }
+          }
+        }
+      }
     }
   }
 

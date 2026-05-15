@@ -11,6 +11,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.net.URL;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -129,13 +132,21 @@ class ImportExportControllerTest {
   }
 
   @Test
-  void export_vectorLayer_returns400() throws Exception {
-    mvc.perform(
-            post("/export")
-                .with(adminJwt())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"layers\":[\"vector-layer\"]}"))
-        .andExpect(status().isBadRequest());
+  void export_vectorLayer_returnsZipWithLayerJson() throws Exception {
+    MvcResult result =
+        mvc.perform(
+                post("/export")
+                    .with(adminJwt())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"layers\":[\"vector-layer\"]}"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    assertThat(entries).containsKey("vector-layer/layer.json");
+    Layer roundTripped =
+        objectMapper.readValue(entries.get("vector-layer/layer.json"), Layer.class);
+    assertThat(roundTripped.getUrlTemplate()).isEqualTo("https://example.com/vec/{z}/{x}/{y}.pbf");
   }
 
   @Test
@@ -665,7 +676,125 @@ class ImportExportControllerTest {
     assertThat(layerStore.getLayer("dir-name").get().getName()).isEqualTo("original-name");
   }
 
+  // ── pmtiles bbox export ───────────────────────────────────────────────────
+
+  @Test
+  void export_includeVector_pmtilesOutsideBbox_isSkipped() throws Exception {
+    // Australia bounds; bbox = North America → no overlap
+    byte[] pmtiles =
+        buildMinimalPmtiles(
+            (byte) 0,
+            (byte) 1,
+            1_130_000_000,
+            -440_000_000, // minLon=113, minLat=-44
+            1_540_000_000,
+            -100_000_000); // maxLon=154, maxLat=-10
+    Files.write(vectorDir.toPath().resolve("australia.pmtiles"), pmtiles);
+
+    MvcResult result =
+        mvc.perform(
+                post("/export")
+                    .with(adminJwt())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        "{\"includeVector\":true,"
+                            + "\"boundingBox\":{\"north\":60,\"south\":20,\"east\":-60,\"west\":-130,\"maxZoom\":1}}"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    assertThat(entries).doesNotContainKey("vector/pmtiles/australia.pmtiles");
+  }
+
+  @Test
+  void export_includeVector_pmtilesFullyInBbox_includedAsIs() throws Exception {
+    // Fixture has bounds [0,0,0,0]; world bbox fully contains it
+    URL url = getClass().getClassLoader().getResource("test_fixture_1.pmtiles");
+    byte[] fixtureBytes = Files.readAllBytes(Paths.get(url.getPath()));
+    Files.write(vectorDir.toPath().resolve("fixture-bbox.pmtiles"), fixtureBytes);
+
+    MvcResult result =
+        mvc.perform(
+                post("/export")
+                    .with(adminJwt())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        "{\"includeVector\":true,"
+                            + "\"boundingBox\":{\"north\":90,\"south\":-90,\"east\":180,\"west\":-180,\"maxZoom\":1}}"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    assertThat(entries).containsKey("vector/pmtiles/fixture-bbox.pmtiles");
+  }
+
+  @Test
+  void export_includeVector_pmtilesPartialBbox_extractsTilesInBbox() throws Exception {
+    // Copy fixture and widen its declared bounds to world so any sub-world bbox triggers partial
+    URL url = getClass().getClassLoader().getResource("test_fixture_1.pmtiles");
+    byte[] fixtureBytes = Files.readAllBytes(Paths.get(url.getPath()));
+    ByteBuffer bb = ByteBuffer.wrap(fixtureBytes).order(ByteOrder.LITTLE_ENDIAN);
+    bb.putInt(102, -1_800_000_000); // minLon = -180
+    bb.putInt(106, -900_000_000); // minLat = -90
+    bb.putInt(110, 1_800_000_000); // maxLon = 180
+    bb.putInt(114, 900_000_000); // maxLat = 90
+    Files.write(vectorDir.toPath().resolve("world-partial.pmtiles"), fixtureBytes);
+
+    // south=1 means the file's declared minLat=-90 is outside the bbox → partial extraction
+    MvcResult result =
+        mvc.perform(
+                post("/export")
+                    .with(adminJwt())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        "{\"includeVector\":true,"
+                            + "\"boundingBox\":{\"north\":85,\"south\":1,\"east\":180,\"west\":-180,\"maxZoom\":1}}"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    assertThat(entries).doesNotContainKey("vector/pmtiles/world-partial.pmtiles");
+    // z=0 tile (0,0) covers the whole world and exists in the fixture
+    assertThat(entries).containsKey("vector/tiles/0/0/0.pbf");
+  }
+
   // ── helpers ───────────────────────────────────────────────────────────────
+
+  private static byte[] buildMinimalPmtiles(
+      byte minZoom, byte maxZoom, int minLonE7, int minLatE7, int maxLonE7, int maxLatE7) {
+    // 127-byte header + 1-byte empty root directory (varint 0 = 0 entries)
+    ByteBuffer buf = ByteBuffer.allocate(128).order(ByteOrder.LITTLE_ENDIAN);
+    buf.put((byte) 'P')
+        .put((byte) 'M')
+        .put((byte) 'T')
+        .put((byte) 'i')
+        .put((byte) 'l')
+        .put((byte) 'e')
+        .put((byte) 's');
+    buf.put((byte) 3); // version
+    buf.putLong(127); // root_dir_offset
+    buf.putLong(1); // root_dir_length
+    buf.putLong(128); // metadata_offset
+    buf.putLong(0); // metadata_length
+    buf.putLong(128); // leaf_dirs_offset
+    buf.putLong(0); // leaf_dirs_length
+    buf.putLong(128); // tile_data_offset
+    buf.putLong(0); // tile_data_length
+    buf.position(96);
+    buf.put((byte) 0); // clustered
+    buf.put((byte) 1); // internal_compression: none
+    buf.put((byte) 1); // tile_compression: none
+    buf.put((byte) 1); // tile_type: MVT
+    buf.put(minZoom);
+    buf.put(maxZoom);
+    buf.putInt(minLonE7);
+    buf.putInt(minLatE7);
+    buf.putInt(maxLonE7);
+    buf.putInt(maxLatE7);
+    buf.position(127);
+    buf.put((byte) 0); // empty root directory
+    return buf.array();
+  }
 
   private static byte[] buildZip(Map<String, byte[]> entries) throws Exception {
     ByteArrayOutputStream bos = new ByteArrayOutputStream();
