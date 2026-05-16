@@ -194,11 +194,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadLayers();
 });
 
+// ── Path helper ───────────────────────────────────────────────────────────────
+
+function apiPath(path) {
+  const base = window.location.pathname.replace(/\/[^/]*$/, '');
+  return base + path;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 async function initAuth() {
   try {
-    const resp = await fetch('/auth/config');
+    const resp = await fetch(apiPath('/auth/config'));
     if (resp.ok) {
       auth.config = await resp.json();
     }
@@ -348,7 +355,7 @@ async function submitLogin() {
   }
   status.textContent = 'Verifying…';
   try {
-    const probe = await fetch('/preloads', {
+    const probe = await fetch(apiPath('/preloads'), {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (probe.status === 401 || probe.status === 403) {
@@ -645,7 +652,7 @@ async function loadLayers() {
 
   let layers = [];
   try {
-    const resp = await authFetch('/layers');
+    const resp = await authFetch(apiPath('/layers'));
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     layers = await resp.json();
   } catch (e) {
@@ -689,7 +696,7 @@ function switchLayer(name) {
   setMapTileLayer(
     new ol.layer.Tile({
       source: new ol.source.XYZ({
-        url: `/tilesZYX/${encodeURIComponent(name)}/{z}/{y}/{x}.png`,
+        url: apiPath(`/tilesZYX/${encodeURIComponent(name)}/{z}/{y}/{x}.png`),
         crossOrigin: 'anonymous',
         tileLoadFunction: authTileLoadFunction
       })
@@ -700,7 +707,7 @@ function switchLayer(name) {
 
 function switchToVector() {
   const source = new ol.source.VectorTile({
-    url: '/vector/{z}/{x}/{y}',
+    url: apiPath('/vector/{z}/{x}/{y}'),
     format: new ol.format.MVT(),
     maxZoom: 15
   });
@@ -1293,7 +1300,7 @@ async function submitPreload() {
   hidePreloadModal();
 
   try {
-    const resp = await authFetch('/preloads', {
+    const resp = await authFetch(apiPath('/preloads'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1359,7 +1366,7 @@ function stopDownloadPolling() {
 
 async function loadDownloads() {
   try {
-    const resp = await authFetch('/preloads');
+    const resp = await authFetch(apiPath('/preloads'));
     if (!resp.ok) {
       downloadsList.innerHTML = '<li class="empty-state">Preloads unavailable</li>';
       return;
@@ -1492,7 +1499,7 @@ async function submitGeoTiff() {
   submitBtn.disabled = true;
 
   try {
-    const resp = await authFetch('/layers/geotiff', {
+    const resp = await authFetch(apiPath('/layers/geotiff'), {
       method: 'POST',
       body: fd
     });
@@ -1693,13 +1700,13 @@ async function saveLayer() {
   try {
     let resp;
     if (editingLayerName) {
-      resp = await authFetch(`/layers/${encodeURIComponent(editingLayerName)}`, {
+      resp = await authFetch(apiPath(`/layers/${encodeURIComponent(editingLayerName)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(layer)
       });
     } else {
-      resp = await authFetch('/layers', {
+      resp = await authFetch(apiPath('/layers'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(layer)
@@ -1727,7 +1734,7 @@ async function saveLayer() {
 
 async function executeDeleteLayer(name) {
   try {
-    const resp = await authFetch(`/layers/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const resp = await authFetch(apiPath(`/layers/${encodeURIComponent(name)}`), { method: 'DELETE' });
     if (resp.status === 204) {
       showToast(`Layer '${name}' deleted`, 'success');
       await loadLayers();
@@ -1870,7 +1877,7 @@ async function submitExport() {
   submitBtn.disabled = true;
   exportStatus.textContent = 'Building zip — this may take a while…';
   try {
-    const resp = await authFetch('/export', {
+    const resp = await authFetch(apiPath('/export'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -1936,7 +1943,7 @@ async function submitImport() {
   submitBtn.disabled = true;
   importStatus.textContent = 'Uploading and ingesting — this may take a while…';
   try {
-    const resp = await authFetch('/import', { method: 'POST', body: fd });
+    const resp = await authFetch(apiPath('/import'), { method: 'POST', body: fd });
     if (!resp.ok) {
       const text = await resp.text();
       if (resp.status === 401 || resp.status === 403) {
