@@ -202,6 +202,11 @@ function apiPath(path) {
   return base + path;
 }
 
+function appBaseUrl() {
+  const base = window.location.pathname.replace(/\/[^/]*$/, '');
+  return window.location.origin + base + '/';
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 async function initAuth() {
@@ -296,7 +301,7 @@ async function trySilentSsoCheck() {
   const codeVerifier = randomString(64);
   const codeChallenge = await sha256Base64Url(codeVerifier);
   const state = randomString(32);
-  const redirectUri = window.location.origin + '/';
+  const redirectUri = appBaseUrl();
 
   sessionStorage.setItem(SSO_SILENT_CHECK_KEY, '1');
   sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ codeVerifier, state, redirectUri }));
@@ -326,7 +331,7 @@ async function login() {
   const codeVerifier = randomString(64);
   const codeChallenge = await sha256Base64Url(codeVerifier);
   const state = randomString(32);
-  const redirectUri = window.location.origin + '/';
+  const redirectUri = appBaseUrl();
 
   sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({
     codeVerifier, state, redirectUri
@@ -361,7 +366,7 @@ async function logout() {
 
   if (auth.config && auth.config.issuerUri) {
     const params = new URLSearchParams({
-      post_logout_redirect_uri: window.location.origin + '/',
+      post_logout_redirect_uri: appBaseUrl(),
       client_id: auth.config.clientId
     });
     if (idToken) params.set('id_token_hint', idToken);
