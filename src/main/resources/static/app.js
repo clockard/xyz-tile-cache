@@ -197,14 +197,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ── Path helper ───────────────────────────────────────────────────────────────
 
+function appBasePath() {
+  const path = window.location.pathname;
+  const lastSegment = path.replace(/.*\//, '');
+  if (lastSegment.includes('.')) {
+    // Last segment is a file (e.g. index.html) — strip it
+    return path.replace(/\/[^/]*$/, '');
+  }
+  // Last segment is a bare directory or empty — strip only a trailing slash
+  return path.replace(/\/$/, '');
+}
+
 function apiPath(path) {
-  const base = window.location.pathname.replace(/\/[^/]*$/, '');
-  return base + path;
+  return appBasePath() + path;
 }
 
 function appBaseUrl() {
-  const base = window.location.pathname.replace(/\/[^/]*$/, '');
-  return window.location.origin + base + '/';
+  return window.location.origin + appBasePath() + '/';
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
