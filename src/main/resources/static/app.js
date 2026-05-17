@@ -29,6 +29,7 @@ const auth = {
 const PKCE_STORAGE_KEY = 'xyz-pkce';
 const TOKEN_STORAGE_KEY = 'xyz-tokens';
 const ADMIN_TOKEN_STORAGE_KEY = 'xyz-admin-token';
+const SSO_SILENT_CHECK_KEY = 'xyz-sso-silent';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
@@ -224,6 +225,10 @@ async function initAuth() {
 
   if (await maybeCompleteAuthRedirect()) return;
   loadStoredTokens();
+
+  if (!auth.accessToken) {
+    await trySilentSsoCheck();
+  }
 }
 
 async function maybeCompleteAuthRedirect() {
@@ -253,9 +258,9 @@ async function maybeCompleteAuthRedirect() {
   }
 }
 
-function cleanUrlParams() {
+function cleanUrlParams(extra = []) {
   const url = new URL(window.location.href);
-  ['code', 'state', 'session_state', 'iss'].forEach((p) => url.searchParams.delete(p));
+  ['code', 'state', 'session_state', 'iss', ...extra].forEach((p) => url.searchParams.delete(p));
   window.history.replaceState({}, '', url.pathname + (url.search || '') + url.hash);
 }
 
@@ -273,6 +278,40 @@ function loadStoredTokens() {
   } catch (e) {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
   }
+}
+
+async function trySilentSsoCheck() {
+  if (!auth.config || !auth.config.issuerUri) return;
+
+  const params = new URLSearchParams(window.location.search);
+
+  if (sessionStorage.getItem(SSO_SILENT_CHECK_KEY)) {
+    // Returning from a silent check — clean up and don't redirect again
+    sessionStorage.removeItem(SSO_SILENT_CHECK_KEY);
+    sessionStorage.removeItem(PKCE_STORAGE_KEY);
+    if (params.has('error')) cleanUrlParams(['error', 'error_description']);
+    return;
+  }
+
+  const codeVerifier = randomString(64);
+  const codeChallenge = await sha256Base64Url(codeVerifier);
+  const state = randomString(32);
+  const redirectUri = window.location.origin + '/';
+
+  sessionStorage.setItem(SSO_SILENT_CHECK_KEY, '1');
+  sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ codeVerifier, state, redirectUri }));
+
+  const authParams = new URLSearchParams({
+    client_id: auth.config.clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid profile',
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+    state,
+    prompt: 'none'
+  });
+  window.location.href = `${auth.config.issuerUri}/protocol/openid-connect/auth?${authParams}`;
 }
 
 async function login() {
