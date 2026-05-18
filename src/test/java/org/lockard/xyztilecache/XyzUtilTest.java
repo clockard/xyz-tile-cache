@@ -7,6 +7,7 @@ import java.awt.Point;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.lockard.xyztilecache.model.BoundingBox;
 
 class XyzUtilTest {
 

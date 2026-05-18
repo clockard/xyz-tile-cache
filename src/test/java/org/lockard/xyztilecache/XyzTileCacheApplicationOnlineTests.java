@@ -16,6 +16,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
+import org.lockard.xyztilecache.model.Layer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -148,5 +149,28 @@ class XyzTileCacheApplicationOnlineTests {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
         .andExpect(MockMvcResultMatchers.status().isOk());
+  }
+
+  @Test
+  void offlineModeRuntimeToggleBlocksOnlineFetch(@Autowired final MockMvc mvc) throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.put("/config/offline")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"offline\":true}"))
+        .andExpect(MockMvcResultMatchers.status().isOk());
+    try {
+      wireMock.stubFor(WireMock.get("/6/6/6").willReturn(ok().withBody(new byte[] {1})));
+      mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/test/6/6/6.png"))
+          .andExpect(MockMvcResultMatchers.status().isNotFound());
+      wireMock.verify(0, getRequestedFor(urlPathEqualTo("/6/6/6")));
+    } finally {
+      mvc.perform(
+              MockMvcRequestBuilders.put("/config/offline")
+                  .with(adminJwt())
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"offline\":false}"))
+          .andExpect(MockMvcResultMatchers.status().isOk());
+    }
   }
 }
