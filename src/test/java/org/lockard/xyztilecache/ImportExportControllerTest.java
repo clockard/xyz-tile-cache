@@ -2,11 +2,13 @@ package org.lockard.xyztilecache;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -100,6 +102,42 @@ class ImportExportControllerTest {
     Files.write(al.resolve("0").resolve("0").resolve("0.png"), new byte[] {9});
   }
 
+  // ── async helpers ─────────────────────────────────────────────────────────
+
+  /** Submit POST /export and return the job id from the 202 response. */
+  private String submitExport(String body, RequestPostProcessor auth) throws Exception {
+    MvcResult result =
+        mvc.perform(
+                post("/export").with(auth).contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isAccepted())
+            .andReturn();
+    return objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText();
+  }
+
+  /**
+   * Poll GET /exports/{id} until status is DONE (or FAILED), then fetch the zip via GET
+   * /exports/{id}/download. The same auth used to submit must be passed here.
+   */
+  private Map<String, byte[]> waitAndDownload(String jobId, RequestPostProcessor auth)
+      throws Exception {
+    String jobStatus = "PENDING";
+    for (int i = 0; i < 100 && !"DONE".equals(jobStatus) && !"FAILED".equals(jobStatus); i++) {
+      Thread.sleep(100);
+      String body =
+          mvc.perform(get("/exports/" + jobId).with(auth))
+              .andReturn()
+              .getResponse()
+              .getContentAsString();
+      jobStatus = objectMapper.readTree(body).get("status").asText();
+    }
+    assertThat(jobStatus).isEqualTo("DONE");
+    MvcResult result =
+        mvc.perform(get("/exports/" + jobId + "/download").with(auth))
+            .andExpect(status().isOk())
+            .andReturn();
+    return readZip(result.getResponse().getContentAsByteArray());
+  }
+
   // ── /export ───────────────────────────────────────────────────────────────
 
   @Test
@@ -133,16 +171,8 @@ class ImportExportControllerTest {
 
   @Test
   void export_vectorLayer_returnsZipWithLayerJson() throws Exception {
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(adminJwt())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"layers\":[\"vector-layer\"]}"))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    String jobId = submitExport("{\"layers\":[\"vector-layer\"]}", adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
     assertThat(entries).containsKey("vector-layer/layer.json");
     Layer roundTripped =
         objectMapper.readValue(entries.get("vector-layer/layer.json"), Layer.class);
@@ -161,21 +191,24 @@ class ImportExportControllerTest {
 
   @Test
   void export_publicLayer_anonymousUserJwt_returnsZipWithLayerJsonAndTiles() throws Exception {
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(userJwt("dan"))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"layers\":[\"public-layer\"]}"))
-            .andExpect(status().isOk())
-            .andReturn();
+    String jobId = submitExport("{\"layers\":[\"public-layer\"]}", userJwt("dan"));
+    MvcResult download =
+        mvc.perform(get("/exports/" + jobId + "/download").with(userJwt("dan"))).andReturn();
 
-    assertThat(result.getResponse().getContentType()).contains("application/zip");
-    assertThat(result.getResponse().getHeader("Content-Disposition"))
+    // Poll until done (download endpoint returns 409 while not ready)
+    for (int i = 0; i < 100 && download.getResponse().getStatus() == 409; i++) {
+      Thread.sleep(100);
+      download =
+          mvc.perform(get("/exports/" + jobId + "/download").with(userJwt("dan"))).andReturn();
+    }
+
+    assertThat(download.getResponse().getStatus()).isEqualTo(200);
+    assertThat(download.getResponse().getContentType()).contains("application/zip");
+    assertThat(download.getResponse().getHeader("Content-Disposition"))
         .contains("attachment")
         .contains("tile-export-");
 
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    Map<String, byte[]> entries = readZip(download.getResponse().getContentAsByteArray());
     assertThat(entries)
         .containsKeys(
             "public-layer/layer.json", "public-layer/0/0/0.png", "public-layer/1/0/0.png");
@@ -188,17 +221,9 @@ class ImportExportControllerTest {
   }
 
   @Test
-  void export_userWithAccess_returns200() throws Exception {
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(userJwt("alice"))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"layers\":[\"alice-only\"]}"))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+  void export_userWithAccess_returnsZip() throws Exception {
+    String jobId = submitExport("{\"layers\":[\"alice-only\"]}", userJwt("alice"));
+    Map<String, byte[]> entries = waitAndDownload(jobId, userJwt("alice"));
     assertThat(entries).containsKeys("alice-only/layer.json", "alice-only/0/0/0.png");
   }
 
@@ -212,19 +237,181 @@ class ImportExportControllerTest {
         "{\"layers\":[\"public-layer\"],"
             + "\"boundingBox\":{\"north\":85,\"south\":1,\"east\":-1,\"west\":-179,\"maxZoom\":5}}";
 
-    MvcResult result =
+    String jobId = submitExport(body, adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
+    assertThat(entries).containsKeys("public-layer/layer.json", "public-layer/0/0/0.png");
+    assertThat(entries).containsKey("public-layer/1/0/0.png");
+    assertThat(entries).doesNotContainKey("public-layer/1/1/1.png");
+  }
+
+  @Test
+  void export_admin_layerWithoutTileDir_returnsOnlyLayerJson() throws Exception {
+    Layer empty = new Layer();
+    empty.setName("empty-layer");
+    empty.setUrlTemplate("https://example.com/empty/{z}/{y}/{x}");
+    empty.setMaxZoom(3);
+    layerStore.addLayer(empty);
+
+    String jobId = submitExport("{\"layers\":[\"empty-layer\"]}", adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
+    assertThat(entries.keySet()).containsExactly("empty-layer/layer.json");
+  }
+
+  @Test
+  void export_admin_minAndMaxZoomOverridesAreApplied() throws Exception {
+    String body =
+        "{\"layers\":[\"public-layer\"],"
+            + "\"minZoom\":1,\"maxZoom\":1,"
+            + "\"boundingBox\":{\"north\":85,\"south\":1,\"east\":-1,\"west\":-179,\"maxZoom\":5}}";
+
+    String jobId = submitExport(body, adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
+    assertThat(entries).containsKeys("public-layer/layer.json", "public-layer/1/0/0.png");
+    assertThat(entries).doesNotContainKey("public-layer/0/0/0.png");
+  }
+
+  @Test
+  void export_admin_blankLayerIdInList_returns400() throws Exception {
+    mvc.perform(
+            post("/export")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"layers\":[\"  \"]}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void export_noLayersNoVector_returns400() throws Exception {
+    mvc.perform(
+            post("/export").with(adminJwt()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  // ── GET /exports ──────────────────────────────────────────────────────────
+
+  @Test
+  void listExports_noAuth_returns401() throws Exception {
+    mvc.perform(get("/exports")).andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void listExports_noJobs_returnsEmptyList() throws Exception {
+    mvc.perform(get("/exports").with(userJwt("nobody")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$").isArray())
+        .andExpect(jsonPath("$.length()").value(0));
+  }
+
+  @Test
+  void listExports_returnsOnlyOwnJobs() throws Exception {
+    String adminJobId = submitExport("{\"layers\":[\"public-layer\"]}", adminJwt());
+    String aliceJobId = submitExport("{\"layers\":[\"alice-only\"]}", userJwt("alice"));
+
+    String aliceBody =
+        mvc.perform(get("/exports").with(userJwt("alice")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    assertThat(aliceBody).contains(aliceJobId);
+    assertThat(aliceBody).doesNotContain(adminJobId);
+  }
+
+  // ── GET /exports/{id} ─────────────────────────────────────────────────────
+
+  @Test
+  void getExportStatus_noAuth_returns401() throws Exception {
+    mvc.perform(get("/exports/any-id")).andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void getExportStatus_unknownId_returns404() throws Exception {
+    mvc.perform(get("/exports/no-such-id").with(adminJwt())).andExpect(status().isNotFound());
+  }
+
+  @Test
+  void getExportStatus_wrongUser_returns403() throws Exception {
+    String jobId = submitExport("{\"layers\":[\"public-layer\"]}", adminJwt());
+    mvc.perform(get("/exports/" + jobId).with(userJwt("dan"))).andExpect(status().isForbidden());
+  }
+
+  @Test
+  void getExportStatus_pendingJob_returnsPendingOrRunningOrDone() throws Exception {
+    String jobId = submitExport("{\"layers\":[\"public-layer\"]}", adminJwt());
+    String body =
+        mvc.perform(get("/exports/" + jobId).with(adminJwt()))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    JsonNode node = objectMapper.readTree(body);
+    assertThat(node.get("id").asText()).isEqualTo(jobId);
+    assertThat(node.get("status").asText()).isIn("PENDING", "RUNNING", "DONE");
+    assertThat(node.get("filename").asText()).startsWith("tile-export-");
+  }
+
+  // ── GET /exports/{id}/download ────────────────────────────────────────────
+
+  @Test
+  void downloadExport_noAuth_returns401() throws Exception {
+    mvc.perform(get("/exports/any-id/download")).andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void downloadExport_unknownId_returns404() throws Exception {
+    mvc.perform(get("/exports/no-such-id/download").with(adminJwt()))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void downloadExport_wrongUser_returns403() throws Exception {
+    String jobId = submitExport("{\"layers\":[\"public-layer\"]}", adminJwt());
+    // Wait until the job is done so we don't get a 409 instead
+    waitAndDownload(jobId, adminJwt());
+    // The job is now cleaned up (404), so re-submit for the 403 check
+    String jobId2 = submitExport("{\"layers\":[\"public-layer\"]}", adminJwt());
+    for (int i = 0; i < 100; i++) {
+      Thread.sleep(100);
+      String s =
+          mvc.perform(get("/exports/" + jobId2).with(adminJwt()))
+              .andReturn()
+              .getResponse()
+              .getContentAsString();
+      if ("DONE".equals(objectMapper.readTree(s).get("status").asText())) break;
+    }
+    mvc.perform(get("/exports/" + jobId2 + "/download").with(userJwt("dan")))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void downloadExport_pendingJob_returns409() throws Exception {
+    MvcResult submit =
         mvc.perform(
                 post("/export")
                     .with(adminJwt())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(body))
-            .andExpect(status().isOk())
+                    .content("{\"layers\":[\"public-layer\"]}"))
+            .andExpect(status().isAccepted())
             .andReturn();
+    String jobId =
+        objectMapper.readTree(submit.getResponse().getContentAsString()).get("id").asText();
 
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
-    assertThat(entries).containsKeys("public-layer/layer.json", "public-layer/0/0/0.png");
-    assertThat(entries).containsKey("public-layer/1/0/0.png");
-    assertThat(entries).doesNotContainKey("public-layer/1/1/1.png");
+    // Immediately try to download — may be PENDING/RUNNING (409) or already done (200)
+    int sc =
+        mvc.perform(get("/exports/" + jobId + "/download").with(adminJwt()))
+            .andReturn()
+            .getResponse()
+            .getStatus();
+    assertThat(sc).isIn(200, 409);
+  }
+
+  @Test
+  void downloadExport_completedJob_servesZipAndCleansUp() throws Exception {
+    String jobId = submitExport("{\"layers\":[\"public-layer\"]}", adminJwt());
+    waitAndDownload(jobId, adminJwt());
+    // After download the job is removed — second request returns 404
+    mvc.perform(get("/exports/" + jobId + "/download").with(adminJwt()))
+        .andExpect(status().isNotFound());
   }
 
   // ── /import ───────────────────────────────────────────────────────────────
@@ -367,7 +554,6 @@ class ImportExportControllerTest {
 
   @Test
   void importZip_layerJsonInvalidLayer_isSkipped() throws Exception {
-    // A layer with id but no url template (and not LOCAL) fails LayerStore validation.
     Layer broken = new Layer();
     broken.setName("broken-layer");
     broken.setUrlTemplate("");
@@ -378,60 +564,6 @@ class ImportExportControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.layersSkipped[0]").value("broken-layer"));
     assertThat(layerStore.getLayer("broken-layer")).isEmpty();
-  }
-
-  @Test
-  void export_admin_layerWithoutTileDir_returnsOnlyLayerJson() throws Exception {
-    // Register a layer that has no on-disk tile directory yet.
-    Layer empty = new Layer();
-    empty.setName("empty-layer");
-    empty.setUrlTemplate("https://example.com/empty/{z}/{y}/{x}");
-    empty.setMaxZoom(3);
-    layerStore.addLayer(empty);
-
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(adminJwt())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"layers\":[\"empty-layer\"]}"))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
-    assertThat(entries.keySet()).containsExactly("empty-layer/layer.json");
-  }
-
-  @Test
-  void export_admin_minAndMaxZoomOverridesAreApplied() throws Exception {
-    // Bbox covers tile at z=0 and z=1 (already on disk via @BeforeEach).
-    String body =
-        "{\"layers\":[\"public-layer\"],"
-            + "\"minZoom\":1,\"maxZoom\":1,"
-            + "\"boundingBox\":{\"north\":85,\"south\":1,\"east\":-1,\"west\":-179,\"maxZoom\":5}}";
-
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(adminJwt())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(body))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
-    assertThat(entries).containsKeys("public-layer/layer.json", "public-layer/1/0/0.png");
-    assertThat(entries).doesNotContainKey("public-layer/0/0/0.png");
-  }
-
-  @Test
-  void export_admin_blankLayerIdInList_returns400() throws Exception {
-    mvc.perform(
-            post("/export")
-                .with(adminJwt())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"layers\":[\"  \"]}"))
-        .andExpect(status().isBadRequest());
   }
 
   @Test
@@ -492,30 +624,14 @@ class ImportExportControllerTest {
 
   @Test
   void export_includeVectorOnly_noLayers_returnsZipWithVectorTiles() throws Exception {
-    // Seed a cached PBF tile in the remote-cache directory
     Path cacheDir = vectorDir.toPath().resolve("remote-cache").resolve("3").resolve("4");
     Files.createDirectories(cacheDir);
     Files.write(cacheDir.resolve("5.pbf"), new byte[] {0x1a, 0x2b});
 
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(adminJwt())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"includeVector\":true}"))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    String jobId = submitExport("{\"includeVector\":true}", adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
     assertThat(entries).containsKey("vector/tiles/3/4/5.pbf");
     assertThat(entries.get("vector/tiles/3/4/5.pbf")).containsExactly(0x1a, 0x2b);
-  }
-
-  @Test
-  void export_noLayersNoVector_returns400() throws Exception {
-    mvc.perform(
-            post("/export").with(adminJwt()).contentType(MediaType.APPLICATION_JSON).content("{}"))
-        .andExpect(status().isBadRequest());
   }
 
   @Test
@@ -524,16 +640,9 @@ class ImportExportControllerTest {
     Files.createDirectories(cacheDir);
     Files.write(cacheDir.resolve("0.pbf"), new byte[] {0x0f});
 
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(adminJwt())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"layers\":[\"public-layer\"],\"includeVector\":true}"))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    String jobId =
+        submitExport("{\"layers\":[\"public-layer\"],\"includeVector\":true}", adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
     assertThat(entries).containsKey("public-layer/layer.json");
     assertThat(entries).containsKey("vector/tiles/2/1/0.pbf");
   }
@@ -563,7 +672,6 @@ class ImportExportControllerTest {
 
   @Test
   void importZip_vectorTile_invalidTailPattern_isSkipped() throws Exception {
-    // tail "x/y/z.pbf" doesn't match \d+/\d+/\d+\.pbf
     byte[] zip = buildZip(Map.of("vector/tiles/x/y/z.pbf", new byte[] {0x01}));
     MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
     mvc.perform(multipart("/import").file(file).with(adminJwt()))
@@ -573,7 +681,6 @@ class ImportExportControllerTest {
 
   @Test
   void importZip_vectorPmtiles_unsafeName_isSkipped() throws Exception {
-    // "bad!file.pmtiles" has '!' which is not in [A-Za-z0-9._-]
     byte[] zip = buildZip(Map.of("vector/pmtiles/bad!file.pmtiles", new byte[] {0x01}));
     MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
     mvc.perform(multipart("/import").file(file).with(adminJwt()))
@@ -601,15 +708,8 @@ class ImportExportControllerTest {
     String original = vectorConfiguration.getDownloadDirectory();
     vectorConfiguration.setDownloadDirectory("");
     try {
-      MvcResult result =
-          mvc.perform(
-                  post("/export")
-                      .with(adminJwt())
-                      .contentType(MediaType.APPLICATION_JSON)
-                      .content("{\"includeVector\":true}"))
-              .andExpect(status().isOk())
-              .andReturn();
-      Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+      String jobId = submitExport("{\"includeVector\":true}", adminJwt());
+      Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
       assertThat(entries).doesNotContainKey("vector/tiles/0/0/0.pbf");
     } finally {
       vectorConfiguration.setDownloadDirectory(original);
@@ -621,23 +721,14 @@ class ImportExportControllerTest {
     java.nio.file.Files.write(
         vectorDir.toPath().resolve("region.pmtiles"), new byte[] {0x01, 0x02});
 
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(adminJwt())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"includeVector\":true}"))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    String jobId = submitExport("{\"includeVector\":true}", adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
     assertThat(entries).containsKey("vector/pmtiles/region.pmtiles");
     assertThat(entries.get("vector/pmtiles/region.pmtiles")).containsExactly(0x01, 0x02);
   }
 
   @Test
   void export_includeVector_zoomFilters_excludeOutOfRangePbfTiles() throws Exception {
-    // Seed tiles at z=0 and z=5; export with minZoom=2, maxZoom=4 — both should be excluded
     Path cacheZ0 = vectorDir.toPath().resolve("remote-cache").resolve("0").resolve("0");
     Path cacheZ5 = vectorDir.toPath().resolve("remote-cache").resolve("5").resolve("10");
     java.nio.file.Files.createDirectories(cacheZ0);
@@ -645,23 +736,14 @@ class ImportExportControllerTest {
     java.nio.file.Files.write(cacheZ0.resolve("0.pbf"), new byte[] {0x01});
     java.nio.file.Files.write(cacheZ5.resolve("0.pbf"), new byte[] {0x02});
 
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(adminJwt())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"includeVector\":true,\"minZoom\":2,\"maxZoom\":4}"))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    String jobId = submitExport("{\"includeVector\":true,\"minZoom\":2,\"maxZoom\":4}", adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
     assertThat(entries).doesNotContainKey("vector/tiles/0/0/0.pbf");
     assertThat(entries).doesNotContainKey("vector/tiles/5/10/0.pbf");
   }
 
   @Test
   void importZip_layerJsonWithMismatchedId_takesIdFromDirectory() throws Exception {
-    // layer.json has name="original-name" (used as effectiveId) but directory is "dir-name"
     Layer mismatch = new Layer();
     mismatch.setName("original-name");
     mismatch.setUrlTemplate("https://example.com/m/{z}/{y}/{x}");
@@ -672,7 +754,6 @@ class ImportExportControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.layersAdded[0]").value("dir-name"));
     assertThat(layerStore.getLayer("dir-name")).isPresent();
-    // Name is preserved (non-blank) even though id was fixed
     assertThat(layerStore.getLayer("dir-name").get().getName()).isEqualTo("original-name");
   }
 
@@ -680,81 +761,50 @@ class ImportExportControllerTest {
 
   @Test
   void export_includeVector_pmtilesOutsideBbox_isSkipped() throws Exception {
-    // Australia bounds; bbox = North America → no overlap
     byte[] pmtiles =
         buildMinimalPmtiles(
-            (byte) 0,
-            (byte) 1,
-            1_130_000_000,
-            -440_000_000, // minLon=113, minLat=-44
-            1_540_000_000,
-            -100_000_000); // maxLon=154, maxLat=-10
+            (byte) 0, (byte) 1, 1_130_000_000, -440_000_000, 1_540_000_000, -100_000_000);
     Files.write(vectorDir.toPath().resolve("australia.pmtiles"), pmtiles);
 
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(adminJwt())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(
-                        "{\"includeVector\":true,"
-                            + "\"boundingBox\":{\"north\":60,\"south\":20,\"east\":-60,\"west\":-130,\"maxZoom\":1}}"))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    String body =
+        "{\"includeVector\":true,"
+            + "\"boundingBox\":{\"north\":60,\"south\":20,\"east\":-60,\"west\":-130,\"maxZoom\":1}}";
+    String jobId = submitExport(body, adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
     assertThat(entries).doesNotContainKey("vector/pmtiles/australia.pmtiles");
   }
 
   @Test
   void export_includeVector_pmtilesFullyInBbox_includedAsIs() throws Exception {
-    // Fixture has bounds [0,0,0,0]; world bbox fully contains it
     URL url = getClass().getClassLoader().getResource("test_fixture_1.pmtiles");
     byte[] fixtureBytes = Files.readAllBytes(Paths.get(url.getPath()));
     Files.write(vectorDir.toPath().resolve("fixture-bbox.pmtiles"), fixtureBytes);
 
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(adminJwt())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(
-                        "{\"includeVector\":true,"
-                            + "\"boundingBox\":{\"north\":90,\"south\":-90,\"east\":180,\"west\":-180,\"maxZoom\":1}}"))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    String body =
+        "{\"includeVector\":true,"
+            + "\"boundingBox\":{\"north\":90,\"south\":-90,\"east\":180,\"west\":-180,\"maxZoom\":1}}";
+    String jobId = submitExport(body, adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
     assertThat(entries).containsKey("vector/pmtiles/fixture-bbox.pmtiles");
   }
 
   @Test
   void export_includeVector_pmtilesPartialBbox_extractsTilesInBbox() throws Exception {
-    // Copy fixture and widen its declared bounds to world so any sub-world bbox triggers partial
     URL url = getClass().getClassLoader().getResource("test_fixture_1.pmtiles");
     byte[] fixtureBytes = Files.readAllBytes(Paths.get(url.getPath()));
     ByteBuffer bb = ByteBuffer.wrap(fixtureBytes).order(ByteOrder.LITTLE_ENDIAN);
-    bb.putInt(102, -1_800_000_000); // minLon = -180
-    bb.putInt(106, -900_000_000); // minLat = -90
-    bb.putInt(110, 1_800_000_000); // maxLon = 180
-    bb.putInt(114, 900_000_000); // maxLat = 90
+    bb.putInt(102, -1_800_000_000);
+    bb.putInt(106, -900_000_000);
+    bb.putInt(110, 1_800_000_000);
+    bb.putInt(114, 900_000_000);
     Files.write(vectorDir.toPath().resolve("world-partial.pmtiles"), fixtureBytes);
 
-    // south=1 means the file's declared minLat=-90 is outside the bbox → partial extraction
-    MvcResult result =
-        mvc.perform(
-                post("/export")
-                    .with(adminJwt())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(
-                        "{\"includeVector\":true,"
-                            + "\"boundingBox\":{\"north\":85,\"south\":1,\"east\":180,\"west\":-180,\"maxZoom\":1}}"))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    Map<String, byte[]> entries = readZip(result.getResponse().getContentAsByteArray());
+    String body =
+        "{\"includeVector\":true,"
+            + "\"boundingBox\":{\"north\":85,\"south\":1,\"east\":180,\"west\":-180,\"maxZoom\":1}}";
+    String jobId = submitExport(body, adminJwt());
+    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
     assertThat(entries).doesNotContainKey("vector/pmtiles/world-partial.pmtiles");
-    // z=0 tile (0,0) covers the whole world and exists in the fixture
     assertThat(entries).containsKey("vector/tiles/0/0/0.pbf");
   }
 
@@ -762,7 +812,6 @@ class ImportExportControllerTest {
 
   private static byte[] buildMinimalPmtiles(
       byte minZoom, byte maxZoom, int minLonE7, int minLatE7, int maxLonE7, int maxLatE7) {
-    // 127-byte header + 1-byte empty root directory (varint 0 = 0 entries)
     ByteBuffer buf = ByteBuffer.allocate(128).order(ByteOrder.LITTLE_ENDIAN);
     buf.put((byte) 'P')
         .put((byte) 'M')
@@ -771,20 +820,20 @@ class ImportExportControllerTest {
         .put((byte) 'l')
         .put((byte) 'e')
         .put((byte) 's');
-    buf.put((byte) 3); // version
-    buf.putLong(127); // root_dir_offset
-    buf.putLong(1); // root_dir_length
-    buf.putLong(128); // metadata_offset
-    buf.putLong(0); // metadata_length
-    buf.putLong(128); // leaf_dirs_offset
-    buf.putLong(0); // leaf_dirs_length
-    buf.putLong(128); // tile_data_offset
-    buf.putLong(0); // tile_data_length
+    buf.put((byte) 3);
+    buf.putLong(127);
+    buf.putLong(1);
+    buf.putLong(128);
+    buf.putLong(0);
+    buf.putLong(128);
+    buf.putLong(0);
+    buf.putLong(128);
+    buf.putLong(0);
     buf.position(96);
-    buf.put((byte) 0); // clustered
-    buf.put((byte) 1); // internal_compression: none
-    buf.put((byte) 1); // tile_compression: none
-    buf.put((byte) 1); // tile_type: MVT
+    buf.put((byte) 0);
+    buf.put((byte) 1);
+    buf.put((byte) 1);
+    buf.put((byte) 1);
     buf.put(minZoom);
     buf.put(maxZoom);
     buf.putInt(minLonE7);
@@ -792,7 +841,7 @@ class ImportExportControllerTest {
     buf.putInt(maxLonE7);
     buf.putInt(maxLatE7);
     buf.position(127);
-    buf.put((byte) 0); // empty root directory
+    buf.put((byte) 0);
     return buf.array();
   }
 

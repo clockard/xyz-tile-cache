@@ -297,10 +297,13 @@ If `includeVector` is true, the proxy runs `pmtiles extract` against `xyz.vector
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/export` | authenticated | Stream a zip of cached raster tiles for one or more layers. |
-| `POST` | `/import` | authenticated | Upload a zip (same format) to seed the cache on this instance. |
+| `POST` | `/export` | authenticated | Submit an async export job. Returns 202 with a job-status object. |
+| `GET` | `/exports` | authenticated | List export jobs submitted by the current user. |
+| `GET` | `/exports/{id}` | authenticated | Get the status of a specific export job. |
+| `GET` | `/exports/{id}/download` | authenticated | Download the completed export zip (removes the job after transfer). |
+| `POST` | `/import` | admin | Upload a zip (same format) to seed the cache on this instance. |
 
-Both endpoints require an authenticated principal. Per-layer ACLs are enforced:
+Export requires an authenticated principal; import requires the admin role. Per-layer ACLs are enforced:
 - **Export** — each requested layer is checked with `layerAccessService.canRead`. Admin users bypass this check; non-admin JWT users may only export layers their token grants access to.
 - **Import** — each zip entry's layer is checked the same way. Importing tiles to a layer the caller cannot read returns 403 and the entire upload is rejected. Creating a brand-new layer via import additionally requires the admin role (consistent with `POST /layers`).
 
@@ -321,7 +324,15 @@ Raster vector layers (PMTiles URL templates) cannot be exported as raster layers
 }
 ```
 
-`boundingBox`, `minZoom`, `maxZoom`, and `includeVector` are all optional. At least one of `layers` or `includeVector` must be specified. When `boundingBox` is omitted every cached tile under each layer directory is included. `minZoom`/`maxZoom` further restrict the zoom range (clamped by each layer's `maxZoom`; also applied to vector tile entries). Tiles not present on disk are silently skipped. The response is `Content-Type: application/zip` with a timestamped filename such as `tile-export-20260101-120000.zip`.
+`boundingBox`, `minZoom`, `maxZoom`, and `includeVector` are all optional. At least one of `layers` or `includeVector` must be specified. When `boundingBox` is omitted every cached tile under each layer directory is included. `minZoom`/`maxZoom` further restrict the zoom range (clamped by each layer's `maxZoom`; also applied to vector tile entries). Tiles not present on disk are silently skipped.
+
+`POST /export` returns 202 Accepted immediately with a job-status object:
+
+```json
+{ "id": "a1b2c3d4-...", "status": "PENDING", "filename": "tile-export-20260101-120000.zip", "error": null }
+```
+
+`status` cycles through `PENDING → RUNNING → DONE` (or `FAILED`). Poll `GET /exports/{id}` until `status` is `DONE`, then fetch the file from `GET /exports/{id}/download`. The download response is `Content-Type: application/zip`; the job entry is deleted after a successful download.
 
 When `includeVector: true`:
 - Individually cached PBF tiles from `{downloadDirectory}/remote-cache/` are exported under `vector/tiles/{z}/{x}/{y}.pbf` (filtered by bbox/zoom if provided).
@@ -372,6 +383,15 @@ cp ~/tiles-backup.zip /path/to/imports/
 cp ~/region.pmtiles /path/to/imports/
 docker run ... -v /path/to/imports:/app/imports xyz-tile-cache:latest
 ```
+
+### Runtime config
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/config/offline` | none | Returns `{"offline": true/false}`. |
+| `PUT` | `/config/offline` | admin | Toggles offline mode at runtime (no restart required). Body: `{"offline": true}`. |
+
+Offline mode can also be set at startup via `xyz.offline` in `application.yml` or the `XYZ_OFFLINE` env var. The `PUT` endpoint lets you switch it on or off without restarting the container.
 
 ### Stats
 

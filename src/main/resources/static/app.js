@@ -43,8 +43,10 @@ let geoTiffOverlay, geoTiffNameInput, geoTiffFileInput, geoTiffStatus;
 let geoTiffAllowedUsers, geoTiffAllowedGroups;
 let exportOverlay, exportLayersContainer, exportBboxDisplay, exportMaxZoom, exportStatus;
 let exportDrawBtn, exportClearBboxBtn;
+let exportsSection, exportsList;
 let importOverlay, importFileInput, importStatus;
 let loginBtn, logoutBtn, userDisplay;
+let offlineToggleBtn;
 let layerManagerOverlay, layerManagerTitle, lmListView, lmLayerList, lmFormView;
 let lfId, lfName, lfSourceType, lfUrl, lfUrlRow, lfWmtsSection;
 let lfWmtsLayer, lfWmtsMatrix, lfWmtsStyle, lfWmtsFormat, lfWmtsTime;
@@ -64,8 +66,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   downloadsBtn     = document.getElementById('downloads-btn');
   uploadGeoTiffBtn = document.getElementById('upload-geotiff-btn');
   manageLayersBtn  = document.getElementById('manage-layers-btn');
-  downloadsPanel = document.getElementById('downloads-panel');
-  downloadsList  = document.getElementById('downloads-list');
+  downloadsPanel  = document.getElementById('downloads-panel');
+  downloadsList   = document.getElementById('downloads-list');
+  exportsSection  = document.getElementById('exports-section');
+  exportsList     = document.getElementById('exports-list');
   preloadOverlay = document.getElementById('preload-overlay');
   bboxDisplay    = document.getElementById('bbox-display');
   zoomSlider     = document.getElementById('zoom-slider');
@@ -95,6 +99,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   importStatus = document.getElementById('import-status');
   loginBtn = document.getElementById('login-btn');
   logoutBtn = document.getElementById('logout-btn');
+  offlineToggleBtn = document.getElementById('offline-toggle-btn');
   userDisplay = document.getElementById('user-display');
 
   layerManagerOverlay = document.getElementById('layer-manager-overlay');
@@ -167,6 +172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   loginBtn.addEventListener('click', login);
   logoutBtn.addEventListener('click', logout);
+  offlineToggleBtn.addEventListener('click', toggleOfflineMode);
 
   downloadsList.addEventListener('click', (e) => {
     const item = e.target.closest('.download-item');
@@ -178,6 +184,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (d && Array.isArray(d.bounds) && d.bounds.length === 4) {
       showDownloadBbox(d.bounds);
     }
+  });
+
+  exportsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.export-download-btn');
+    if (!btn) return;
+    downloadExportJob(btn.dataset.jobId, btn.dataset.filename);
   });
 
   preloadOverlay.addEventListener('click', (e) => {
@@ -193,6 +205,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await initAuth();
   applyAuthUiState();
   await loadLayers();
+  await loadOfflineMode();
 });
 
 // ── Path helper ───────────────────────────────────────────────────────────────
@@ -1418,6 +1431,10 @@ function stopDownloadPolling() {
 }
 
 async function loadDownloads() {
+  await Promise.all([loadPreloads(), loadExportJobs()]);
+}
+
+async function loadPreloads() {
   try {
     const resp = await authFetch(apiPath('/preloads'));
     if (!resp.ok) {
@@ -1427,6 +1444,72 @@ async function loadDownloads() {
     renderDownloads(await resp.json());
   } catch (e) {
     downloadsList.innerHTML = '<li class="empty-state">Failed to load preloads</li>';
+  }
+}
+
+async function loadExportJobs() {
+  if (!isLoggedIn()) {
+    exportsSection.classList.add('hidden');
+    exportsList.innerHTML = '';
+    return;
+  }
+  try {
+    const resp = await authFetch(apiPath('/exports'));
+    if (!resp.ok) {
+      exportsSection.classList.add('hidden');
+      return;
+    }
+    renderExportJobs(await resp.json());
+  } catch (e) {
+    exportsSection.classList.add('hidden');
+  }
+}
+
+function renderExportJobs(jobs) {
+  if (!jobs || jobs.length === 0) {
+    exportsSection.classList.add('hidden');
+    exportsList.innerHTML = '';
+    return;
+  }
+  exportsSection.classList.remove('hidden');
+  const statusLabels = { PENDING: 'Pending', RUNNING: 'Building…', DONE: 'Ready', FAILED: 'Failed' };
+  exportsList.innerHTML = jobs.map((job) => {
+    const statusLabel = statusLabels[job.status] || job.status;
+    const statusClass = job.status.toLowerCase();
+    const actionHtml = job.status === 'DONE'
+      ? `<button class="export-download-btn" data-job-id="${escapeHtml(job.id)}" data-filename="${escapeHtml(job.filename || '')}">Download</button>`
+      : job.status === 'FAILED' && job.error
+        ? `<div class="export-error">${escapeHtml(job.error)}</div>`
+        : '';
+    return `<li class="export-item">
+      <div class="export-item-header">
+        <span class="export-filename">${escapeHtml(job.filename || job.id)}</span>
+        <span class="export-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
+      </div>
+      ${actionHtml}
+    </li>`;
+  }).join('');
+}
+
+async function downloadExportJob(jobId, filename) {
+  try {
+    const dlResp = await authFetch(apiPath('/exports/' + jobId + '/download'));
+    if (!dlResp.ok) {
+      showToast(`Download failed (${dlResp.status})`, 'error');
+      return;
+    }
+    const blob = await dlResp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || ('tile-export-' + Date.now() + '.zip');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    loadDownloads();
+  } catch (e) {
+    showToast('Download failed', 'error');
   }
 }
 
@@ -1928,7 +2011,7 @@ async function submitExport() {
 
   const submitBtn = document.getElementById('submit-export');
   submitBtn.disabled = true;
-  exportStatus.textContent = 'Building zip — this may take a while…';
+  exportStatus.textContent = 'Submitting export job…';
   try {
     const resp = await authFetch(apiPath('/export'), {
       method: 'POST',
@@ -1946,20 +2029,10 @@ async function submitExport() {
       }
       return;
     }
-    const disp = resp.headers.get('Content-Disposition') || '';
-    const fnMatch = /filename="?([^";]+)"?/.exec(disp);
-    const filename = fnMatch ? fnMatch[1] : `tile-export-${Date.now()}.zip`;
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    await resp.json();
     hideExportModal();
-    showToast('Export downloaded', 'success');
+    showToast('Export started — check Downloads for progress', 'success');
+    openDownloadsPanel();
   } catch (e) {
     exportStatus.textContent = 'Network error during export.';
   } finally {
@@ -2019,6 +2092,47 @@ async function submitImport() {
     importStatus.textContent = 'Network error during import.';
   } finally {
     submitBtn.disabled = false;
+  }
+}
+
+// ── Offline mode ──────────────────────────────────────────────────────────────
+
+async function loadOfflineMode() {
+  try {
+    const resp = await fetch(apiPath('/config/offline'));
+    if (resp.ok) {
+      const data = await resp.json();
+      updateOfflineModeBtn(data.offline);
+    }
+  } catch (e) {}
+}
+
+function updateOfflineModeBtn(offline) {
+  offlineToggleBtn.classList.toggle('active', offline);
+  offlineToggleBtn.title = offline
+    ? 'System is offline — click to go online'
+    : 'System is online — click to go offline';
+  offlineToggleBtn.querySelector('.btn-label').textContent = offline ? 'Go Online' : 'Go Offline';
+}
+
+async function toggleOfflineMode() {
+  if (!isAdmin()) { showToast('Admin role required', 'error'); return; }
+  const newOffline = !offlineToggleBtn.classList.contains('active');
+  try {
+    const resp = await authFetch(apiPath('/config/offline'), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ offline: newOffline }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      updateOfflineModeBtn(data.offline);
+      showToast(`Offline mode ${data.offline ? 'enabled' : 'disabled'}`, 'success');
+    } else {
+      showToast(`Failed to toggle offline mode (${resp.status})`, 'error');
+    }
+  } catch (e) {
+    showToast('Network error toggling offline mode', 'error');
   }
 }
 

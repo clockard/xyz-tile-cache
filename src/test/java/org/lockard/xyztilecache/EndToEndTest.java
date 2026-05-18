@@ -284,17 +284,8 @@ class EndToEndTest {
 
   @Test
   void export_admin_returnsZipContainingLayerJson() throws Exception {
-    ResponseEntity<byte[]> response =
-        http.postForEntity(
-            "/export",
-            new HttpEntity<>("{\"layers\":[\"osm\"]}", jsonAdminHeaders()),
-            byte[].class);
-
-    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-    assertThat(response.getHeaders().getContentType().toString()).contains("zip");
-    assertThat(response.getHeaders().getFirst("Content-Disposition")).contains("tile-export-");
-
-    Map<String, byte[]> entries = readZip(response.getBody());
+    byte[] zip = doExport("{\"layers\":[\"osm\"]}");
+    Map<String, byte[]> entries = readZip(zip);
     assertThat(entries).containsKey("osm/layer.json");
     Layer exported = objectMapper.readValue(entries.get("osm/layer.json"), Layer.class);
     assertThat(exported.getEffectiveId()).isEqualTo("osm");
@@ -308,14 +299,8 @@ class EndToEndTest {
     Files.createDirectories(tilePath.getParent());
     Files.write(tilePath, new byte[] {0x42});
 
-    ResponseEntity<byte[]> response =
-        http.postForEntity(
-            "/export",
-            new HttpEntity<>("{\"layers\":[\"osm\"]}", jsonAdminHeaders()),
-            byte[].class);
-
-    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-    Map<String, byte[]> entries = readZip(response.getBody());
+    byte[] zip = doExport("{\"layers\":[\"osm\"]}");
+    Map<String, byte[]> entries = readZip(zip);
     assertThat(entries).containsKey("osm/8/0/0.png");
     assertThat(entries.get("osm/8/0/0.png")).containsExactly(0x42);
   }
@@ -417,14 +402,7 @@ class EndToEndTest {
     assertThat(importResp.getStatusCode()).isEqualTo(HttpStatus.OK);
 
     // Export and verify tile content survived the round trip
-    ResponseEntity<byte[]> exportResp =
-        http.postForEntity(
-            "/export",
-            new HttpEntity<>("{\"layers\":[\"e2e-roundtrip\"]}", jsonAdminHeaders()),
-            byte[].class);
-    assertThat(exportResp.getStatusCode()).isEqualTo(HttpStatus.OK);
-
-    Map<String, byte[]> entries = readZip(exportResp.getBody());
+    Map<String, byte[]> entries = readZip(doExport("{\"layers\":[\"e2e-roundtrip\"]}"));
     assertThat(entries).containsKey("e2e-roundtrip/layer.json");
     assertThat(entries).containsKey("e2e-roundtrip/0/0/0.png");
     assertThat(entries.get("e2e-roundtrip/0/0/0.png")).containsExactly(10, 20, 30, 40);
@@ -435,6 +413,33 @@ class EndToEndTest {
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────
+
+  @SuppressWarnings("unchecked")
+  private byte[] doExport(String jsonBody) throws Exception {
+    ResponseEntity<Map> submit =
+        http.postForEntity("/export", new HttpEntity<>(jsonBody, jsonAdminHeaders()), Map.class);
+    assertThat(submit.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+    String jobId = (String) submit.getBody().get("id");
+
+    String status = "PENDING";
+    for (int i = 0; i < 100 && !"DONE".equals(status) && !"FAILED".equals(status); i++) {
+      Thread.sleep(100);
+      ResponseEntity<Map> statusResp =
+          http.exchange(
+              "/exports/" + jobId, HttpMethod.GET, new HttpEntity<>(adminHeaders()), Map.class);
+      status = (String) statusResp.getBody().get("status");
+    }
+    assertThat(status).isEqualTo("DONE");
+
+    ResponseEntity<byte[]> download =
+        http.exchange(
+            "/exports/" + jobId + "/download",
+            HttpMethod.GET,
+            new HttpEntity<>(adminHeaders()),
+            byte[].class);
+    assertThat(download.getStatusCode()).isEqualTo(HttpStatus.OK);
+    return download.getBody();
+  }
 
   private HttpHeaders adminHeaders() {
     HttpHeaders h = new HttpHeaders();
