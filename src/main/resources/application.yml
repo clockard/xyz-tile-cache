@@ -278,17 +278,25 @@ xyz:
       headers:
         Referer: "https://www.accuweather.com"
 
-  vector:
-    downloadDirectory: "${xyz.baseTileDirectory}/vector"
-    # {date} is replaced with yesterday's date (YYYYMMDD) at startup.
-    # Used for both preload area downloads (pmtiles extract) and individual tile
-    # range-request fallback (RemotePmtilesReader).
-    sourceUrl: "${PMTILES_SOURCE_URL:https://build.protomaps.com/{date}.pmtiles}"
-    maxDownloadZoom: 15
-    # Set to a zoom level (e.g. 7) to download world vector data on first startup.
-    # 0 or unset means do nothing.
-    initZoom: "${XYZ_VECTOR_INIT_ZOOM:0}"
-    enabled: true
+  # ─── Vector (VECTOR_PMTILES) ───────────────────────────────────────────────
+  # A VECTOR_PMTILES layer serves raw MVT tiles at
+  # /tilesZYX/{id}/{z}/{y}/{x}.mvt  and  /tilesZXY/{id}/{z}/{x}/{y}.mvt
+  #
+  # urlTemplate: local file path OR remote https:// URL to a .pmtiles archive.
+  #   - Local:  urlTemplate: "/var/data/basemap.pmtiles"
+  #   - Remote: urlTemplate: "https://build.protomaps.com/{date}.pmtiles"
+  #             ({date} is substituted with yesterday's date YYYYMMDD at startup)
+  # maxZoom: limits tile serving; also the extract --maxzoom when downloading.
+  # initZoom: if > 0, runs a world-wide pmtiles extract up to this zoom level
+  #           on first startup (remote urlTemplate only). Set via
+  #           XYZ_PROTOMAPS_INIT_ZOOM env var (default 0 = disabled).
+
+    - id: "protomaps"
+      name: "Protomaps Vector"
+      sourceType: VECTOR_PMTILES
+      maxZoom: 15
+      urlTemplate: "${PMTILES_SOURCE_URL:https://build.protomaps.com/{date}.pmtiles}"
+      initZoom: "${XYZ_PROTOMAPS_INIT_ZOOM:0}"
 
 #  boundingBoxes:
 #    - preCache: true

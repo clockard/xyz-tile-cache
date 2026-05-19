@@ -73,7 +73,6 @@ public class RemotePmtilesReader {
       if (initialized) {
         return;
       }
-      initialized = true;
       try {
         byte[] headerBytes = fetchRange(0, 127);
         header = PmtilesHeader.parse(headerBytes);
@@ -87,6 +86,7 @@ public class RemotePmtilesReader {
         header = null;
         rootDir = null;
       }
+      initialized = true;
     }
   }
 

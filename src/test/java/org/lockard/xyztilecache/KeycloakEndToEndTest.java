@@ -65,7 +65,6 @@ class KeycloakEndToEndTest {
           .withRealmImportFile("xyz-tile-cache-realm.json");
 
   @TempDir static File tileDir;
-  @TempDir static File vectorDir;
 
   /**
    * Provide a {@link JwtDecoder} that validates both JWKS signature and the {@code iss} claim
@@ -102,7 +101,6 @@ class KeycloakEndToEndTest {
   @DynamicPropertySource
   static void configureProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", tileDir::getAbsolutePath);
-    registry.add("xyz.vector.downloadDirectory", vectorDir::getAbsolutePath);
     registry.add("xyz.auth.mode", () -> "jwt");
     registry.add("xyz.offline", () -> "true");
     registry.add(

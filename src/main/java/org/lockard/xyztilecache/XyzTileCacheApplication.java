@@ -4,13 +4,17 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import org.lockard.xyztilecache.config.VectorConfiguration;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
+import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LayerChangedEvent;
+import org.lockard.xyztilecache.model.Preload;
 import org.lockard.xyztilecache.model.Tile;
+import org.lockard.xyztilecache.service.PmtilesDownloader;
 import org.lockard.xyztilecache.service.PreloadService;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.slf4j.Logger;
@@ -25,7 +29,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
-@EnableConfigurationProperties({XyzConfiguration.class, VectorConfiguration.class})
+@EnableConfigurationProperties(XyzConfiguration.class)
 @EnableAsync
 @EnableScheduling
 public class XyzTileCacheApplication {
@@ -36,16 +40,19 @@ public class XyzTileCacheApplication {
   private final LayerStore layerStore;
   private final LoadingCache<Tile, byte[]> tileCache;
   private final PreloadService preloadService;
+  private final PmtilesDownloader pmtilesDownloader;
 
   public XyzTileCacheApplication(
       final XyzConfiguration configuration,
       final LayerStore layerStore,
       final LoadingCache<Tile, byte[]> tileCache,
-      final PreloadService preloadService) {
+      final PreloadService preloadService,
+      final PmtilesDownloader pmtilesDownloader) {
     this.configuration = configuration;
     this.layerStore = layerStore;
     this.tileCache = tileCache;
     this.preloadService = preloadService;
+    this.pmtilesDownloader = pmtilesDownloader;
   }
 
   public static void main(String[] args) {
@@ -69,6 +76,7 @@ public class XyzTileCacheApplication {
         "The following layers are configured: {}",
         String.join(",", layerStore.getLayers().keySet()));
     initializeBoundingBoxes();
+    initializeLayerDownloads();
   }
 
   @EventListener
@@ -92,5 +100,75 @@ public class XyzTileCacheApplication {
       }
     }
     pool.shutdown();
+  }
+
+  // ── Per-layer init downloads ──────────────────────────────────────────────
+
+  void initializeLayerDownloads() {
+    List<Layer> initLayers =
+        layerStore.getLayers().values().stream().filter(l -> l.getInitZoom() > 0).toList();
+    if (initLayers.isEmpty()) {
+      return;
+    }
+    LOGGER.info("Starting init downloads for {} layer(s)...", initLayers.size());
+    ExecutorService pool =
+        Executors.newFixedThreadPool(Math.max(1, Math.min(initLayers.size(), 4)));
+    for (Layer layer : initLayers) {
+      if (layer.getSourceType() == Layer.SourceType.VECTOR_PMTILES) {
+        pool.submit(() -> initVectorLayerDownload(layer));
+      } else {
+        BoundingBox world = worldBbox(layer.getInitZoom());
+        pool.submit(
+            () ->
+                preloadService.preloadXyzTiles(
+                    Collections.singleton(layer.getEffectiveId()), world));
+      }
+    }
+    pool.shutdown();
+  }
+
+  private void initVectorLayerDownload(Layer layer) {
+    String url = layer.getUrlTemplate();
+    if (url == null || url.isBlank()) {
+      LOGGER.warn(
+          "Layer '{}' has initZoom > 0 but no urlTemplate; skipping init download",
+          layer.getEffectiveId());
+      return;
+    }
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      LOGGER.info(
+          "Layer '{}' has local urlTemplate; skipping init download (file already present)",
+          layer.getEffectiveId());
+      return;
+    }
+    int zoom = layer.getInitZoom();
+    Preload preload = new Preload();
+    preload.setId(UUID.randomUUID().toString());
+    preload.setName("init-world-" + layer.getEffectiveId());
+    preload.setBoundingBox(worldBbox(zoom));
+    preload.setMaxZoom(zoom);
+    preload.setIncludesVector(true);
+    preload.setVectorLayerId(layer.getEffectiveId());
+    preload.setPmtilesFilename("world_z" + zoom + ".pmtiles");
+    try {
+      pmtilesDownloader.startDownload(preload, layer);
+      LOGGER.info(
+          "Started init download for vector layer '{}' up to zoom {}",
+          layer.getEffectiveId(),
+          zoom);
+    } catch (Exception e) {
+      LOGGER.error(
+          "Failed to start init download for vector layer '{}'", layer.getEffectiveId(), e);
+    }
+  }
+
+  private static BoundingBox worldBbox(int maxZoom) {
+    BoundingBox bbox = new BoundingBox();
+    bbox.setWest(-180);
+    bbox.setSouth(-85.051129);
+    bbox.setEast(180);
+    bbox.setNorth(85.051129);
+    bbox.setMaxZoom(maxZoom);
+    return bbox;
   }
 }

@@ -37,7 +37,6 @@ class PreloadControllerExceptionTest {
   static void testProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
     registry.add("xyz.layers", () -> List.of());
-    registry.add("xyz.vector.downloadDirectory", () -> tileDir.getAbsolutePath() + "/vec");
   }
 
   static RequestPostProcessor adminJwt() {
@@ -52,7 +51,7 @@ class PreloadControllerExceptionTest {
 
   @Test
   void create_submitReturnsNull_returns400(@Autowired MockMvc mvc) throws Exception {
-    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any()))
+    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any(), any()))
         .thenReturn(null);
 
     mvc.perform(
@@ -65,7 +64,7 @@ class PreloadControllerExceptionTest {
 
   @Test
   void create_submitThrowsIllegalArgument_returns503(@Autowired MockMvc mvc) throws Exception {
-    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any()))
+    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any(), any()))
         .thenThrow(new IllegalArgumentException("source unavailable"));
 
     mvc.perform(
@@ -78,7 +77,7 @@ class PreloadControllerExceptionTest {
 
   @Test
   void create_submitThrowsIllegalState_returns409(@Autowired MockMvc mvc) throws Exception {
-    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any()))
+    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any(), any()))
         .thenThrow(new IllegalStateException("already in progress"));
 
     mvc.perform(
@@ -91,7 +90,7 @@ class PreloadControllerExceptionTest {
 
   @Test
   void create_submitThrowsIOException_returns500(@Autowired MockMvc mvc) throws Exception {
-    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any()))
+    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any(), any()))
         .thenThrow(new IOException("persist failed"));
 
     mvc.perform(

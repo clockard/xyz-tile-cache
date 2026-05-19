@@ -50,12 +50,7 @@ public class ExportService {
    * poll {@link #getJob(String)} until the status transitions to DONE or FAILED.
    */
   public ExportJobStatus submit(
-      List<Layer> layers,
-      BoundingBox bbox,
-      Integer minZoom,
-      Integer maxZoom,
-      boolean includeVector,
-      String ownerName)
+      List<Layer> layers, BoundingBox bbox, Integer minZoom, Integer maxZoom, String ownerName)
       throws IOException {
     String jobId = UUID.randomUUID().toString();
     String filename = "tile-export-" + FILENAME_TS.format(Instant.now()) + ".zip";
@@ -68,8 +63,7 @@ public class ExportService {
         () -> {
           job.setStatus(ExportStatus.RUNNING);
           try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(tempFile))) {
-            importExportService.streamExport(
-                resolvedLayers, bbox, minZoom, maxZoom, includeVector, out);
+            importExportService.streamExport(resolvedLayers, bbox, minZoom, maxZoom, out);
             job.setStatus(ExportStatus.DONE);
           } catch (Exception e) {
             LOGGER.error("Export job {} failed", jobId, e);

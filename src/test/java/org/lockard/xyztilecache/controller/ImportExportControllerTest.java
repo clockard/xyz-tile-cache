@@ -13,9 +13,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.net.URL;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -28,7 +25,6 @@ import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.lockard.xyztilecache.config.VectorConfiguration;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,12 +44,10 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 class ImportExportControllerTest {
 
   @TempDir static File tileDir;
-  @TempDir static File vectorDir;
 
   @DynamicPropertySource
   static void testProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
-    registry.add("xyz.vector.downloadDirectory", () -> vectorDir.getAbsolutePath());
     registry.add(
         "xyz.layers",
         () -> {
@@ -68,19 +62,26 @@ class ImportExportControllerTest {
           aliceOnly.setAllowedUsers(List.of("alice"));
           aliceOnly.setMaxZoom(5);
 
-          Layer vector = new Layer();
-          vector.setName("vector-layer");
-          vector.setUrlTemplate("https://example.com/vec/{z}/{x}/{y}.pbf");
-          vector.setMaxZoom(5);
+          Layer vectorLayer = new Layer();
+          vectorLayer.setName("vector-layer");
+          vectorLayer.setUrlTemplate("https://example.com/vec/{z}/{x}/{y}.pbf");
+          vectorLayer.setMaxZoom(5);
 
-          return List.of(pub, aliceOnly, vector);
+          Layer vectorPmtiles = new Layer();
+          vectorPmtiles.setId("vector-pmtiles");
+          vectorPmtiles.setName("Vector PMTiles");
+          vectorPmtiles.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+          vectorPmtiles.setUrlTemplate(
+              tileDir.getAbsolutePath() + "/vector-pmtiles/basemap.pmtiles");
+          vectorPmtiles.setMaxZoom(14);
+
+          return List.of(pub, aliceOnly, vectorLayer, vectorPmtiles);
         });
   }
 
   @Autowired MockMvc mvc;
   @Autowired LayerStore layerStore;
   @Autowired ObjectMapper objectMapper;
-  @Autowired VectorConfiguration vectorConfiguration;
 
   static RequestPostProcessor adminJwt() {
     return jwt()
@@ -284,7 +285,7 @@ class ImportExportControllerTest {
   }
 
   @Test
-  void export_noLayersNoVector_returns400() throws Exception {
+  void export_noLayers_returns400() throws Exception {
     mvc.perform(
             post("/export").with(adminJwt()).contentType(MediaType.APPLICATION_JSON).content("{}"))
         .andExpect(status().isBadRequest());
@@ -623,126 +624,52 @@ class ImportExportControllerTest {
         .andExpect(jsonPath("$.tilesWritten").value(1));
   }
 
-  // ── vector export ─────────────────────────────────────────────────────────
+  // ── VECTOR_PMTILES layer export ───────────────────────────────────────────
 
   @Test
-  void export_includeVectorOnly_noLayers_returnsZipWithVectorTiles() throws Exception {
-    Path cacheDir = vectorDir.toPath().resolve("remote-cache").resolve("3").resolve("4");
-    Files.createDirectories(cacheDir);
-    Files.write(cacheDir.resolve("5.pbf"), new byte[] {0x1a, 0x2b});
+  void export_vectorPmtilesLayer_includesPmtilesFile() throws Exception {
+    Path layerDir = tileDir.toPath().resolve("vector-pmtiles");
+    Files.createDirectories(layerDir);
+    Files.write(layerDir.resolve("basemap.pmtiles"), new byte[] {0x01, 0x02, 0x03});
 
-    String jobId = submitExport("{\"includeVector\":true}", adminJwt());
+    String jobId = submitExport("{\"layers\":[\"vector-pmtiles\"]}", adminJwt());
     Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
-    assertThat(entries).containsKey("vector/tiles/3/4/5.pbf");
-    assertThat(entries.get("vector/tiles/3/4/5.pbf")).containsExactly(0x1a, 0x2b);
+    assertThat(entries).containsKey("vector-pmtiles/layer.json");
+    assertThat(entries).containsKey("vector-pmtiles/basemap.pmtiles");
+    assertThat(entries.get("vector-pmtiles/basemap.pmtiles")).containsExactly(0x01, 0x02, 0x03);
   }
 
   @Test
-  void export_includeVector_withLayers_includesBoth() throws Exception {
-    Path cacheDir = vectorDir.toPath().resolve("remote-cache").resolve("2").resolve("1");
-    Files.createDirectories(cacheDir);
-    Files.write(cacheDir.resolve("0.pbf"), new byte[] {0x0f});
-
-    String jobId =
-        submitExport("{\"layers\":[\"public-layer\"],\"includeVector\":true}", adminJwt());
+  void export_vectorPmtilesLayer_noFile_returnsOnlyLayerJson() throws Exception {
+    String jobId = submitExport("{\"layers\":[\"vector-pmtiles\"]}", adminJwt());
     Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
-    assertThat(entries).containsKey("public-layer/layer.json");
-    assertThat(entries).containsKey("vector/tiles/2/1/0.pbf");
+    assertThat(entries.keySet()).containsExactly("vector-pmtiles/layer.json");
   }
 
-  // ── vector import ─────────────────────────────────────────────────────────
+  // ── VECTOR_PMTILES layer import ───────────────────────────────────────────
 
   @Test
-  void importZip_vectorTiles_writesToRemoteCache() throws Exception {
-    byte[] zip = buildZip(Map.of("vector/tiles/4/2/3.pbf", new byte[] {0x0a, 0x0b, 0x0c}));
+  void importZip_vectorPmtiles_writesToLayerDir() throws Exception {
+    byte[] zip = buildZip(Map.of("vector-pmtiles/region.pmtiles", new byte[] {0x0a, 0x0b, 0x0c}));
     MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
     mvc.perform(multipart("/import").file(file).with(adminJwt()))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.tilesWritten").value(1));
+        .andExpect(jsonPath("$.pmtilesImported").value(1));
 
-    Path tilePath =
-        vectorDir.toPath().resolve("remote-cache").resolve("4").resolve("2").resolve("3.pbf");
-    assertThat(Files.readAllBytes(tilePath)).containsExactly(0x0a, 0x0b, 0x0c);
+    Path pmtilesPath = tileDir.toPath().resolve("vector-pmtiles").resolve("region.pmtiles");
+    assertThat(Files.readAllBytes(pmtilesPath)).containsExactly(0x0a, 0x0b, 0x0c);
   }
 
   @Test
-  void importZip_vectorTiles_nonAdmin_returns403() throws Exception {
-    byte[] zip = buildZip(Map.of("vector/tiles/4/2/3.pbf", new byte[] {0x01}));
-    MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
-    mvc.perform(multipart("/import").file(file).with(userJwt("bob")))
-        .andExpect(status().isForbidden());
-  }
-
-  @Test
-  void importZip_vectorTile_invalidTailPattern_isSkipped() throws Exception {
-    byte[] zip = buildZip(Map.of("vector/tiles/x/y/z.pbf", new byte[] {0x01}));
-    MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
-    mvc.perform(multipart("/import").file(file).with(adminJwt()))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.tilesWritten").value(0));
-  }
-
-  @Test
-  void importZip_vectorPmtiles_unsafeName_isSkipped() throws Exception {
-    byte[] zip = buildZip(Map.of("vector/pmtiles/bad!file.pmtiles", new byte[] {0x01}));
+  void importZip_vectorPmtiles_unsafeFilename_isSkipped() throws Exception {
+    byte[] zip = buildZip(Map.of("vector-pmtiles/bad!file.pmtiles", new byte[] {0x01}));
     MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
     mvc.perform(multipart("/import").file(file).with(adminJwt()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.pmtilesImported").value(0));
-  }
 
-  @Test
-  void importZip_vectorTiles_noDownloadDir_skips() throws Exception {
-    String original = vectorConfiguration.getDownloadDirectory();
-    vectorConfiguration.setDownloadDirectory("");
-    try {
-      byte[] zip = buildZip(Map.of("vector/tiles/4/2/3.pbf", new byte[] {0x0a}));
-      MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
-      mvc.perform(multipart("/import").file(file).with(adminJwt()))
-          .andExpect(status().isOk())
-          .andExpect(jsonPath("$.tilesWritten").value(0));
-    } finally {
-      vectorConfiguration.setDownloadDirectory(original);
-    }
-  }
-
-  @Test
-  void export_includeVector_downloadDirBlank_returnsEmptyZip() throws Exception {
-    String original = vectorConfiguration.getDownloadDirectory();
-    vectorConfiguration.setDownloadDirectory("");
-    try {
-      String jobId = submitExport("{\"includeVector\":true}", adminJwt());
-      Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
-      assertThat(entries).doesNotContainKey("vector/tiles/0/0/0.pbf");
-    } finally {
-      vectorConfiguration.setDownloadDirectory(original);
-    }
-  }
-
-  @Test
-  void export_includeVector_pmtilesFiles_includedInZip() throws Exception {
-    java.nio.file.Files.write(
-        vectorDir.toPath().resolve("region.pmtiles"), new byte[] {0x01, 0x02});
-
-    String jobId = submitExport("{\"includeVector\":true}", adminJwt());
-    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
-    assertThat(entries).containsKey("vector/pmtiles/region.pmtiles");
-    assertThat(entries.get("vector/pmtiles/region.pmtiles")).containsExactly(0x01, 0x02);
-  }
-
-  @Test
-  void export_includeVector_zoomFilters_excludeOutOfRangePbfTiles() throws Exception {
-    Path cacheZ0 = vectorDir.toPath().resolve("remote-cache").resolve("0").resolve("0");
-    Path cacheZ5 = vectorDir.toPath().resolve("remote-cache").resolve("5").resolve("10");
-    java.nio.file.Files.createDirectories(cacheZ0);
-    java.nio.file.Files.createDirectories(cacheZ5);
-    java.nio.file.Files.write(cacheZ0.resolve("0.pbf"), new byte[] {0x01});
-    java.nio.file.Files.write(cacheZ5.resolve("0.pbf"), new byte[] {0x02});
-
-    String jobId = submitExport("{\"includeVector\":true,\"minZoom\":2,\"maxZoom\":4}", adminJwt());
-    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
-    assertThat(entries).doesNotContainKey("vector/tiles/0/0/0.pbf");
-    assertThat(entries).doesNotContainKey("vector/tiles/5/10/0.pbf");
+    assertThat(tileDir.toPath().resolve("vector-pmtiles").resolve("bad!file.pmtiles"))
+        .doesNotExist();
   }
 
   @Test
@@ -760,93 +687,7 @@ class ImportExportControllerTest {
     assertThat(layerStore.getLayer("dir-name").get().getName()).isEqualTo("original-name");
   }
 
-  // ── pmtiles bbox export ───────────────────────────────────────────────────
-
-  @Test
-  void export_includeVector_pmtilesOutsideBbox_isSkipped() throws Exception {
-    byte[] pmtiles =
-        buildMinimalPmtiles(
-            (byte) 0, (byte) 1, 1_130_000_000, -440_000_000, 1_540_000_000, -100_000_000);
-    Files.write(vectorDir.toPath().resolve("australia.pmtiles"), pmtiles);
-
-    String body =
-        "{\"includeVector\":true,"
-            + "\"boundingBox\":{\"north\":60,\"south\":20,\"east\":-60,\"west\":-130,\"maxZoom\":1}}";
-    String jobId = submitExport(body, adminJwt());
-    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
-    assertThat(entries).doesNotContainKey("vector/pmtiles/australia.pmtiles");
-  }
-
-  @Test
-  void export_includeVector_pmtilesFullyInBbox_includedAsIs() throws Exception {
-    URL url = getClass().getClassLoader().getResource("test_fixture_1.pmtiles");
-    byte[] fixtureBytes = Files.readAllBytes(Paths.get(url.getPath()));
-    Files.write(vectorDir.toPath().resolve("fixture-bbox.pmtiles"), fixtureBytes);
-
-    String body =
-        "{\"includeVector\":true,"
-            + "\"boundingBox\":{\"north\":90,\"south\":-90,\"east\":180,\"west\":-180,\"maxZoom\":1}}";
-    String jobId = submitExport(body, adminJwt());
-    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
-    assertThat(entries).containsKey("vector/pmtiles/fixture-bbox.pmtiles");
-  }
-
-  @Test
-  void export_includeVector_pmtilesPartialBbox_extractsTilesInBbox() throws Exception {
-    URL url = getClass().getClassLoader().getResource("test_fixture_1.pmtiles");
-    byte[] fixtureBytes = Files.readAllBytes(Paths.get(url.getPath()));
-    ByteBuffer bb = ByteBuffer.wrap(fixtureBytes).order(ByteOrder.LITTLE_ENDIAN);
-    bb.putInt(102, -1_800_000_000);
-    bb.putInt(106, -900_000_000);
-    bb.putInt(110, 1_800_000_000);
-    bb.putInt(114, 900_000_000);
-    Files.write(vectorDir.toPath().resolve("world-partial.pmtiles"), fixtureBytes);
-
-    String body =
-        "{\"includeVector\":true,"
-            + "\"boundingBox\":{\"north\":85,\"south\":1,\"east\":180,\"west\":-180,\"maxZoom\":1}}";
-    String jobId = submitExport(body, adminJwt());
-    Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
-    assertThat(entries).doesNotContainKey("vector/pmtiles/world-partial.pmtiles");
-    assertThat(entries).containsKey("vector/tiles/0/0/0.pbf");
-  }
-
   // ── helpers ───────────────────────────────────────────────────────────────
-
-  private static byte[] buildMinimalPmtiles(
-      byte minZoom, byte maxZoom, int minLonE7, int minLatE7, int maxLonE7, int maxLatE7) {
-    ByteBuffer buf = ByteBuffer.allocate(128).order(ByteOrder.LITTLE_ENDIAN);
-    buf.put((byte) 'P')
-        .put((byte) 'M')
-        .put((byte) 'T')
-        .put((byte) 'i')
-        .put((byte) 'l')
-        .put((byte) 'e')
-        .put((byte) 's');
-    buf.put((byte) 3);
-    buf.putLong(127);
-    buf.putLong(1);
-    buf.putLong(128);
-    buf.putLong(0);
-    buf.putLong(128);
-    buf.putLong(0);
-    buf.putLong(128);
-    buf.putLong(0);
-    buf.position(96);
-    buf.put((byte) 0);
-    buf.put((byte) 1);
-    buf.put((byte) 1);
-    buf.put((byte) 1);
-    buf.put(minZoom);
-    buf.put(maxZoom);
-    buf.putInt(minLonE7);
-    buf.putInt(minLatE7);
-    buf.putInt(maxLonE7);
-    buf.putInt(maxLatE7);
-    buf.position(127);
-    buf.put((byte) 0);
-    return buf.array();
-  }
 
   private static byte[] buildZip(Map<String, byte[]> entries) throws Exception {
     ByteArrayOutputStream bos = new ByteArrayOutputStream();

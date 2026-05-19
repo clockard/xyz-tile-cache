@@ -8,8 +8,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.lockard.xyztilecache.config.VectorConfiguration;
+import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
+import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,21 +21,21 @@ public class PmtilesDownloader {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PmtilesDownloader.class);
 
-  private final VectorConfiguration config;
-  private final VectorTileService vectorTileService;
+  private final XyzConfiguration xyzConfig;
+  private final VectorPmtilesManager vectorPmtilesManager;
 
   private final AtomicBoolean downloadInProgress = new AtomicBoolean(false);
 
-  public PmtilesDownloader(VectorConfiguration config, VectorTileService vectorTileService) {
-    this.config = config;
-    this.vectorTileService = vectorTileService;
+  public PmtilesDownloader(XyzConfiguration xyzConfig, VectorPmtilesManager vectorPmtilesManager) {
+    this.xyzConfig = xyzConfig;
+    this.vectorPmtilesManager = vectorPmtilesManager;
   }
 
   public boolean isDownloadInProgress() {
     return downloadInProgress.get();
   }
 
-  public CompletableFuture<Void> startDownload(Preload preload) {
+  public CompletableFuture<Void> startDownload(Preload preload, Layer layer) {
     if (preload.getPmtilesFilename() == null || preload.getPmtilesFilename().isBlank()) {
       throw new IllegalArgumentException("Preload is missing pmtilesFilename");
     }
@@ -44,15 +45,17 @@ public class PmtilesDownloader {
     return CompletableFuture.runAsync(
         () -> {
           try {
-            doDownload(preload);
+            doDownload(preload, layer);
           } finally {
             downloadInProgress.set(false);
           }
         });
   }
 
-  private void doDownload(Preload preload) {
-    Path downloadDir = Path.of(config.getDownloadDirectory()).toAbsolutePath().normalize();
+  private void doDownload(Preload preload, Layer layer) {
+    String layerId = layer.getEffectiveId();
+    Path downloadDir =
+        Path.of(xyzConfig.getBaseTileDirectory(), layerId).toAbsolutePath().normalize();
     Path outputPath = downloadDir.resolve(preload.getPmtilesFilename()).normalize();
     if (!outputPath.startsWith(downloadDir)) {
       LOGGER.error("PMTiles filename escapes download directory: {}", preload.getPmtilesFilename());
@@ -66,14 +69,12 @@ public class PmtilesDownloader {
       return;
     }
 
-    LOGGER.info(
-        "Starting pmtiles extract: source={} output={}",
-        resolveSourceUrl(config.getSourceUrl()),
-        outputPath);
+    String sourceUrl = resolveSourceUrl(layer.getUrlTemplate());
+    LOGGER.info("Starting pmtiles extract: source={} output={}", sourceUrl, outputPath);
 
     Process process;
     try {
-      process = buildProcess(preload, outputPath).start();
+      process = buildProcess(preload, layer, outputPath).start();
     } catch (IOException e) {
       LOGGER.error("Could not start pmtiles extract process: {}", e.getMessage());
       return;
@@ -104,14 +105,11 @@ public class PmtilesDownloader {
     }
 
     LOGGER.info("PMTiles download completed: {}", outputPath);
-    try {
-      vectorTileService.registerDownload(outputPath);
-    } catch (IOException e) {
-      LOGGER.error("Downloaded PMTiles file could not be opened: {}", e.getMessage());
-    }
+    vectorPmtilesManager.closeLayer(layerId);
+    vectorPmtilesManager.initLayer(layer);
   }
 
-  protected ProcessBuilder buildProcess(Preload preload, Path outputPath) {
+  protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path outputPath) {
     BoundingBox bbox = requireValidBoundingBox(preload.getBoundingBox());
     int maxZoom = requireValidMaxZoom(preload.getMaxZoom());
     String bboxArg =
@@ -122,7 +120,7 @@ public class PmtilesDownloader {
             bbox.getSouth(),
             bbox.getEast(),
             bbox.getNorth());
-    String sourceUrl = resolveSourceUrl(config.getSourceUrl());
+    String sourceUrl = resolveSourceUrl(layer.getUrlTemplate());
     ProcessBuilder pb =
         new ProcessBuilder(
             "pmtiles",

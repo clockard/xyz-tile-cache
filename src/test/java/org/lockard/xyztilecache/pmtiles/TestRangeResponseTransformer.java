@@ -6,11 +6,11 @@ import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import java.util.Arrays;
 
 /** WireMock transformer that serves byte-range slices from an in-memory file. */
-class TestRangeResponseTransformer implements ResponseTransformerV2 {
+public class TestRangeResponseTransformer implements ResponseTransformerV2 {
 
   private final byte[] content;
 
-  TestRangeResponseTransformer(byte[] content) {
+  public TestRangeResponseTransformer(byte[] content) {
     this.content = content;
   }
 

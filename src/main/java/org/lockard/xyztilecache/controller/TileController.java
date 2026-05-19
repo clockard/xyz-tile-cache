@@ -2,10 +2,13 @@ package org.lockard.xyztilecache.controller;
 
 import com.google.common.cache.LoadingCache;
 import java.io.IOException;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import org.lockard.xyztilecache.handler.TileSourceHandlerRegistry;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.PreloadRequest;
 import org.lockard.xyztilecache.model.Tile;
+import org.lockard.xyztilecache.model.TileResult;
 import org.lockard.xyztilecache.service.LayerAccessService;
 import org.lockard.xyztilecache.service.PreloadService;
 import org.lockard.xyztilecache.store.LayerStore;
@@ -27,21 +30,25 @@ import org.springframework.web.bind.annotation.RestController;
 class TileController {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(TileController.class);
+  private static final int COMPRESSION_GZIP = 2;
 
   private final LayerStore layerStore;
   private final LoadingCache<Tile, byte[]> tileCache;
   private final LayerAccessService layerAccessService;
   private final PreloadService preloadService;
+  private final TileSourceHandlerRegistry handlerRegistry;
 
   TileController(
       LayerStore layerStore,
       LoadingCache<Tile, byte[]> tileCache,
       LayerAccessService layerAccessService,
-      PreloadService preloadService) {
+      PreloadService preloadService,
+      TileSourceHandlerRegistry handlerRegistry) {
     this.layerStore = layerStore;
     this.tileCache = tileCache;
     this.layerAccessService = layerAccessService;
     this.preloadService = preloadService;
+    this.handlerRegistry = handlerRegistry;
   }
 
   /** Legacy endpoint — prefer POST /preloads for new integrations. */
@@ -58,6 +65,7 @@ class TileController {
           preloadRequest.getLayers(),
           false,
           null,
+          null,
           null);
     } catch (IOException e) {
       LOGGER.error("Failed to persist preload", e);
@@ -66,6 +74,42 @@ class TileController {
       return ResponseEntity.badRequest().body(e.getMessage());
     }
     return ResponseEntity.ok().build();
+  }
+
+  @GetMapping("/tilesZYX/{layer}/{z}/{y}/{x}.mvt")
+  ResponseEntity<byte[]> requestVectorTileZYXMvt(
+      @PathVariable("layer") String layerName,
+      @PathVariable("x") int x,
+      @PathVariable("y") int y,
+      @PathVariable("z") int z) {
+    return serveVectorTile(layerName, z, x, y);
+  }
+
+  @GetMapping("/tilesZYX/{layer}/{z}/{y}/{x}.pbf")
+  ResponseEntity<byte[]> requestVectorTileZYXPbf(
+      @PathVariable("layer") String layerName,
+      @PathVariable("x") int x,
+      @PathVariable("y") int y,
+      @PathVariable("z") int z) {
+    return serveVectorTile(layerName, z, x, y);
+  }
+
+  @GetMapping("/tilesZXY/{layer}/{z}/{x}/{y}.mvt")
+  ResponseEntity<byte[]> requestVectorTileZXYMvt(
+      @PathVariable("layer") String layerName,
+      @PathVariable("x") int x,
+      @PathVariable("y") int y,
+      @PathVariable("z") int z) {
+    return serveVectorTile(layerName, z, x, y);
+  }
+
+  @GetMapping("/tilesZXY/{layer}/{z}/{x}/{y}.pbf")
+  ResponseEntity<byte[]> requestVectorTileZXYPbf(
+      @PathVariable("layer") String layerName,
+      @PathVariable("x") int x,
+      @PathVariable("y") int y,
+      @PathVariable("z") int z) {
+    return serveVectorTile(layerName, z, x, y);
   }
 
   @GetMapping("/tilesZYX/{layer}/{z}/{y}/{x}.png")
@@ -84,6 +128,58 @@ class TileController {
       @PathVariable("y") int y,
       @PathVariable("z") int z) {
     return serveTile(layerName, x, y, z);
+  }
+
+  private ResponseEntity<byte[]> serveVectorTile(String layerName, int z, int x, int y) {
+    Layer layer = layerStore.getLayers().get(layerName);
+    if (layer == null) {
+      return ResponseEntity.badRequest()
+          .body(("Layer " + layerName + " not configured").getBytes());
+    }
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (!layerAccessService.canRead(layer, auth)) {
+      if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+      }
+      return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
+    if (z > layer.getMaxZoom()) {
+      return ResponseEntity.notFound().build();
+    }
+
+    var handler = handlerRegistry.getHandler(layer.getSourceType());
+    if (handler.isEmpty()) {
+      return ResponseEntity.badRequest()
+          .body(("Layer " + layerName + " does not support vector tiles").getBytes());
+    }
+
+    Optional<TileResult> result;
+    try {
+      result = handler.get().getTile(layer, z, x, y);
+    } catch (IOException e) {
+      LOGGER.warn(
+          "Error reading vector tile for layer {} {}/{}/{}: {}",
+          layerName,
+          z,
+          x,
+          y,
+          e.getMessage());
+      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+    }
+
+    if (result.isEmpty()) {
+      return ResponseEntity.noContent().build();
+    }
+
+    layerStore.getRuntimeState(layer.getEffectiveId()).incrementTilesServed();
+    TileResult tile = result.get();
+    HttpHeaders headers = new HttpHeaders();
+    headers.add("Access-Control-Allow-Origin", "*");
+    headers.add("Content-Type", "application/x-protobuf");
+    if (tile.tileCompression() == COMPRESSION_GZIP) {
+      headers.add("Content-Encoding", "gzip");
+    }
+    return new ResponseEntity<>(tile.data(), headers, HttpStatus.OK);
   }
 
   private ResponseEntity<byte[]> serveTile(String layerName, int x, int y, int z) {

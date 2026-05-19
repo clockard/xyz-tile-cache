@@ -55,7 +55,6 @@ let lfAttribution, lfMaxZoom, lfExpiration, lfAllowedUsers, lfAllowedGroups;
 let editingLayerName = null;
 let lmDeleteConfirm = null;
 
-const VECTOR_LAYER_KEY = '__vector__';
 const VECTOR_MAX_ZOOM = 15;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -734,48 +733,39 @@ async function loadLayers() {
     layerSelect.appendChild(opt);
   });
 
-  const vectorOpt = document.createElement('option');
-  vectorOpt.value = '__vector__';
-  vectorOpt.textContent = 'OSM Vector';
-  layerSelect.appendChild(vectorOpt);
-
-  if (previous && (layerMap[previous] || previous === '__vector__')) {
+  if (previous && layerMap[previous]) {
     layerSelect.value = previous;
     switchLayer(previous);
   } else if (layers.length > 0) {
     const firstId = layers[0].id || layers[0].name;
     layerSelect.value = firstId;
     switchLayer(firstId);
-  } else {
-    layerSelect.value = '__vector__';
-    switchLayer('__vector__');
   }
 }
 
 function switchLayer(name) {
-  if (name === '__vector__') {
-    switchToVector();
-    return;
-  }
-
   const layer = layerMap[name] || {};
-  setMapTileLayer(
-    new ol.layer.Tile({
-      source: new ol.source.XYZ({
-        url: apiPath(`/tilesZYX/${encodeURIComponent(name)}/{z}/{y}/{x}.png`),
-        crossOrigin: 'anonymous',
-        tileLoadFunction: authTileLoadFunction
+  if (layer.sourceType === 'VECTOR_PMTILES') {
+    switchToVectorPmtiles(name, layer);
+  } else {
+    setMapTileLayer(
+      new ol.layer.Tile({
+        source: new ol.source.XYZ({
+          url: apiPath(`/tilesZYX/${encodeURIComponent(name)}/{z}/{y}/{x}.png`),
+          crossOrigin: 'anonymous',
+          tileLoadFunction: authTileLoadFunction
+        })
       })
-    })
-  );
+    );
+  }
   updateAttribution(layer.attribution || '');
 }
 
-function switchToVector() {
+function switchToVectorPmtiles(name, layer) {
   const source = new ol.source.VectorTile({
-    url: apiPath('/vector/{z}/{x}/{y}'),
+    url: apiPath('/tilesZYX/' + encodeURIComponent(name) + '/{z}/{y}/{x}.mvt'),
     format: new ol.format.MVT(),
-    maxZoom: 15
+    maxZoom: layer.maxZoom || 14
   });
   source.setTileLoadFunction(authVectorTileLoader);
   setMapTileLayer(
@@ -785,7 +775,6 @@ function switchToVector() {
       style: vectorStyleFn
     })
   );
-  updateAttribution('© <a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>');
 }
 
 // ── Vector tile style (Protomaps LIGHT theme) ─────────────────────────────────
@@ -1241,9 +1230,13 @@ function hidePreloadModal() {
 
 function buildPreloadLayerCheckboxes() {
   preloadLayersContainer.innerHTML = '';
-  appendPreloadLayerRow(VECTOR_LAYER_KEY, 'OSM Vector', { recommended: true, checked: true });
+  const vectorIds = Object.keys(layerMap).filter((id) => layerMap[id].sourceType === 'VECTOR_PMTILES');
+  vectorIds.forEach((id) => {
+    appendPreloadLayerRow(id, layerMap[id].name || id, { recommended: true, checked: vectorIds.length === 1 });
+  });
   Object.keys(layerMap).forEach((id) => {
     const layer = layerMap[id];
+    if (layer.sourceType === 'VECTOR_PMTILES') return;
     if (layer.sourceType === 'LOCAL') return;
     if (layerHasTimeComponent(layer)) return;
     appendPreloadLayerRow(id, layer.name || id, { recommended: false, checked: false });
@@ -1285,7 +1278,7 @@ function updatePreloadEstimates() {
     const checked = row.querySelector('input').checked;
     const estimateEl = row.querySelector('.tile-estimate');
 
-    if (key === VECTOR_LAYER_KEY) {
+    if (layerMap[key] && layerMap[key].sourceType === 'VECTOR_PMTILES') {
       estimateEl.textContent = '';
       return;
     }
@@ -1354,30 +1347,33 @@ async function submitPreload() {
     return;
   }
 
-  const maxZoom = parseInt(zoomSlider.value, 10);
+  const maxZoomRaw = parseInt(zoomSlider.value, 10);
   const bbox = { ...pendingBbox };
   const name = preloadNameInput.value.trim() || null;
 
-  const xyzLayers = selected.filter((k) => k !== VECTOR_LAYER_KEY);
-  const includeVector = selected.includes(VECTOR_LAYER_KEY);
+  const vectorKeys = selected.filter((k) => layerMap[k] && layerMap[k].sourceType === 'VECTOR_PMTILES');
+  const xyzLayers = selected.filter((k) => !layerMap[k] || layerMap[k].sourceType !== 'VECTOR_PMTILES');
+  const includeVector = vectorKeys.length > 0;
+  const vectorLayerId = vectorKeys.length > 0 ? vectorKeys[0] : null;
+  const vectorMaxZoom = vectorLayerId && layerMap[vectorLayerId]
+    ? (layerMap[vectorLayerId].maxZoom || VECTOR_MAX_ZOOM)
+    : VECTOR_MAX_ZOOM;
+  const maxZoom = includeVector ? Math.min(maxZoomRaw, vectorMaxZoom) : maxZoomRaw;
   const allowedUsers = splitList(preloadAllowedUsers.value);
   const allowedGroups = splitList(preloadAllowedGroups.value);
 
   hidePreloadModal();
 
   try {
+    const body = { name, boundingBox: bbox, maxZoom, layers: xyzLayers, allowedUsers, allowedGroups };
+    if (includeVector) {
+      body.includeVector = true;
+      body.vectorLayerId = vectorLayerId;
+    }
     const resp = await authFetch(apiPath('/preloads'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        boundingBox: bbox,
-        maxZoom: includeVector ? Math.min(maxZoom, VECTOR_MAX_ZOOM) : maxZoom,
-        layers: xyzLayers,
-        includeVector,
-        allowedUsers,
-        allowedGroups
-      })
+      body: JSON.stringify(body)
     });
 
     if (resp.status === 202) {
@@ -1558,7 +1554,14 @@ function renderDownloads(preloads) {
 
 function buildLayerLabels(p) {
   const labels = [];
-  if (p.includesVector) labels.push('OSM Vector');
+  if (p.includesVector) {
+    if (p.vectorLayerId) {
+      const vl = layerMap[p.vectorLayerId];
+      labels.push(vl ? (vl.name || p.vectorLayerId) : p.vectorLayerId);
+    } else {
+      labels.push('Vector');
+    }
+  }
   if (Array.isArray(p.layers)) labels.push(...p.layers);
   return labels;
 }
@@ -1672,12 +1675,7 @@ function addLayerToSelect(layer) {
   const opt = document.createElement('option');
   opt.value = key;
   opt.textContent = layer.name || key;
-  const vectorOpt = layerSelect.querySelector('option[value="__vector__"]');
-  if (vectorOpt) {
-    layerSelect.insertBefore(opt, vectorOpt);
-  } else {
-    layerSelect.appendChild(opt);
-  }
+  layerSelect.appendChild(opt);
 }
 
 // ── Layer manager ─────────────────────────────────────────────────────────────
@@ -1792,6 +1790,9 @@ function onSourceTypeChange() {
   const type = lfSourceType.value;
   lfWmtsSection.classList.toggle('hidden', type !== 'WMTS_KVP');
   lfUrlRow.classList.toggle('hidden', type === 'LOCAL');
+  lfUrl.placeholder = type === 'VECTOR_PMTILES'
+    ? '/path/to/tiles.pmtiles or https://example.com/tiles.pmtiles'
+    : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 }
 
 function readLayerForm() {
@@ -1904,17 +1905,7 @@ function hideExportModal() {
 
 function buildExportLayerCheckboxes() {
   exportLayersContainer.innerHTML = '';
-  const vectorRow = document.createElement('div');
-  vectorRow.className = 'preload-layer-row';
-  vectorRow.dataset.key = VECTOR_LAYER_KEY;
-  const vectorCbid = `export-layer-${cssEscape(VECTOR_LAYER_KEY)}`;
-  vectorRow.innerHTML =
-    `<input type="checkbox" id="${vectorCbid}">` +
-    `<label for="${vectorCbid}">OSM Vector</label>`;
-  exportLayersContainer.appendChild(vectorRow);
-
-  const ids = Object.keys(layerMap).filter((id) => !isVectorLayerEntry(layerMap[id]));
-  ids.forEach((id) => {
+  Object.keys(layerMap).forEach((id) => {
     const layer = layerMap[id];
     const row = document.createElement('div');
     row.className = 'preload-layer-row';
@@ -1925,12 +1916,6 @@ function buildExportLayerCheckboxes() {
       `<label for="${cbid}">${escapeHtml(layer.name || id)}</label>`;
     exportLayersContainer.appendChild(row);
   });
-}
-
-function isVectorLayerEntry(layer) {
-  const url = (layer && layer.urlTemplate) || '';
-  const lower = url.toLowerCase();
-  return lower.startsWith('pmtiles://') || lower.endsWith('.pbf') || lower.endsWith('.mvt');
 }
 
 function getSelectedExportLayerKeys() {
@@ -1992,14 +1977,12 @@ async function submitExport() {
     exportStatus.textContent = 'Login required.';
     return;
   }
-  const allSelected = getSelectedExportLayerKeys();
-  const includeVector = allSelected.includes(VECTOR_LAYER_KEY);
-  const layers = allSelected.filter((k) => k !== VECTOR_LAYER_KEY);
-  if (layers.length === 0 && !includeVector) {
+  const layers = getSelectedExportLayerKeys();
+  if (layers.length === 0) {
     exportStatus.textContent = 'Select at least one layer.';
     return;
   }
-  const body = { layers, includeVector };
+  const body = { layers };
   if (pendingExportBbox) {
     body.boundingBox = { ...pendingExportBbox, maxZoom: 22 };
   }

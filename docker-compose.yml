@@ -26,6 +26,7 @@ services:
 #      XYZ_AUTH_ADMIN_TOKEN: xyz-admin
 #      XYZ_UI_ENABLED: true
 #      XYZ_ADMIN_ROLE: admin
+      XYZ_PROTOMAPS_INIT_ZOOM: 5
       # Tokens are fetched from the host at http://localhost:8080, so the iss
       # claim is http://localhost:8080/... — that's what Spring validates against.
       KEYCLOAK_ISSUER_URI: http://localhost:8080/realms/xyz-tile-cache

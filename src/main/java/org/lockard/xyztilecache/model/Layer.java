@@ -12,7 +12,8 @@ public class Layer {
     XYZ,
     WMTS_REST,
     WMTS_KVP,
-    LOCAL
+    LOCAL,
+    VECTOR_PMTILES
   }
 
   private SourceType sourceType = SourceType.XYZ;
@@ -28,6 +29,8 @@ public class Layer {
   private int tileExpirationMinutes = 0; // 0 = never expire
 
   private int maxZoom = 22;
+
+  private int initZoom = 0;
 
   private String timeFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
 
@@ -131,6 +134,14 @@ public class Layer {
 
   public void setMaxZoom(int maxZoom) {
     this.maxZoom = maxZoom;
+  }
+
+  public int getInitZoom() {
+    return initZoom;
+  }
+
+  public void setInitZoom(int initZoom) {
+    this.initZoom = initZoom;
   }
 
   public String getTimeFormat() {

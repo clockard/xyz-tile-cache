@@ -56,12 +56,10 @@ class EndToEndTest {
           .withExposedPorts(8080);
 
   @TempDir static File tileDir;
-  @TempDir static File vectorDir;
 
   @DynamicPropertySource
   static void configureProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", tileDir::getAbsolutePath);
-    registry.add("xyz.vector.downloadDirectory", vectorDir::getAbsolutePath);
     registry.add("xyz.auth.mode", () -> "token");
     registry.add("xyz.auth.adminToken", () -> ADMIN_TOKEN);
     registry.add(

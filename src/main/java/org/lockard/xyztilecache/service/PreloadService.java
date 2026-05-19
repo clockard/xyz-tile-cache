@@ -15,7 +15,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import org.lockard.xyztilecache.XyzUtil;
-import org.lockard.xyztilecache.config.VectorConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
@@ -32,7 +31,6 @@ public class PreloadService {
   private static final Logger LOGGER = LoggerFactory.getLogger(PreloadService.class);
 
   private final LayerStore layerStore;
-  private final VectorConfiguration vectorConfiguration;
   private final LoadingCache<Tile, byte[]> tileCache;
   private final PreloadStore preloadStore;
   private final PmtilesDownloader pmtilesDownloader;
@@ -42,21 +40,20 @@ public class PreloadService {
 
   public PreloadService(
       LayerStore layerStore,
-      VectorConfiguration vectorConfiguration,
       LoadingCache<Tile, byte[]> tileCache,
       PreloadStore preloadStore,
       PmtilesDownloader pmtilesDownloader) {
     this.layerStore = layerStore;
-    this.vectorConfiguration = vectorConfiguration;
     this.tileCache = tileCache;
     this.preloadStore = preloadStore;
     this.pmtilesDownloader = pmtilesDownloader;
   }
 
   /**
-   * Records a preload entry and dispatches the work. Throws {@link IllegalStateException} if a
-   * vector download is requested but one is already in progress, or {@link
-   * IllegalArgumentException} if vector is requested without a configured download directory.
+   * Records a preload entry and dispatches the work. When {@code vectorLayerId} is set and {@code
+   * includeVector} is true, runs a PMTiles extract download for that layer. Throws {@link
+   * IllegalArgumentException} if the vector layer is not found or is not a VECTOR_PMTILES layer, or
+   * if a download is already in progress.
    */
   public Preload submit(
       String name,
@@ -64,19 +61,26 @@ public class PreloadService {
       int maxZoom,
       Set<String> layers,
       boolean includeVector,
+      String vectorLayerId,
       List<String> allowedUsers,
       List<String> allowedGroups)
       throws IOException {
+    Layer vectorLayer = null;
     if (includeVector) {
-      String dir = vectorConfiguration.getDownloadDirectory();
-      if (dir == null || dir.isBlank()) {
-        throw new IllegalArgumentException("xyz.vector.downloadDirectory is not configured");
+      if (vectorLayerId == null || vectorLayerId.isBlank()) {
+        throw new IllegalArgumentException("vectorLayerId is required when includeVector is true");
       }
-      String sourceUrl = vectorConfiguration.getSourceUrl();
-      if (sourceUrl == null || sourceUrl.isBlank()) {
+      vectorLayer = layerStore.getLayers().get(vectorLayerId);
+      if (vectorLayer == null) {
+        throw new IllegalArgumentException("Vector layer not found: " + vectorLayerId);
+      }
+      if (vectorLayer.getSourceType() != Layer.SourceType.VECTOR_PMTILES) {
         throw new IllegalArgumentException(
-            "xyz.vector.sourceUrl is not configured; set PMTILES_SOURCE_URL, e.g."
-                + " https://build.protomaps.com/{date}.pmtiles");
+            "Layer '" + vectorLayerId + "' is not a VECTOR_PMTILES layer");
+      }
+      if (vectorLayer.getUrlTemplate() == null || vectorLayer.getUrlTemplate().isBlank()) {
+        throw new IllegalArgumentException(
+            "VECTOR_PMTILES layer '" + vectorLayerId + "' has no urlTemplate configured");
       }
       if (pmtilesDownloader.isDownloadInProgress()) {
         throw new IllegalStateException("A vector download is already in progress");
@@ -101,6 +105,7 @@ public class PreloadService {
     preload.setMaxZoom(maxZoom);
     preload.setLayers(List.copyOf(validLayers));
     preload.setIncludesVector(includeVector);
+    preload.setVectorLayerId(vectorLayerId);
     preload.setCreatedAt(Instant.now());
     preload.setAllowedUsers(
         allowedUsers == null ? new ArrayList<>() : new ArrayList<>(allowedUsers));
@@ -118,9 +123,8 @@ public class PreloadService {
     }
     if (includeVector) {
       try {
-        pmtilesDownloader.startDownload(preload);
+        pmtilesDownloader.startDownload(preload, vectorLayer);
       } catch (RuntimeException e) {
-        // best-effort: leave the preload entry in place for visibility, but log
         LOGGER.error("Failed to start vector download for preload {}", preload.getId(), e);
         throw e;
       }
@@ -148,7 +152,7 @@ public class PreloadService {
     List<Set<Point>> allPoints = XyzUtil.calculateAllBboxTiles(bbox);
     for (String layerName : layers) {
       Layer layer = layerStore.getLayers().get(layerName);
-      if (layer == null) continue;
+      if (layer == null || layer.getSourceType() == Layer.SourceType.VECTOR_PMTILES) continue;
       for (int z = 0; z < allPoints.size(); z++) {
         for (Point p : allPoints.get(z)) {
           Tile tile = new Tile(layer, p.x, p.y, z);

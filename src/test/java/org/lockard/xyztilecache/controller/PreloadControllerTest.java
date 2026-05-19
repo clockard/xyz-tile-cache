@@ -58,10 +58,6 @@ class PreloadControllerTest {
           layer.setUrlTemplate(wireMock.baseUrl() + "/{z}/{y}/{x}");
           return List.of(layer);
         });
-    // Disable vector path so no real download is attempted from the controller.
-    registry.add("xyz.vector.downloadDirectory", () -> tileDir.getAbsolutePath() + "/vec");
-    registry.add("xyz.vector.bundledPath", () -> "/nonexistent.pmtiles");
-    registry.add("xyz.vector.sourceUrl", () -> wireMock.baseUrl() + "/vector.pmtiles");
   }
 
   private static String validBboxJson() {

@@ -136,6 +136,25 @@ class GeoTiffControllerTest {
   }
 
   @Test
+  void uploadGeoTiff_whenTilerInterrupted_returns500AndCleansUp(@Autowired MockMvc mvc)
+      throws Exception {
+    Mockito.reset(tiler);
+    Mockito.when(tiler.tile(any(Path.class), any(Path.class)))
+        .thenThrow(new InterruptedException("interrupted"));
+    MockMultipartFile file =
+        new MockMultipartFile("file", "input.tif", "image/tiff", new byte[] {1, 2, 3});
+    mvc.perform(
+            multipart("/layers/geotiff")
+                .file(file)
+                .param("name", "interrupted-tiling")
+                .with(adminJwt()))
+        .andExpect(status().isInternalServerError());
+    org.assertj.core.api.Assertions.assertThat(
+            Paths.get(tileDir.getAbsolutePath(), "interrupted-tiling"))
+        .doesNotExist();
+  }
+
+  @Test
   void uploadGeoTiff_happyPath_returns201AndRegistersLayer(@Autowired MockMvc mvc)
       throws Exception {
     MockMultipartFile file =

@@ -59,30 +59,27 @@ class ImportExportController {
   ResponseEntity<?> submitExport(@RequestBody ExportRequest request) throws IOException {
     boolean hasLayers =
         request != null && request.getLayers() != null && !request.getLayers().isEmpty();
-    boolean includeVector = request != null && request.isIncludeVector();
 
-    if (!hasLayers && !includeVector) {
-      return ResponseEntity.badRequest().body("layers or includeVector must be specified");
+    if (!hasLayers) {
+      return ResponseEntity.badRequest().body("layers must be specified");
     }
 
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     List<Layer> resolved = new ArrayList<>();
 
-    if (hasLayers) {
-      for (String id : request.getLayers()) {
-        if (id == null || id.isBlank()) {
-          return ResponseEntity.badRequest().body("Layer id must not be blank.");
-        }
-        Optional<Layer> opt = layerStore.getLayer(id);
-        if (opt.isEmpty()) {
-          return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Layer not found");
-        }
-        Layer layer = opt.get();
-        if (!layerAccessService.canRead(layer, auth)) {
-          return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Access denied to layer");
-        }
-        resolved.add(layer);
+    for (String id : request.getLayers()) {
+      if (id == null || id.isBlank()) {
+        return ResponseEntity.badRequest().body("Layer id must not be blank.");
       }
+      Optional<Layer> opt = layerStore.getLayer(id);
+      if (opt.isEmpty()) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Layer not found");
+      }
+      Layer layer = opt.get();
+      if (!layerAccessService.canRead(layer, auth)) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Access denied to layer");
+      }
+      resolved.add(layer);
     }
 
     ExportJobStatus status =
@@ -91,7 +88,6 @@ class ImportExportController {
             request.getBoundingBox(),
             request.getMinZoom(),
             request.getMaxZoom(),
-            includeVector,
             auth.getName());
     return ResponseEntity.accepted().body(status);
   }

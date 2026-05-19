@@ -6,7 +6,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
-import org.lockard.xyztilecache.config.VectorConfiguration;
+import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Preload;
 import org.lockard.xyztilecache.model.PreloadCreateRequest;
 import org.lockard.xyztilecache.model.PreloadInfo;
@@ -37,17 +37,17 @@ public class PreloadController {
 
   private final PreloadService preloadService;
   private final PreloadStore preloadStore;
-  private final VectorConfiguration vectorConfiguration;
+  private final XyzConfiguration xyzConfiguration;
   private final LayerAccessService layerAccessService;
 
   public PreloadController(
       PreloadService preloadService,
       PreloadStore preloadStore,
-      VectorConfiguration vectorConfiguration,
+      XyzConfiguration xyzConfiguration,
       LayerAccessService layerAccessService) {
     this.preloadService = preloadService;
     this.preloadStore = preloadStore;
-    this.vectorConfiguration = vectorConfiguration;
+    this.xyzConfiguration = xyzConfiguration;
     this.layerAccessService = layerAccessService;
   }
 
@@ -78,6 +78,7 @@ public class PreloadController {
               request.getMaxZoom(),
               request.getLayers(),
               request.isIncludeVector(),
+              request.getVectorLayerId(),
               request.getAllowedUsers(),
               request.getAllowedGroups());
       if (preload == null) {
@@ -109,8 +110,12 @@ public class PreloadController {
 
   private PreloadInfo toInfo(Preload p) {
     Long sizeBytes = null;
-    if (p.getPmtilesFilename() != null && vectorConfiguration.getDownloadDirectory() != null) {
-      Path path = Path.of(vectorConfiguration.getDownloadDirectory(), p.getPmtilesFilename());
+    if (p.getPmtilesFilename() != null && p.getVectorLayerId() != null) {
+      Path path =
+          Path.of(
+              xyzConfiguration.getBaseTileDirectory(),
+              p.getVectorLayerId(),
+              p.getPmtilesFilename());
       if (Files.exists(path)) {
         try {
           sizeBytes = Files.size(path);

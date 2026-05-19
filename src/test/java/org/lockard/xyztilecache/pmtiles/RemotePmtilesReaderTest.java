@@ -45,6 +45,10 @@ class RemotePmtilesReaderTest {
     wireMock.stubFor(
         get(urlEqualTo("/test.pmtiles"))
             .willReturn(aResponse().withStatus(206).withTransformers("range")));
+    // 200 OK is also accepted per the PMTiles spec (some servers don't support 206)
+    wireMock.stubFor(
+        get(urlEqualTo("/test-200.pmtiles"))
+            .willReturn(aResponse().withStatus(200).withTransformers("range")));
   }
 
   @Test
@@ -104,6 +108,27 @@ class RemotePmtilesReaderTest {
     reader.getTile(0, 0, 0);
     Optional<TileResult> second = reader.getTile(0, 0, 0);
     assertThat(second).isPresent();
+  }
+
+  @Test
+  void getTile_serverReturns200_treatedAsSuccess() throws Exception {
+    // Some servers return 200 OK instead of 206 Partial Content for range requests;
+    // RemotePmtilesReader accepts both.
+    RemotePmtilesReader reader =
+        new RemotePmtilesReader(
+            wireMock.baseUrl() + "/test-200.pmtiles", HttpClient.newHttpClient(), 10);
+    Optional<TileResult> result = reader.getTile(0, 0, 0);
+    assertThat(result).isPresent();
+  }
+
+  @Test
+  void getTile_serverReturns404_throwsIOException() throws Exception {
+    wireMock.stubFor(get(urlEqualTo("/missing.pmtiles")).willReturn(aResponse().withStatus(404)));
+    RemotePmtilesReader reader =
+        new RemotePmtilesReader(
+            wireMock.baseUrl() + "/missing.pmtiles", HttpClient.newHttpClient(), 10);
+    // ensureInitialized will fail, leaving header null → returns empty
+    assertThat(reader.getTile(0, 0, 0)).isEmpty();
   }
 
   private RemotePmtilesReader newReader() {

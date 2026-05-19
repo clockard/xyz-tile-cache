@@ -207,6 +207,7 @@ public class LayerStore {
       throw new IllegalArgumentException("Layer id must not be blank.");
     }
     if (layer.getSourceType() != Layer.SourceType.LOCAL
+        && layer.getSourceType() != Layer.SourceType.VECTOR_PMTILES
         && (layer.getUrlTemplate() == null || layer.getUrlTemplate().isBlank())) {
       throw new IllegalArgumentException("Layer urlTemplate must not be blank.");
     }

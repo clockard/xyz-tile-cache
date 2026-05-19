@@ -4,31 +4,25 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
-import org.lockard.xyztilecache.config.VectorConfiguration;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.TileResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Component;
 
-@Component
 public class VectorTileRemoteCache {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(VectorTileRemoteCache.class);
 
-  private final VectorConfiguration vectorConfig;
+  private final Path cacheDir;
   private final XyzConfiguration xyzConfig;
 
-  public VectorTileRemoteCache(VectorConfiguration vectorConfig, XyzConfiguration xyzConfig) {
-    this.vectorConfig = vectorConfig;
+  public VectorTileRemoteCache(Path cacheDir, XyzConfiguration xyzConfig) {
+    this.cacheDir = cacheDir;
     this.xyzConfig = xyzConfig;
   }
 
   public Optional<TileResult> get(int z, int x, int y) {
-    if (!isConfigured()) {
-      return Optional.empty();
-    }
     Path path = cachePath(z, x, y);
     if (!Files.exists(path)) {
       return Optional.empty();
@@ -46,12 +40,8 @@ public class VectorTileRemoteCache {
 
   @Async
   public void store(int z, int x, int y, TileResult result) {
-    if (!isConfigured()) {
-      return;
-    }
     try {
-      long freeBytes =
-          Files.getFileStore(Path.of(vectorConfig.getDownloadDirectory())).getUsableSpace();
+      long freeBytes = Files.getFileStore(cacheDir.getRoot()).getUsableSpace();
       if (freeBytes < xyzConfig.getMinFreeDiskBytes()) {
         LOGGER.warn(
             "Free disk space ({} MB) below minimum; vector tile {}/{}/{} not cached.",
@@ -76,17 +66,7 @@ public class VectorTileRemoteCache {
   }
 
   public Path cachePath(int z, int x, int y) {
-    return Path.of(
-        vectorConfig.getDownloadDirectory(),
-        "remote-cache",
-        String.valueOf(z),
-        String.valueOf(x),
-        y + ".pbf");
-  }
-
-  private boolean isConfigured() {
-    String dir = vectorConfig.getDownloadDirectory();
-    return dir != null && !dir.isBlank();
+    return cacheDir.resolve(String.valueOf(z)).resolve(String.valueOf(x)).resolve(y + ".pbf");
   }
 
   private boolean isGzip(byte[] data) {

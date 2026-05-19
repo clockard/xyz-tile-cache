@@ -66,6 +66,12 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
       throw new IOException("Tile %s not present for LOCAL layer.".formatted(tile));
     }
 
+    if (tile.layer().getSourceType() == Layer.SourceType.VECTOR_PMTILES) {
+      throw new IOException(
+          "VECTOR_PMTILES layers are not served through the raster tile cache: %s"
+              .formatted(tile.layer()));
+    }
+
     if (configuration.isOffline()) {
       throw new IOException("Offline mode is enabled; tile %s not in local cache.".formatted(tile));
     }
@@ -151,6 +157,10 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
           case LOCAL ->
               throw new IllegalStateException(
                   "LOCAL layers should not reach buildTileUrl: " + layer);
+
+          case VECTOR_PMTILES ->
+              throw new IllegalStateException(
+                  "VECTOR_PMTILES layers are not served through the raster tile cache: " + layer);
         };
 
     if (tile.layer().doesUrlHaveTime()) {

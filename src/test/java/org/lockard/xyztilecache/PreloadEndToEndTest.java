@@ -4,9 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.client.WireMock;
 import java.io.File;
-import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,7 +43,6 @@ class PreloadEndToEndTest {
           .withExposedPorts(8080);
 
   @TempDir static File tileDir;
-  @TempDir static File vectorDir;
 
   @DynamicPropertySource
   static void configureProperties(DynamicPropertyRegistry registry) {
@@ -63,22 +59,6 @@ class PreloadEndToEndTest {
           layer.setUrlTemplate(tileBaseUrl + "/{z}/{y}/{x}");
           layer.setMaxZoom(18);
           return List.of(layer);
-        });
-
-    // Seed the real PMTiles fixture into the vector download directory so that
-    // VectorTileService.init() picks it up and serves /vector/{z}/{x}/{y} requests.
-    registry.add(
-        "xyz.vector.downloadDirectory",
-        () -> {
-          try {
-            URL resource =
-                PreloadEndToEndTest.class.getClassLoader().getResource("test_fixture_1.pmtiles");
-            Path dest = vectorDir.toPath().resolve("world.pmtiles");
-            Files.copy(Path.of(resource.toURI()), dest);
-          } catch (Exception e) {
-            throw new RuntimeException("Failed to seed test pmtiles", e);
-          }
-          return vectorDir.getAbsolutePath();
         });
   }
 
@@ -245,28 +225,5 @@ class PreloadEndToEndTest {
             Void.class);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-  }
-
-  // ── GET /vector ───────────────────────────────────────────────────────────
-
-  @Test
-  void vectorTile_z0_servedFromSeededPmtilesFile() {
-    // test_fixture_1.pmtiles has a tile at z=0,x=0,y=0; the service loaded it on startup
-    ResponseEntity<byte[]> response = http.getForEntity("/vector/0/0/0", byte[].class);
-
-    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-    assertThat(response.getBody()).isNotEmpty();
-    assertThat(response.getHeaders().getFirst("Content-Type")).contains("protobuf");
-  }
-
-  @Test
-  void vectorPreload_missingBoundingBox_returns400() {
-    String body = "{\"name\": \"no-bbox\"}";
-
-    ResponseEntity<String> response =
-        http.postForEntity(
-            "/vector/preload", new HttpEntity<>(body, jsonAdminHeaders()), String.class);
-
-    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
   }
 }
