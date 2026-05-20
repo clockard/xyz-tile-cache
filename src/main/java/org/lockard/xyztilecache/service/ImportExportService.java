@@ -365,17 +365,21 @@ public class ImportExportService {
         } else if (tail.endsWith(".pmtiles")) {
           if (!SAFE_PMTILES_NAME.matcher(tail).matches()) {
             LOGGER.warn("Skipping PMTiles entry with unsafe filename: {}", name);
-          } else {
-            Files.createDirectories(layerDir);
-            Path pmtilesTarget = layerDir.resolve(tail).normalize();
-            if (!pmtilesTarget.startsWith(layerDir)) {
-              LOGGER.warn("Skipping PMTiles entry that escapes layer directory: {}", name);
-            } else {
-              Files.copy(zis, pmtilesTarget, StandardCopyOption.REPLACE_EXISTING);
-              vectorPmtilesManager.notifyFileAvailable(pmtilesTarget);
-              pmtilesImported++;
-            }
+            continue;
           }
+          Files.createDirectories(layerDir);
+          Path pmtilesTarget = layerDir.resolve(tail).normalize();
+          if (!pmtilesTarget.startsWith(layerDir)) {
+            LOGGER.warn("Skipping PMTiles entry that escapes layer directory: {}", name);
+            continue;
+          }
+          if (pmtilesTarget.toFile().exists()) {
+            LOGGER.warn("Skipping PMTiles entry {} because it already exists", name);
+            continue;
+          }
+          Files.copy(zis, pmtilesTarget, StandardCopyOption.REPLACE_EXISTING);
+          vectorPmtilesManager.notifyFileAvailable(pmtilesTarget);
+          pmtilesImported++;
         }
       }
     }

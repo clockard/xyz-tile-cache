@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
 public class PmtilesReader implements Closeable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PmtilesReader.class);
-
+  private final Path localFile;
   private final RandomAccessFile raf;
   private final PmtilesHeader header;
   private final List<PmtilesEntry> rootDir;
@@ -28,6 +28,7 @@ public class PmtilesReader implements Closeable {
   private final Cache<Long, List<PmtilesEntry>> leafCache;
 
   public PmtilesReader(Path path) throws IOException {
+    localFile = path;
     raf = new RandomAccessFile(path.toAbsolutePath().normalize().toFile(), "r");
     try {
       byte[] headerBytes = new byte[127];
@@ -74,6 +75,10 @@ public class PmtilesReader implements Closeable {
     }
 
     return Optional.empty();
+  }
+
+  public Path getLocalFile() {
+    return localFile;
   }
 
   @Override

@@ -85,19 +85,21 @@ public class VectorPmtilesManager {
     if (locals != null) {
       for (PmtilesReader local : locals) {
         Optional<TileResult> localResult = local.getTile(z, x, y);
-        if (localResult.isPresent()) {
+        if (localResult.isPresent() && localResult.get().data().length > 0) {
+          LOGGER.warn("serving tile from :{}", local.getLocalFile().getFileName());
           return localResult;
         }
       }
     }
-
+    LOGGER.warn("Nothing in pmtiles looking at cache");
     VectorTileCache cache = caches.get(layerId);
     if (cache != null) {
       Optional<TileResult> cached = cache.get(z, x, y);
       if (cached.isPresent()) return cached;
     }
-
+    LOGGER.warn("Nothing in cache");
     if (!xyzConfig.isOffline()) {
+      LOGGER.warn("Checking online");
       RemotePmtilesReader remote = remoteReaders.get(layerId);
       if (remote != null) {
         Optional<TileResult> result = remote.getTile(z, x, y);
