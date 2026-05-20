@@ -9,7 +9,5 @@ import org.lockard.xyztilecache.model.TileResult;
 public interface TileSourceHandler {
   Set<Layer.SourceType> sourceTypes();
 
-  String contentType();
-
   Optional<TileResult> getTile(Layer layer, int z, int x, int y) throws IOException;
 }

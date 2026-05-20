@@ -34,8 +34,6 @@ public class Layer {
 
   private String timeFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
 
-  private Boolean urlHasTime = null;
-
   private String attribution;
 
   private String id;
@@ -161,10 +159,7 @@ public class Layer {
   }
 
   public boolean doesUrlHaveTime() {
-    if (urlHasTime == null) {
-      urlHasTime = (urlTemplate != null && urlTemplate.contains("{time}")) || wmtsTime;
-    }
-    return urlHasTime;
+    return (urlTemplate != null && urlTemplate.contains("{time}")) || wmtsTime;
   }
 
   public String getAttribution() {

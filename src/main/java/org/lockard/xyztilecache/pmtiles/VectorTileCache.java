@@ -8,7 +8,6 @@ import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.TileResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
 
 public class VectorTileCache {
 
@@ -31,17 +30,16 @@ public class VectorTileCache {
       byte[] data = Files.readAllBytes(path);
       int compression =
           isGzip(data) ? PmtilesHeader.COMPRESSION_GZIP : PmtilesHeader.COMPRESSION_NONE;
-      return Optional.of(new TileResult(data, compression));
+      return Optional.of(new TileResult(data, compression, "application/x-protobuf"));
     } catch (IOException e) {
       LOGGER.debug("Failed to read cached vector tile {}/{}/{}: {}", z, x, y, e.getMessage());
       return Optional.empty();
     }
   }
 
-  @Async
   public void store(int z, int x, int y, TileResult result) {
     try {
-      long freeBytes = Files.getFileStore(cacheDir.getRoot()).getUsableSpace();
+      long freeBytes = Files.getFileStore(existingAncestor(cacheDir)).getUsableSpace();
       if (freeBytes < xyzConfig.getMinFreeDiskBytes()) {
         LOGGER.warn(
             "Free disk space ({} MB) below minimum; vector tile {}/{}/{} not cached.",
@@ -67,6 +65,14 @@ public class VectorTileCache {
 
   public Path cachePath(int z, int x, int y) {
     return cacheDir.resolve(String.valueOf(z)).resolve(String.valueOf(x)).resolve(y + ".pbf");
+  }
+
+  private static Path existingAncestor(Path path) {
+    Path p = path.toAbsolutePath();
+    while (p != null && !Files.exists(p)) {
+      p = p.getParent();
+    }
+    return p != null ? p : path.getRoot();
   }
 
   private boolean isGzip(byte[] data) {

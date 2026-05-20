@@ -73,7 +73,12 @@ class VectorTileCacheTest {
   @Test
   void store_diskSpaceBelowMinimum_doesNotWrite() {
     VectorTileCache c = cache(tempDir, Long.MAX_VALUE);
-    c.store(5, 5, 5, new TileResult(new byte[] {1, 2, 3}, PmtilesHeader.COMPRESSION_NONE));
+    c.store(
+        5,
+        5,
+        5,
+        new TileResult(
+            new byte[] {1, 2, 3}, PmtilesHeader.COMPRESSION_NONE, "application/x-protobuf"));
     assertThat(c.cachePath(5, 5, 5)).doesNotExist();
   }
 
@@ -81,7 +86,8 @@ class VectorTileCacheTest {
   void store_writesFileToDisk() {
     VectorTileCache c = cache(tempDir, 0);
     byte[] data = {0x0a, 0x0b};
-    c.store(3, 3, 3, new TileResult(data, PmtilesHeader.COMPRESSION_NONE));
+    c.store(
+        3, 3, 3, new TileResult(data, PmtilesHeader.COMPRESSION_NONE, "application/x-protobuf"));
     assertThat(c.cachePath(3, 3, 3)).exists();
   }
 

@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -81,7 +82,7 @@ public class StartupImportRunner {
           summary.tilesWritten(),
           summary.pmtilesImported());
       alreadyImported.add(filename);
-      saveTracked(trackingFile, alreadyImported);
+      appendTracked(trackingFile, filename);
     } catch (Exception e) {
       LOGGER.error("Failed to import {}, skipping", filename, e);
     }
@@ -99,9 +100,13 @@ public class StartupImportRunner {
     }
   }
 
-  private void saveTracked(Path trackingFile, Set<String> imported) {
+  private void appendTracked(Path trackingFile, String filename) {
     try {
-      Files.write(trackingFile, imported);
+      Files.writeString(
+          trackingFile,
+          filename + System.lineSeparator(),
+          StandardOpenOption.CREATE,
+          StandardOpenOption.APPEND);
     } catch (IOException e) {
       LOGGER.error("Failed to update tracking file: {}", trackingFile, e);
     }

@@ -23,11 +23,6 @@ public class VectorPmtilesHandler implements TileSourceHandler {
   }
 
   @Override
-  public String contentType() {
-    return "application/x-protobuf";
-  }
-
-  @Override
   public Optional<TileResult> getTile(Layer layer, int z, int x, int y) throws IOException {
     return manager.getTile(layer.getEffectiveId(), z, x, y);
   }

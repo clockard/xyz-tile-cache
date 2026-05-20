@@ -11,7 +11,11 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.lockard.xyztilecache.config.XyzConfiguration;
@@ -41,6 +45,14 @@ public class VectorPmtilesManager {
       new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, VectorTileCache> caches = new ConcurrentHashMap<>();
 
+  private final ExecutorService cacheWriter =
+      Executors.newSingleThreadExecutor(
+          r -> {
+            Thread t = new Thread(r, "vector-tile-cache-writer");
+            t.setDaemon(true);
+            return t;
+          });
+
   public VectorPmtilesManager(LayerStore layerStore, XyzConfiguration xyzConfig) {
     this.layerStore = layerStore;
     this.xyzConfig = xyzConfig;
@@ -58,18 +70,23 @@ public class VectorPmtilesManager {
     String source = layer.getUrlTemplate();
 
     Path layerDir = layerDir(layerId);
-    openLocalReaders(layerId, findAllPmtiles(layerDir));
+    List<Path> pmtilesFiles = new ArrayList<>(findAllPmtiles(layerDir));
     caches.put(layerId, new VectorTileCache(layerDir, xyzConfig));
 
     if (source == null || source.isBlank()) {
+      openLocalReaders(layerId, pmtilesFiles);
       LOGGER.warn("VECTOR_PMTILES layer '{}' has no urlTemplate; no reader opened", layerId);
       return;
     }
 
     if (source.startsWith("http://") || source.startsWith("https://")) {
+      openLocalReaders(layerId, pmtilesFiles);
       openRemoteReader(layerId, source);
     } else {
-      openLocalReaders(layerId, List.of(Path.of(source)));
+      Path sourcePath = Path.of(source).toAbsolutePath().normalize();
+      pmtilesFiles.removeIf(p -> p.toAbsolutePath().normalize().equals(sourcePath));
+      pmtilesFiles.add(sourcePath);
+      openLocalReaders(layerId, pmtilesFiles);
     }
   }
 
@@ -86,25 +103,23 @@ public class VectorPmtilesManager {
       for (PmtilesReader local : locals) {
         Optional<TileResult> localResult = local.getTile(z, x, y);
         if (localResult.isPresent() && localResult.get().data().length > 0) {
-          LOGGER.warn("serving tile from :{}", local.getLocalFile().getFileName());
           return localResult;
         }
       }
     }
-    LOGGER.warn("Nothing in pmtiles looking at cache");
     VectorTileCache cache = caches.get(layerId);
     if (cache != null) {
       Optional<TileResult> cached = cache.get(z, x, y);
       if (cached.isPresent()) return cached;
     }
-    LOGGER.warn("Nothing in cache");
     if (!xyzConfig.isOffline()) {
-      LOGGER.warn("Checking online");
       RemotePmtilesReader remote = remoteReaders.get(layerId);
       if (remote != null) {
         Optional<TileResult> result = remote.getTile(z, x, y);
         if (result.isPresent() && cache != null) {
-          cache.store(z, x, y, result.get());
+          VectorTileCache target = cache;
+          TileResult tile = result.get();
+          CompletableFuture.runAsync(() -> target.store(z, x, y, tile), cacheWriter);
         }
         return result;
       }
@@ -147,6 +162,15 @@ public class VectorPmtilesManager {
 
   @PreDestroy
   void destroy() {
+    cacheWriter.shutdown();
+    try {
+      if (!cacheWriter.awaitTermination(5, TimeUnit.SECONDS)) {
+        cacheWriter.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      cacheWriter.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
     localReaders.values().forEach(list -> list.forEach(this::closeReaderSilently));
     localReaders.clear();
     remoteReaders.clear();

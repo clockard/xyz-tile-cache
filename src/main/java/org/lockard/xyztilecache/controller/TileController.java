@@ -134,7 +134,7 @@ class TileController {
     TileResult tile = result.get();
     HttpHeaders headers = new HttpHeaders();
     headers.add("Access-Control-Allow-Origin", "*");
-    headers.add("Content-Type", handler.get().contentType());
+    headers.add("Content-Type", tile.contentType());
     if (tile.tileCompression() == COMPRESSION_GZIP) {
       headers.add("Content-Encoding", "gzip");
     }

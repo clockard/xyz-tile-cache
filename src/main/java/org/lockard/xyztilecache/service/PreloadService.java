@@ -124,7 +124,7 @@ public class PreloadService {
     runXyzPreload(validLayers, bbox);
   }
 
-  private void submitXyz(Set<String> layers, BoundingBox bbox) {
+  private synchronized void submitXyz(Set<String> layers, BoundingBox bbox) {
     if (xyzFuture != null && !xyzFuture.isDone()) {
       LOGGER.info("Skipping xyz preload dispatch — a previous preload is still running.");
       return;

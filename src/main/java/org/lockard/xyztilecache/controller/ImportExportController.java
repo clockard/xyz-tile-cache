@@ -150,8 +150,15 @@ class ImportExportController {
     response.setContentType("application/zip");
     response.setHeader(
         HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + job.getFilename() + "\"");
-    Files.copy(tempFile, response.getOutputStream());
-    Files.deleteIfExists(tempFile);
+    try {
+      Files.copy(tempFile, response.getOutputStream());
+    } finally {
+      try {
+        Files.deleteIfExists(tempFile);
+      } catch (IOException e) {
+        LOGGER.warn("Failed to delete export temp file {}", tempFile, e);
+      }
+    }
   }
 
   @PostMapping(value = "/import", consumes = "multipart/form-data")

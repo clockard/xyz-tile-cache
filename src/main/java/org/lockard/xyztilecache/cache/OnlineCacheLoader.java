@@ -188,7 +188,6 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
     requestBuilder.header(
         "User-Agent",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36");
-    requestBuilder.header("Accept-Encoding", "gzip, deflate, br");
 
     var response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray());
     if (response.statusCode() < 200 || response.statusCode() >= 300) {

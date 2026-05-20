@@ -35,14 +35,10 @@ public class RasterTileHandler implements TileSourceHandler {
   }
 
   @Override
-  public String contentType() {
-    return "image/png";
-  }
-
-  @Override
   public Optional<TileResult> getTile(Layer layer, int z, int x, int y) {
     try {
-      return Optional.of(new TileResult(tileCache.get(new Tile(layer, x, y, z)), 0));
+      byte[] data = tileCache.get(new Tile(layer, x, y, z));
+      return Optional.of(new TileResult(data, 0, detectContentType(data)));
     } catch (ExecutionException e) {
       LOGGER.debug(
           "Failed to retrieve tile {}/{}/{} for layer {}",
@@ -51,7 +47,37 @@ public class RasterTileHandler implements TileSourceHandler {
           y,
           layer.getEffectiveId(),
           e.getCause());
-      throw new TileNotFoundException();
+      throw new TileNotFoundException(e.getCause());
     }
+  }
+
+  static String detectContentType(byte[] data) {
+    if (data.length >= 3
+        && (data[0] & 0xff) == 0xff
+        && (data[1] & 0xff) == 0xd8
+        && (data[2] & 0xff) == 0xff) {
+      return "image/jpeg";
+    }
+    if (data.length >= 6
+        && data[0] == 'G'
+        && data[1] == 'I'
+        && data[2] == 'F'
+        && data[3] == '8'
+        && (data[4] == '7' || data[4] == '9')
+        && data[5] == 'a') {
+      return "image/gif";
+    }
+    if (data.length >= 12
+        && data[0] == 'R'
+        && data[1] == 'I'
+        && data[2] == 'F'
+        && data[3] == 'F'
+        && data[8] == 'W'
+        && data[9] == 'E'
+        && data[10] == 'B'
+        && data[11] == 'P') {
+      return "image/webp";
+    }
+    return "image/png";
   }
 }

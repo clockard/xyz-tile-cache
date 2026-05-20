@@ -71,7 +71,7 @@ public class PmtilesReader implements Closeable {
 
     if (id >= entry.tileId() && id < entry.tileId() + entry.runLength()) {
       byte[] data = readRawBytes(header.tileDataOffset() + entry.offset(), entry.length());
-      return Optional.of(new TileResult(data, header.tileCompression()));
+      return Optional.of(new TileResult(data, header.tileCompression(), "application/x-protobuf"));
     }
 
     return Optional.empty();
