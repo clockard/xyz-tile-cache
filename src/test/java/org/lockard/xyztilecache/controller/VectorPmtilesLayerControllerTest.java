@@ -151,9 +151,9 @@ class VectorPmtilesLayerControllerTest {
   }
 
   @Test
-  void rasterEndpoint_returnsNotFound_forVectorLayer(@Autowired MockMvc mvc) throws Exception {
-    // .png on a VECTOR_PMTILES layer should return 404 (cache loader throws)
+  void anyExtension_onVectorLayer_returns200(@Autowired MockMvc mvc) throws Exception {
+    // extension does not control routing; handler is selected by layer source type
     mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/vector-test/0/0/0.png"))
-        .andExpect(MockMvcResultMatchers.status().isNotFound());
+        .andExpect(MockMvcResultMatchers.status().isOk());
   }
 }

@@ -14,9 +14,6 @@ public class Preload {
   private BoundingBox boundingBox;
   private int maxZoom;
   private List<String> layers = new ArrayList<>();
-  private boolean includesVector;
-  private String vectorLayerId;
-  private String pmtilesFilename;
   private Instant createdAt;
   private List<String> allowedUsers = new ArrayList<>();
   private List<String> allowedGroups = new ArrayList<>();
@@ -59,30 +56,6 @@ public class Preload {
 
   public void setLayers(List<String> layers) {
     this.layers = layers == null ? new ArrayList<>() : layers;
-  }
-
-  public boolean isIncludesVector() {
-    return includesVector;
-  }
-
-  public void setIncludesVector(boolean includesVector) {
-    this.includesVector = includesVector;
-  }
-
-  public String getVectorLayerId() {
-    return vectorLayerId;
-  }
-
-  public void setVectorLayerId(String vectorLayerId) {
-    this.vectorLayerId = vectorLayerId;
-  }
-
-  public String getPmtilesFilename() {
-    return pmtilesFilename;
-  }
-
-  public void setPmtilesFilename(String pmtilesFilename) {
-    this.pmtilesFilename = pmtilesFilename;
   }
 
   public Instant getCreatedAt() {

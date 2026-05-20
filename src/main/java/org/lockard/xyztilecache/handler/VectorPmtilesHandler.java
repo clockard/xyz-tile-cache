@@ -2,6 +2,7 @@ package org.lockard.xyztilecache.handler;
 
 import java.io.IOException;
 import java.util.Optional;
+import java.util.Set;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.TileResult;
 import org.lockard.xyztilecache.service.VectorPmtilesManager;
@@ -17,8 +18,13 @@ public class VectorPmtilesHandler implements TileSourceHandler {
   }
 
   @Override
-  public Layer.SourceType sourceType() {
-    return Layer.SourceType.VECTOR_PMTILES;
+  public Set<Layer.SourceType> sourceTypes() {
+    return Set.of(Layer.SourceType.VECTOR_PMTILES);
+  }
+
+  @Override
+  public String contentType() {
+    return "application/x-protobuf";
   }
 
   @Override

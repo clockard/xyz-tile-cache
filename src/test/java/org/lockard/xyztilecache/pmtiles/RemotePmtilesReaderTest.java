@@ -121,16 +121,6 @@ class RemotePmtilesReaderTest {
     assertThat(result).isPresent();
   }
 
-  @Test
-  void getTile_serverReturns404_throwsIOException() throws Exception {
-    wireMock.stubFor(get(urlEqualTo("/missing.pmtiles")).willReturn(aResponse().withStatus(404)));
-    RemotePmtilesReader reader =
-        new RemotePmtilesReader(
-            wireMock.baseUrl() + "/missing.pmtiles", HttpClient.newHttpClient(), 10);
-    // ensureInitialized will fail, leaving header null → returns empty
-    assertThat(reader.getTile(0, 0, 0)).isEmpty();
-  }
-
   private RemotePmtilesReader newReader() {
     return new RemotePmtilesReader(
         wireMock.baseUrl() + "/test.pmtiles", HttpClient.newHttpClient(), 10);

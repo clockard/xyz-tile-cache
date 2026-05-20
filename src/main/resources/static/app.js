@@ -1365,11 +1365,7 @@ async function submitPreload() {
   hidePreloadModal();
 
   try {
-    const body = { name, boundingBox: bbox, maxZoom, layers: xyzLayers, allowedUsers, allowedGroups };
-    if (includeVector) {
-      body.includeVector = true;
-      body.vectorLayerId = vectorLayerId;
-    }
+    const body = { name, boundingBox: bbox, maxZoom, layers: selected, allowedUsers, allowedGroups };
     const resp = await authFetch(apiPath('/preloads'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1553,17 +1549,11 @@ function renderDownloads(preloads) {
 }
 
 function buildLayerLabels(p) {
-  const labels = [];
-  if (p.includesVector) {
-    if (p.vectorLayerId) {
-      const vl = layerMap[p.vectorLayerId];
-      labels.push(vl ? (vl.name || p.vectorLayerId) : p.vectorLayerId);
-    } else {
-      labels.push('Vector');
-    }
-  }
-  if (Array.isArray(p.layers)) labels.push(...p.layers);
-  return labels;
+  if (!Array.isArray(p.layers)) return [];
+  return p.layers.map((id) => {
+    const l = layerMap[id];
+    return l ? (l.name || id) : id;
+  });
 }
 
 function bboxToBounds(bbox) {
@@ -1609,8 +1599,8 @@ function hideGeoTiffModal() {
 }
 
 async function submitGeoTiff() {
-  if (!isAdmin()) {
-    geoTiffStatus.textContent = 'Admin role required.';
+  if (!isLoggedIn()) {
+    geoTiffStatus.textContent = 'Login required.';
     return;
   }
   const name = geoTiffNameInput.value.trim();
@@ -1654,7 +1644,7 @@ async function submitGeoTiff() {
     }
     const text = await resp.text();
     if (resp.status === 401 || resp.status === 403) {
-      geoTiffStatus.textContent = 'Login required (admin role).';
+      geoTiffStatus.textContent = 'Login required.';
     } else if (resp.status === 409) {
       geoTiffStatus.textContent = text || 'Layer already exists.';
     } else if (resp.status === 422) {

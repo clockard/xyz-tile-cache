@@ -35,10 +35,11 @@ public class PmtilesDownloader {
     return downloadInProgress.get();
   }
 
+  public static String outputFilename(String preloadName) {
+    return preloadName.replaceAll("[^a-zA-Z0-9_\\-.]", "_") + ".pmtiles";
+  }
+
   public CompletableFuture<Void> startDownload(Preload preload, Layer layer) {
-    if (preload.getPmtilesFilename() == null || preload.getPmtilesFilename().isBlank()) {
-      throw new IllegalArgumentException("Preload is missing pmtilesFilename");
-    }
     if (!downloadInProgress.compareAndSet(false, true)) {
       throw new IllegalStateException("A PMTiles download is already in progress");
     }
@@ -56,9 +57,9 @@ public class PmtilesDownloader {
     String layerId = layer.getEffectiveId();
     Path downloadDir =
         Path.of(xyzConfig.getBaseTileDirectory(), layerId).toAbsolutePath().normalize();
-    Path outputPath = downloadDir.resolve(preload.getPmtilesFilename()).normalize();
+    Path outputPath = downloadDir.resolve(outputFilename(preload.getName())).normalize();
     if (!outputPath.startsWith(downloadDir)) {
-      LOGGER.error("PMTiles filename escapes download directory: {}", preload.getPmtilesFilename());
+      LOGGER.error("PMTiles filename escapes download directory: {}", outputPath);
       return;
     }
 

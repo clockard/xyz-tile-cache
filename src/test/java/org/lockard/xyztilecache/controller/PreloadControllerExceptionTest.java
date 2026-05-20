@@ -51,8 +51,7 @@ class PreloadControllerExceptionTest {
 
   @Test
   void create_submitReturnsNull_returns400(@Autowired MockMvc mvc) throws Exception {
-    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any(), any()))
-        .thenReturn(null);
+    when(preloadService.submit(any(), any(), anyInt(), any(), any(), any())).thenReturn(null);
 
     mvc.perform(
             post("/preloads")
@@ -64,7 +63,7 @@ class PreloadControllerExceptionTest {
 
   @Test
   void create_submitThrowsIllegalArgument_returns503(@Autowired MockMvc mvc) throws Exception {
-    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any(), any()))
+    when(preloadService.submit(any(), any(), anyInt(), any(), any(), any()))
         .thenThrow(new IllegalArgumentException("source unavailable"));
 
     mvc.perform(
@@ -77,7 +76,7 @@ class PreloadControllerExceptionTest {
 
   @Test
   void create_submitThrowsIllegalState_returns409(@Autowired MockMvc mvc) throws Exception {
-    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any(), any()))
+    when(preloadService.submit(any(), any(), anyInt(), any(), any(), any()))
         .thenThrow(new IllegalStateException("already in progress"));
 
     mvc.perform(
@@ -90,7 +89,7 @@ class PreloadControllerExceptionTest {
 
   @Test
   void create_submitThrowsIOException_returns500(@Autowired MockMvc mvc) throws Exception {
-    when(preloadService.submit(any(), any(), anyInt(), any(), anyBoolean(), any(), any(), any()))
+    when(preloadService.submit(any(), any(), anyInt(), any(), any(), any()))
         .thenThrow(new IOException("persist failed"));
 
     mvc.perform(

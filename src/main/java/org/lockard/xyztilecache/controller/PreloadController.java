@@ -6,12 +6,16 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import org.lockard.xyztilecache.config.XyzConfiguration;
+import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
 import org.lockard.xyztilecache.model.PreloadCreateRequest;
 import org.lockard.xyztilecache.model.PreloadInfo;
 import org.lockard.xyztilecache.service.LayerAccessService;
+import org.lockard.xyztilecache.service.PmtilesDownloader;
 import org.lockard.xyztilecache.service.PreloadService;
+import org.lockard.xyztilecache.store.LayerStore;
 import org.lockard.xyztilecache.store.PreloadStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,16 +43,19 @@ public class PreloadController {
   private final PreloadStore preloadStore;
   private final XyzConfiguration xyzConfiguration;
   private final LayerAccessService layerAccessService;
+  private final LayerStore layerStore;
 
   public PreloadController(
       PreloadService preloadService,
       PreloadStore preloadStore,
       XyzConfiguration xyzConfiguration,
-      LayerAccessService layerAccessService) {
+      LayerAccessService layerAccessService,
+      LayerStore layerStore) {
     this.preloadService = preloadService;
     this.preloadStore = preloadStore;
     this.xyzConfiguration = xyzConfiguration;
     this.layerAccessService = layerAccessService;
+    this.layerStore = layerStore;
   }
 
   @GetMapping
@@ -77,8 +84,6 @@ public class PreloadController {
               request.getBoundingBox(),
               request.getMaxZoom(),
               request.getLayers(),
-              request.isIncludeVector(),
-              request.getVectorLayerId(),
               request.getAllowedUsers(),
               request.getAllowedGroups());
       if (preload == null) {
@@ -109,13 +114,23 @@ public class PreloadController {
   }
 
   private PreloadInfo toInfo(Preload p) {
+    Layer vectorLayer =
+        p.getLayers().stream()
+            .map(layerStore.getLayers()::get)
+            .filter(Objects::nonNull)
+            .filter(l -> l.getSourceType() == Layer.SourceType.VECTOR_PMTILES)
+            .findFirst()
+            .orElse(null);
+
+    String pmtilesFilename =
+        vectorLayer != null ? PmtilesDownloader.outputFilename(p.getName()) : null;
     Long sizeBytes = null;
-    if (p.getPmtilesFilename() != null && p.getVectorLayerId() != null) {
+    if (pmtilesFilename != null) {
       Path path =
           Path.of(
               xyzConfiguration.getBaseTileDirectory(),
-              p.getVectorLayerId(),
-              p.getPmtilesFilename());
+              vectorLayer.getEffectiveId(),
+              pmtilesFilename);
       if (Files.exists(path)) {
         try {
           sizeBytes = Files.size(path);
@@ -130,8 +145,7 @@ public class PreloadController {
         p.getBoundingBox(),
         p.getMaxZoom(),
         p.getLayers(),
-        p.isIncludesVector(),
-        p.getPmtilesFilename(),
+        pmtilesFilename,
         p.getCreatedAt(),
         sizeBytes,
         p.getAllowedUsers(),

@@ -52,6 +52,8 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers(HttpMethod.POST, "/export")
                     .authenticated()
+                    .requestMatchers(HttpMethod.POST, "/layers/geotiff")
+                    .authenticated()
                     .requestMatchers(HttpMethod.POST, "/import")
                     .hasRole(configuration.getAdminRole().toUpperCase())
                     .anyRequest()

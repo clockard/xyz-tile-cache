@@ -3,6 +3,8 @@ package org.lockard.xyztilecache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -142,23 +144,30 @@ public class XyzTileCacheApplication {
       return;
     }
     int zoom = layer.getInitZoom();
+    String layerId = layer.getEffectiveId();
+    String preloadName = "init-world-" + layerId + "-z" + zoom;
+    Path outputPath =
+        Path.of(configuration.getBaseTileDirectory(), layerId)
+            .toAbsolutePath()
+            .normalize()
+            .resolve(PmtilesDownloader.outputFilename(preloadName));
+    if (Files.exists(outputPath)) {
+      LOGGER.info(
+          "Init file already exists for vector layer '{}' at zoom {}; skipping download",
+          layerId,
+          zoom);
+      return;
+    }
     Preload preload = new Preload();
     preload.setId(UUID.randomUUID().toString());
-    preload.setName("init-world-" + layer.getEffectiveId());
+    preload.setName(preloadName);
     preload.setBoundingBox(worldBbox(zoom));
     preload.setMaxZoom(zoom);
-    preload.setIncludesVector(true);
-    preload.setVectorLayerId(layer.getEffectiveId());
-    preload.setPmtilesFilename("world_z" + zoom + ".pmtiles");
     try {
       pmtilesDownloader.startDownload(preload, layer);
-      LOGGER.info(
-          "Started init download for vector layer '{}' up to zoom {}",
-          layer.getEffectiveId(),
-          zoom);
+      LOGGER.info("Started init download for vector layer '{}' up to zoom {}", layerId, zoom);
     } catch (Exception e) {
-      LOGGER.error(
-          "Failed to start init download for vector layer '{}'", layer.getEffectiveId(), e);
+      LOGGER.error("Failed to start init download for vector layer '{}'", layerId, e);
     }
   }
 

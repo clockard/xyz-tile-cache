@@ -3,6 +3,7 @@ package org.lockard.xyztilecache.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -66,63 +67,32 @@ class PreloadServiceTest {
     return l;
   }
 
-  // ── includeVector validation ───────────────────────────────────────────────
+  // ── vector layer validation ────────────────────────────────────────────────
 
   @Test
-  void submit_includeVector_nullVectorLayerId_throwsIllegalArgument() {
-    assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of(), true, null, null, null))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("vectorLayerId");
-  }
-
-  @Test
-  void submit_includeVector_blankVectorLayerId_throwsIllegalArgument() {
-    assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of(), true, "  ", null, null))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("vectorLayerId");
-  }
-
-  @Test
-  void submit_includeVector_vectorLayerNotFound_throwsIllegalArgument() {
-    when(layerStore.getLayers()).thenReturn(Map.of());
-    assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of(), true, "missing", null, null))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("not found");
-  }
-
-  @Test
-  void submit_includeVector_notVectorPmtilesLayer_throwsIllegalArgument() {
-    Layer raster = xyzLayer("raster");
-    when(layerStore.getLayers()).thenReturn(Map.of("raster", raster));
-    assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of(), true, "raster", null, null))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("not a VECTOR_PMTILES");
-  }
-
-  @Test
-  void submit_includeVector_noUrlTemplate_throwsIllegalArgument() {
+  void submit_vectorLayer_noUrlTemplate_throwsIllegalArgument() {
     Layer vec = vectorLayer("vec", null);
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
-    assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of(), true, "vec", null, null))
+    assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of("vec"), null, null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("urlTemplate");
   }
 
   @Test
-  void submit_includeVector_blankUrlTemplate_throwsIllegalArgument() {
+  void submit_vectorLayer_blankUrlTemplate_throwsIllegalArgument() {
     Layer vec = vectorLayer("vec", "  ");
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
-    assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of(), true, "vec", null, null))
+    assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of("vec"), null, null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("urlTemplate");
   }
 
   @Test
-  void submit_includeVector_downloadAlreadyInProgress_throwsIllegalState() {
+  void submit_vectorLayer_downloadAlreadyInProgress_throwsIllegalState() {
     Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
     when(pmtilesDownloader.isDownloadInProgress()).thenReturn(true);
-    assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of(), true, "vec", null, null))
+    assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of("vec"), null, null))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("already in progress");
   }
@@ -130,35 +100,45 @@ class PreloadServiceTest {
   // ── no-op paths ────────────────────────────────────────────────────────────
 
   @Test
-  void submit_nullLayers_noVector_returnsNull() throws Exception {
+  void submit_nullLayers_returnsNull() throws Exception {
     when(layerStore.getLayers()).thenReturn(Map.of());
-    assertThat(service.submit("t", bbox(), 5, null, false, null, null, null)).isNull();
+    assertThat(service.submit("t", bbox(), 5, null, null, null)).isNull();
   }
 
   @Test
-  void submit_emptyLayers_noVector_returnsNull() throws Exception {
+  void submit_emptyLayers_returnsNull() throws Exception {
     when(layerStore.getLayers()).thenReturn(Map.of());
-    assertThat(service.submit("t", bbox(), 5, Set.of(), false, null, null, null)).isNull();
+    assertThat(service.submit("t", bbox(), 5, Set.of(), null, null)).isNull();
   }
 
   @Test
-  void submit_allLayersUnknown_noVector_returnsNull() throws Exception {
+  void submit_allLayersUnknown_returnsNull() throws Exception {
     when(layerStore.getLayers()).thenReturn(Map.of());
-    assertThat(service.submit("t", bbox(), 5, Set.of("ghost"), false, null, null, null)).isNull();
+    assertThat(service.submit("t", bbox(), 5, Set.of("ghost"), null, null)).isNull();
   }
 
   // ── happy paths ────────────────────────────────────────────────────────────
 
   @Test
-  void submit_validLayer_noVector_returnsPreloadAndPersists() throws Exception {
+  void submit_validLayer_returnsPreloadAndPersists() throws Exception {
     Layer layer = xyzLayer("test");
     when(layerStore.getLayers()).thenReturn(Map.of("test", layer));
 
-    Preload result =
-        service.submit("my-preload", bbox(), 0, Set.of("test"), false, null, null, null);
+    Preload result = service.submit("my-preload", bbox(), 0, Set.of("test"), null, null);
     assertThat(result).isNotNull();
     assertThat(result.getName()).isEqualTo("my-preload");
     verify(preloadStore).addPreload(any());
+  }
+
+  @Test
+  void submit_validVectorLayer_returnsPreloadAndStartsDownload() throws Exception {
+    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
+    when(pmtilesDownloader.isDownloadInProgress()).thenReturn(false);
+
+    Preload result = service.submit("t", bbox(), 5, Set.of("vec"), null, null);
+    assertThat(result).isNotNull();
+    verify(pmtilesDownloader).startDownload(any(), eq(vec));
   }
 
   @Test
@@ -166,7 +146,7 @@ class PreloadServiceTest {
     Layer layer = xyzLayer("test");
     when(layerStore.getLayers()).thenReturn(Map.of("test", layer));
 
-    Preload result = service.submit(null, bbox(), 5, Set.of("test"), false, null, null, null);
+    Preload result = service.submit(null, bbox(), 5, Set.of("test"), null, null);
     assertThat(result.getName()).contains("bbox");
   }
 
@@ -175,7 +155,7 @@ class PreloadServiceTest {
     Layer layer = xyzLayer("test");
     when(layerStore.getLayers()).thenReturn(Map.of("test", layer));
 
-    Preload result = service.submit("  ", bbox(), 5, Set.of("test"), false, null, null, null);
+    Preload result = service.submit("  ", bbox(), 5, Set.of("test"), null, null);
     assertThat(result.getName()).contains("bbox");
   }
 
@@ -184,7 +164,7 @@ class PreloadServiceTest {
     Layer layer = xyzLayer("test");
     when(layerStore.getLayers()).thenReturn(Map.of("test", layer));
 
-    Preload result = service.submit("t", bbox(), 0, Set.of("test"), false, null, null, null);
+    Preload result = service.submit("t", bbox(), 0, Set.of("test"), null, null);
     assertThat(result.getAllowedUsers()).isEmpty();
   }
 
@@ -193,7 +173,7 @@ class PreloadServiceTest {
     Layer layer = xyzLayer("test");
     when(layerStore.getLayers()).thenReturn(Map.of("test", layer));
 
-    Preload result = service.submit("t", bbox(), 0, Set.of("test"), false, null, null, null);
+    Preload result = service.submit("t", bbox(), 0, Set.of("test"), null, null);
     assertThat(result.getAllowedGroups()).isEmpty();
   }
 

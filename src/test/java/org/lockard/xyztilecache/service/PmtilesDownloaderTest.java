@@ -49,8 +49,6 @@ class PmtilesDownloaderTest {
     p.setName("test");
     p.setBoundingBox(bbox);
     p.setMaxZoom(zoom);
-    p.setIncludesVector(true);
-    p.setPmtilesFilename("test.pmtiles");
     return p;
   }
 
@@ -101,38 +99,17 @@ class PmtilesDownloaderTest {
     assertThat(bboxArg).matches("--bbox=-?\\d+\\.\\d+,-?\\d+\\.\\d+,-?\\d+\\.\\d+,-?\\d+\\.\\d+");
   }
 
+  // ── outputFilename ────────────────────────────────────────────────────────
+
   @Test
-  void startDownload_blankFilename_throws() {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
-    PmtilesDownloader downloader = new PmtilesDownloader(xyzConfig(), manager);
-    Preload p = preload(-1, -1, 1, 1, 5);
-    p.setPmtilesFilename("   ");
-    Layer l = layer("https://example.com/tiles.pmtiles", 5);
-    assertThatThrownBy(() -> downloader.startDownload(p, l))
-        .isInstanceOf(IllegalArgumentException.class);
+  void outputFilename_sanitizesSpecialChars() {
+    assertThat(PmtilesDownloader.outputFilename("my region/2024"))
+        .isEqualTo("my_region_2024.pmtiles");
   }
 
   @Test
-  void startDownload_missingFilename_throws() {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
-    PmtilesDownloader downloader = new PmtilesDownloader(xyzConfig(), manager);
-    Preload p = preload(-1, -1, 1, 1, 5);
-    p.setPmtilesFilename(null);
-    Layer l = layer("https://example.com/tiles.pmtiles", 5);
-    assertThatThrownBy(() -> downloader.startDownload(p, l))
-        .isInstanceOf(IllegalArgumentException.class);
-  }
-
-  @Test
-  void startDownload_pathEscape_doesNotCallManager() throws Exception {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
-    PmtilesDownloader downloader = new PmtilesDownloader(xyzConfig(), manager);
-    Preload p = preload(-1, -1, 1, 1, 5);
-    p.setPmtilesFilename("../../etc/passwd");
-    Layer l = layer("https://example.com/tiles.pmtiles", 5);
-    downloader.startDownload(p, l).get();
-    verify(manager, never()).closeLayer(any());
-    verify(manager, never()).initLayer(any());
+  void outputFilename_safeCharsUnchanged() {
+    assertThat(PmtilesDownloader.outputFilename("region-A.1")).isEqualTo("region-A.1.pmtiles");
   }
 
   @Test

@@ -11,8 +11,6 @@ public class PreloadCreateRequest {
   private BoundingBox boundingBox;
   private int maxZoom = 15;
   private Set<String> layers = new HashSet<>();
-  private boolean includeVector;
-  private String vectorLayerId;
   private List<String> allowedUsers = new ArrayList<>();
   private List<String> allowedGroups = new ArrayList<>();
 
@@ -46,22 +44,6 @@ public class PreloadCreateRequest {
 
   public void setLayers(Set<String> layers) {
     this.layers = layers == null ? new HashSet<>() : layers;
-  }
-
-  public boolean isIncludeVector() {
-    return includeVector;
-  }
-
-  public void setIncludeVector(boolean includeVector) {
-    this.includeVector = includeVector;
-  }
-
-  public String getVectorLayerId() {
-    return vectorLayerId;
-  }
-
-  public void setVectorLayerId(String vectorLayerId) {
-    this.vectorLayerId = vectorLayerId;
   }
 
   public List<String> getAllowedUsers() {

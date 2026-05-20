@@ -8,7 +8,6 @@ public class ExportRequest {
   private BoundingBox boundingBox;
   private Integer minZoom;
   private Integer maxZoom;
-  private boolean includeVector;
 
   public List<String> getLayers() {
     return layers;
@@ -40,13 +39,5 @@ public class ExportRequest {
 
   public void setMaxZoom(Integer maxZoom) {
     this.maxZoom = maxZoom;
-  }
-
-  public boolean isIncludeVector() {
-    return includeVector;
-  }
-
-  public void setIncludeVector(boolean includeVector) {
-    this.includeVector = includeVector;
   }
 }

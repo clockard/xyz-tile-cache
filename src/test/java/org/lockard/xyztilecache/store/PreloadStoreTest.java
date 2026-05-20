@@ -45,7 +45,7 @@ class PreloadStoreTest {
     return store;
   }
 
-  private Preload preload(String name, boolean includesVector, List<String> layers) {
+  private Preload preload(String name, List<String> layers) {
     BoundingBox bbox = new BoundingBox();
     bbox.setNorth(1);
     bbox.setSouth(-1);
@@ -57,8 +57,6 @@ class PreloadStoreTest {
     p.setBoundingBox(bbox);
     p.setMaxZoom(10);
     p.setLayers(layers);
-    p.setIncludesVector(includesVector);
-    if (includesVector) p.setPmtilesFilename(name + ".pmtiles");
     p.setCreatedAt(Instant.now());
     return p;
   }
@@ -78,7 +76,7 @@ class PreloadStoreTest {
   @Test
   void addPreload_appearsInList() throws Exception {
     newStore();
-    Preload p = preload("region", true, List.of("base"));
+    Preload p = preload("region", List.of("base"));
     store.addPreload(p);
     assertThat(store.listPreloads()).hasSize(1);
     assertThat(store.listPreloads().get(0).getName()).isEqualTo("region");
@@ -87,7 +85,7 @@ class PreloadStoreTest {
   @Test
   void addPreload_persistsAcrossReload() throws Exception {
     newStore();
-    Preload p = preload("region", true, List.of("base"));
+    Preload p = preload("region", List.of("base"));
     store.addPreload(p);
     store.close();
 
@@ -102,9 +100,9 @@ class PreloadStoreTest {
   @Test
   void addPreload_duplicateId_throws() throws Exception {
     newStore();
-    Preload p = preload("region", false, List.of("base"));
+    Preload p = preload("region", List.of("base"));
     store.addPreload(p);
-    Preload p2 = preload("other", false, List.of("base"));
+    Preload p2 = preload("other", List.of("base"));
     p2.setId(p.getId());
     assertThatThrownBy(() -> store.addPreload(p2)).isInstanceOf(IllegalArgumentException.class);
   }
@@ -112,7 +110,7 @@ class PreloadStoreTest {
   @Test
   void addPreload_blankId_throws() throws Exception {
     newStore();
-    Preload p = preload("region", false, List.of("base"));
+    Preload p = preload("region", List.of("base"));
     p.setId("");
     assertThatThrownBy(() -> store.addPreload(p)).isInstanceOf(IllegalArgumentException.class);
   }
@@ -120,7 +118,7 @@ class PreloadStoreTest {
   @Test
   void removePreload_removesFromList() throws Exception {
     newStore();
-    Preload p = preload("region", false, List.of());
+    Preload p = preload("region", List.of());
     store.addPreload(p);
     store.removePreload(p.getId());
     assertThat(store.listPreloads()).isEmpty();
@@ -136,7 +134,7 @@ class PreloadStoreTest {
   @Test
   void findById_returnsMatching() throws Exception {
     newStore();
-    Preload p = preload("region", true, List.of("base"));
+    Preload p = preload("region", List.of("base"));
     store.addPreload(p);
     assertThat(store.findById(p.getId())).isPresent();
     assertThat(store.findById("missing")).isEmpty();
@@ -153,7 +151,7 @@ class PreloadStoreTest {
   @Test
   void syncPreloads_noChangeToFile_doesNotReload() throws Exception {
     newStore();
-    Preload p = preload("sync-no-change", false, List.of("base"));
+    Preload p = preload("sync-no-change", List.of("base"));
     store.addPreload(p);
     // syncPreloads should see mtime unchanged and skip the reload
     store.syncPreloads();
@@ -163,14 +161,14 @@ class PreloadStoreTest {
   @Test
   void syncPreloads_fileChangedExternally_reloads() throws Exception {
     newStore();
-    Preload p = preload("sync-changed", false, List.of("base"));
+    Preload p = preload("sync-changed", List.of("base"));
     store.addPreload(p);
     store.close();
 
     // Open a second store instance and add another entry — simulates external change
     PreloadStore store2 = new PreloadStore(configuration, objectMapper);
     store2.init();
-    Preload p2 = preload("sync-added-externally", false, List.of());
+    Preload p2 = preload("sync-added-externally", List.of());
     store2.addPreload(p2);
     store2.close();
 

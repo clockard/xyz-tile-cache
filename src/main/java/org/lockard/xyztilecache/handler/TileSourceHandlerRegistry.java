@@ -14,7 +14,7 @@ public class TileSourceHandlerRegistry {
 
   public TileSourceHandlerRegistry(List<TileSourceHandler> handlerList) {
     handlers = new EnumMap<>(Layer.SourceType.class);
-    handlerList.forEach(h -> handlers.put(h.sourceType(), h));
+    handlerList.forEach(h -> h.sourceTypes().forEach(t -> handlers.put(t, h)));
   }
 
   public Optional<TileSourceHandler> getHandler(Layer.SourceType type) {

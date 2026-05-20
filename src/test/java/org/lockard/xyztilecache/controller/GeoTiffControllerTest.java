@@ -25,7 +25,6 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -36,10 +35,8 @@ class GeoTiffControllerTest {
 
   @TempDir static File tileDir;
 
-  static org.springframework.test.web.servlet.request.RequestPostProcessor adminJwt() {
-    return jwt()
-        .jwt(j -> j.subject("alice").claim("preferred_username", "alice"))
-        .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"));
+  static org.springframework.test.web.servlet.request.RequestPostProcessor userJwt() {
+    return jwt().jwt(j -> j.subject("alice").claim("preferred_username", "alice"));
   }
 
   @DynamicPropertySource
@@ -91,14 +88,14 @@ class GeoTiffControllerTest {
   void uploadGeoTiff_withInvalidName_returns400(@Autowired MockMvc mvc) throws Exception {
     MockMultipartFile file =
         new MockMultipartFile("file", "input.tif", "image/tiff", new byte[] {1, 2, 3});
-    mvc.perform(multipart("/layers/geotiff").file(file).param("name", "../bad").with(adminJwt()))
+    mvc.perform(multipart("/layers/geotiff").file(file).param("name", "../bad").with(userJwt()))
         .andExpect(status().isBadRequest());
   }
 
   @Test
   void uploadGeoTiff_withEmptyFile_returns400(@Autowired MockMvc mvc) throws Exception {
     MockMultipartFile empty = new MockMultipartFile("file", "input.tif", "image/tiff", new byte[0]);
-    mvc.perform(multipart("/layers/geotiff").file(empty).param("name", "ok-name").with(adminJwt()))
+    mvc.perform(multipart("/layers/geotiff").file(empty).param("name", "ok-name").with(userJwt()))
         .andExpect(status().isBadRequest());
   }
 
@@ -106,7 +103,7 @@ class GeoTiffControllerTest {
   void uploadGeoTiff_whenLayerExists_returns409(@Autowired MockMvc mvc) throws Exception {
     MockMultipartFile file =
         new MockMultipartFile("file", "input.tif", "image/tiff", new byte[] {1, 2, 3});
-    mvc.perform(multipart("/layers/geotiff").file(file).param("name", "existing").with(adminJwt()))
+    mvc.perform(multipart("/layers/geotiff").file(file).param("name", "existing").with(userJwt()))
         .andExpect(status().isConflict());
   }
 
@@ -116,7 +113,7 @@ class GeoTiffControllerTest {
     Files.createDirectories(Paths.get(tileDir.getAbsolutePath(), "stale-dir"));
     MockMultipartFile file =
         new MockMultipartFile("file", "input.tif", "image/tiff", new byte[] {1, 2, 3});
-    mvc.perform(multipart("/layers/geotiff").file(file).param("name", "stale-dir").with(adminJwt()))
+    mvc.perform(multipart("/layers/geotiff").file(file).param("name", "stale-dir").with(userJwt()))
         .andExpect(status().isConflict());
   }
 
@@ -128,7 +125,7 @@ class GeoTiffControllerTest {
     MockMultipartFile file =
         new MockMultipartFile("file", "input.tif", "image/tiff", new byte[] {1, 2, 3});
     mvc.perform(
-            multipart("/layers/geotiff").file(file).param("name", "fails-tiling").with(adminJwt()))
+            multipart("/layers/geotiff").file(file).param("name", "fails-tiling").with(userJwt()))
         .andExpect(status().isUnprocessableEntity());
     // Output dir should have been cleaned up so a retry doesn't 409 on dir-exists.
     org.assertj.core.api.Assertions.assertThat(Paths.get(tileDir.getAbsolutePath(), "fails-tiling"))
@@ -147,7 +144,7 @@ class GeoTiffControllerTest {
             multipart("/layers/geotiff")
                 .file(file)
                 .param("name", "interrupted-tiling")
-                .with(adminJwt()))
+                .with(userJwt()))
         .andExpect(status().isInternalServerError());
     org.assertj.core.api.Assertions.assertThat(
             Paths.get(tileDir.getAbsolutePath(), "interrupted-tiling"))
@@ -159,7 +156,7 @@ class GeoTiffControllerTest {
       throws Exception {
     MockMultipartFile file =
         new MockMultipartFile("file", "input.tif", "image/tiff", new byte[] {1, 2, 3, 4});
-    mvc.perform(multipart("/layers/geotiff").file(file).param("name", "uploaded").with(adminJwt()))
+    mvc.perform(multipart("/layers/geotiff").file(file).param("name", "uploaded").with(userJwt()))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.name").value("uploaded"))
         .andExpect(jsonPath("$.sourceType").value("LOCAL"))
@@ -176,7 +173,7 @@ class GeoTiffControllerTest {
                 .param("name", "acl-layer")
                 .param("allowedUsers", "alice, bob")
                 .param("allowedGroups", "team-foresters")
-                .with(adminJwt()))
+                .with(userJwt()))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.allowedUsers[0]").value("alice"))
         .andExpect(jsonPath("$.allowedUsers[1]").value("bob"))

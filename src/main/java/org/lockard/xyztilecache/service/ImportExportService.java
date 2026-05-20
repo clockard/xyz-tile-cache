@@ -14,8 +14,8 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -46,6 +46,8 @@ public class ImportExportService {
   private static final Pattern TILE_TAIL = Pattern.compile("\\d+/\\d+/\\d+\\.png");
   private static final Pattern SAFE_PMTILES_NAME =
       Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}\\.pmtiles");
+  private static final Pattern CACHED_TILE_TAIL =
+      Pattern.compile("remote-cache/\\d+/\\d+/\\d+\\.pbf");
 
   private final XyzConfiguration configuration;
   private final VectorPmtilesManager vectorPmtilesManager;
@@ -68,10 +70,12 @@ public class ImportExportService {
 
   /**
    * Writes a zip containing each layer's {@code layer.json} and tile files. For raster layers, tile
-   * files are {@code <layerId>/<z>/<x>/<y>.png}. For VECTOR_PMTILES layers, the pmtiles file(s)
-   * from {@code <baseTileDir>/<layerId>/} are included as {@code <layerId>/<name>.pmtiles}. If
-   * {@code bbox} is non-null, raster tile selection is filtered to that bbox; VECTOR_PMTILES files
-   * are always included in full.
+   * files are {@code <layerId>/<z>/<x>/<y>.png}. For VECTOR_PMTILES layers, locally cached tiles
+   * from {@code remote-cache/} are included as {@code <layerId>/remote-cache/<z>/<x>/<y>.pbf}. If
+   * {@code bbox} is null, local pmtiles file(s) are also included in full and all cached tiles are
+   * included; if {@code bbox} is non-null, the {@code pmtiles extract} CLI is used to produce a
+   * bbox-cropped pmtiles file (skipped with a warning if the CLI is unavailable or fails), and
+   * cached tile selection is filtered to the bbox.
    */
   public void streamExport(
       List<Layer> layers, BoundingBox bbox, Integer minZoom, Integer maxZoom, OutputStream out)
@@ -92,7 +96,7 @@ public class ImportExportService {
         }
 
         if (layer.getSourceType() == Layer.SourceType.VECTOR_PMTILES) {
-          addAllPmtiles(zos, layerId, layerDir);
+          addPmtilesLayer(zos, layerId, layerDir, bbox, minZoom, maxZoom, layer);
         } else if (bbox == null) {
           addAllTiles(zos, layerId, layerDir);
         } else {
@@ -101,31 +105,130 @@ public class ImportExportService {
             effectiveMax = Math.min(effectiveMax, maxZoom);
           }
           int start = minZoom != null ? Math.max(0, minZoom) : 0;
-          for (int z = start; z <= effectiveMax; z++) {
-            Set<Point> tiles = XyzUtil.calculateXyTilesForBBox(bbox, z);
-            for (Point p : tiles) {
-              Path tile =
-                  layerDir
-                      .resolve(Integer.toString(z))
-                      .resolve(Integer.toString(p.x))
-                      .resolve(p.y + ".png");
-              if (Files.isRegularFile(tile)) {
-                writeEntry(zos, String.format("%s/%d/%d/%d.png", layerId, z, p.x, p.y), tile);
-              }
-            }
-          }
+          addBboxTilesFromDir(zos, layerDir, layerId + "/", ".png", bbox, start, effectiveMax);
         }
       }
     }
   }
 
-  private void addAllPmtiles(ZipOutputStream zos, String layerId, Path layerDir)
+  private void addPmtilesLayer(
+      ZipOutputStream zos,
+      String layerId,
+      Path layerDir,
+      BoundingBox bbox,
+      Integer minZoom,
+      Integer maxZoom,
+      Layer layer)
       throws IOException {
+    List<Path> pmtilesFiles;
     try (Stream<Path> files = Files.list(layerDir)) {
-      List<Path> pmtilesFiles =
-          files.filter(p -> p.getFileName().toString().endsWith(".pmtiles")).toList();
+      pmtilesFiles = files.filter(p -> p.getFileName().toString().endsWith(".pmtiles")).toList();
+    }
+
+    Path remoteCacheDir = layerDir.resolve("remote-cache");
+
+    if (bbox == null) {
       for (Path p : pmtilesFiles) {
         writeEntry(zos, layerId + "/" + p.getFileName().toString(), p);
+      }
+      if (Files.isDirectory(remoteCacheDir)) {
+        try (var paths = Files.walk(remoteCacheDir)) {
+          paths
+              .filter(Files::isRegularFile)
+              .filter(p -> p.getFileName().toString().endsWith(".pbf"))
+              .forEach(
+                  p -> {
+                    String rel = layerDir.relativize(p).toString().replace('\\', '/');
+                    try {
+                      writeEntry(zos, layerId + "/" + rel, p);
+                    } catch (IOException e) {
+                      throw new UncheckedIOException(e);
+                    }
+                  });
+        } catch (UncheckedIOException e) {
+          throw e.getCause();
+        }
+      }
+    } else {
+      int effectiveMax = Math.min(layer.getMaxZoom(), bbox.getMaxZoom());
+      if (maxZoom != null) effectiveMax = Math.min(effectiveMax, maxZoom);
+      int start = minZoom != null ? Math.max(0, minZoom) : 0;
+
+      for (Path pmtilesPath : pmtilesFiles) {
+        extractAndAddPmtiles(zos, layerId, pmtilesPath, bbox, start, effectiveMax);
+      }
+
+      if (Files.isDirectory(remoteCacheDir)) {
+        addBboxTilesFromDir(
+            zos, remoteCacheDir, layerId + "/remote-cache/", ".pbf", bbox, start, effectiveMax);
+      }
+    }
+  }
+
+  private void extractAndAddPmtiles(
+      ZipOutputStream zos,
+      String layerId,
+      Path pmtilesPath,
+      BoundingBox bbox,
+      int minZoom,
+      int maxZoom)
+      throws IOException {
+    Path tmpDir = Files.createTempDirectory("xyz-pmtiles-export-");
+    Path tmpFile = tmpDir.resolve(pmtilesPath.getFileName());
+    try {
+      String bboxArg =
+          String.format(
+              Locale.US,
+              "%f,%f,%f,%f",
+              bbox.getWest(),
+              bbox.getSouth(),
+              bbox.getEast(),
+              bbox.getNorth());
+      List<String> cmd = new ArrayList<>();
+      cmd.add("pmtiles");
+      cmd.add("extract");
+      cmd.add(pmtilesPath.toAbsolutePath().toString());
+      cmd.add(tmpFile.toAbsolutePath().toString());
+      cmd.add("--bbox=" + bboxArg);
+      cmd.add("--maxzoom=" + maxZoom);
+      if (minZoom > 0) cmd.add("--minzoom=" + minZoom);
+
+      Process proc;
+      try {
+        proc = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+      } catch (IOException e) {
+        LOGGER.warn(
+            "Could not start pmtiles extract for '{}': {}",
+            pmtilesPath.getFileName(),
+            e.getMessage());
+        return;
+      }
+      String output = new String(proc.getInputStream().readAllBytes());
+      int exit;
+      try {
+        exit = proc.waitFor();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        proc.destroy();
+        return;
+      }
+      if (exit == 0 && Files.exists(tmpFile)) {
+        writeEntry(zos, layerId + "/" + pmtilesPath.getFileName().toString(), tmpFile);
+      } else {
+        LOGGER.warn(
+            "pmtiles extract for '{}' failed (exit {}): {}",
+            pmtilesPath.getFileName(),
+            exit,
+            output.trim());
+      }
+    } finally {
+      try {
+        Files.deleteIfExists(tmpFile);
+      } catch (IOException ignored) {
+      }
+      try {
+        Files.deleteIfExists(tmpDir);
+      } catch (IOException ignored) {
       }
     }
   }
@@ -146,6 +249,57 @@ public class ImportExportService {
               });
     } catch (UncheckedIOException e) {
       throw e.getCause();
+    }
+  }
+
+  private void addBboxTilesFromDir(
+      ZipOutputStream zos,
+      Path tileDir,
+      String entryPrefix,
+      String ext,
+      BoundingBox bbox,
+      int startZ,
+      int endZ)
+      throws IOException {
+    for (int z = startZ; z <= endZ; z++) {
+      Path zDir = tileDir.resolve(Integer.toString(z));
+      if (!Files.isDirectory(zDir)) continue;
+      Point ul = XyzUtil.getTileNumber(bbox.getNorth(), bbox.getWest(), z);
+      int xMin = ul.x;
+      int xMax = XyzUtil.getTileNumber(bbox.getNorth(), bbox.getEast(), z).x;
+      int yMin = ul.y;
+      int yMax = XyzUtil.getTileNumber(bbox.getSouth(), bbox.getWest(), z).y;
+      List<Path> xDirs;
+      try (Stream<Path> s = Files.list(zDir)) {
+        xDirs = s.filter(Files::isDirectory).toList();
+      }
+      for (Path xDir : xDirs) {
+        int x;
+        try {
+          x = Integer.parseInt(xDir.getFileName().toString());
+        } catch (NumberFormatException e) {
+          continue;
+        }
+        if (x < xMin || x > xMax) continue;
+        List<Path> yFiles;
+        try (Stream<Path> s = Files.list(xDir)) {
+          yFiles =
+              s.filter(Files::isRegularFile)
+                  .filter(p -> p.getFileName().toString().endsWith(ext))
+                  .toList();
+        }
+        for (Path yFile : yFiles) {
+          String fname = yFile.getFileName().toString();
+          int y;
+          try {
+            y = Integer.parseInt(fname.substring(0, fname.length() - ext.length()));
+          } catch (NumberFormatException e) {
+            continue;
+          }
+          if (y < yMin || y > yMax) continue;
+          writeEntry(zos, entryPrefix + z + "/" + x + "/" + y + ext, yFile);
+        }
+      }
     }
   }
 
@@ -208,6 +362,10 @@ public class ImportExportService {
         if ("layer.json".equals(tail)) {
           handleLayerJson(zis, layerId, added, skipped);
         } else if (TILE_TAIL.matcher(tail).matches()) {
+          Files.createDirectories(target.getParent());
+          Files.copy(zis, target, StandardCopyOption.REPLACE_EXISTING);
+          tilesWritten++;
+        } else if (CACHED_TILE_TAIL.matcher(tail).matches()) {
           Files.createDirectories(target.getParent());
           Files.copy(zis, target, StandardCopyOption.REPLACE_EXISTING);
           tilesWritten++;

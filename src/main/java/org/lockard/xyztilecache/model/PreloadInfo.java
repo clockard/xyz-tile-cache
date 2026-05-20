@@ -9,7 +9,6 @@ public record PreloadInfo(
     BoundingBox boundingBox,
     int maxZoom,
     List<String> layers,
-    boolean includesVector,
     String pmtilesFilename,
     Instant createdAt,
     Long sizeBytes,

@@ -49,44 +49,14 @@ public class PreloadService {
     this.pmtilesDownloader = pmtilesDownloader;
   }
 
-  /**
-   * Records a preload entry and dispatches the work. When {@code vectorLayerId} is set and {@code
-   * includeVector} is true, runs a PMTiles extract download for that layer. Throws {@link
-   * IllegalArgumentException} if the vector layer is not found or is not a VECTOR_PMTILES layer, or
-   * if a download is already in progress.
-   */
   public Preload submit(
       String name,
       BoundingBox boundingBox,
       int maxZoom,
       Set<String> layers,
-      boolean includeVector,
-      String vectorLayerId,
       List<String> allowedUsers,
       List<String> allowedGroups)
       throws IOException {
-    Layer vectorLayer = null;
-    if (includeVector) {
-      if (vectorLayerId == null || vectorLayerId.isBlank()) {
-        throw new IllegalArgumentException("vectorLayerId is required when includeVector is true");
-      }
-      vectorLayer = layerStore.getLayers().get(vectorLayerId);
-      if (vectorLayer == null) {
-        throw new IllegalArgumentException("Vector layer not found: " + vectorLayerId);
-      }
-      if (vectorLayer.getSourceType() != Layer.SourceType.VECTOR_PMTILES) {
-        throw new IllegalArgumentException(
-            "Layer '" + vectorLayerId + "' is not a VECTOR_PMTILES layer");
-      }
-      if (vectorLayer.getUrlTemplate() == null || vectorLayer.getUrlTemplate().isBlank()) {
-        throw new IllegalArgumentException(
-            "VECTOR_PMTILES layer '" + vectorLayerId + "' has no urlTemplate configured");
-      }
-      if (pmtilesDownloader.isDownloadInProgress()) {
-        throw new IllegalStateException("A vector download is already in progress");
-      }
-    }
-
     Set<String> validLayers =
         layers == null
             ? Set.of()
@@ -94,8 +64,27 @@ public class PreloadService {
                 .filter(layerStore.getLayers()::containsKey)
                 .collect(Collectors.toSet());
 
-    if (validLayers.isEmpty() && !includeVector) {
+    if (validLayers.isEmpty()) {
       return null;
+    }
+
+    Layer vectorLayer =
+        validLayers.stream()
+            .map(layerStore.getLayers()::get)
+            .filter(l -> l.getSourceType() == Layer.SourceType.VECTOR_PMTILES)
+            .findFirst()
+            .orElse(null);
+
+    if (vectorLayer != null) {
+      if (vectorLayer.getUrlTemplate() == null || vectorLayer.getUrlTemplate().isBlank()) {
+        throw new IllegalArgumentException(
+            "VECTOR_PMTILES layer '"
+                + vectorLayer.getEffectiveId()
+                + "' has no urlTemplate configured");
+      }
+      if (pmtilesDownloader.isDownloadInProgress()) {
+        throw new IllegalStateException("A vector download is already in progress");
+      }
     }
 
     Preload preload = new Preload();
@@ -104,16 +93,11 @@ public class PreloadService {
     preload.setBoundingBox(boundingBox);
     preload.setMaxZoom(maxZoom);
     preload.setLayers(List.copyOf(validLayers));
-    preload.setIncludesVector(includeVector);
-    preload.setVectorLayerId(vectorLayerId);
     preload.setCreatedAt(Instant.now());
     preload.setAllowedUsers(
         allowedUsers == null ? new ArrayList<>() : new ArrayList<>(allowedUsers));
     preload.setAllowedGroups(
         allowedGroups == null ? new ArrayList<>() : new ArrayList<>(allowedGroups));
-    if (includeVector) {
-      preload.setPmtilesFilename(safeName(preload.getName()) + ".pmtiles");
-    }
 
     preloadStore.addPreload(preload);
 
@@ -121,7 +105,7 @@ public class PreloadService {
       boundingBox.setMaxZoom(maxZoom);
       submitXyz(validLayers, boundingBox);
     }
-    if (includeVector) {
+    if (vectorLayer != null) {
       try {
         pmtilesDownloader.startDownload(preload, vectorLayer);
       } catch (RuntimeException e) {
@@ -179,9 +163,5 @@ public class PreloadService {
         bbox.getEast(),
         bbox.getNorth(),
         maxZoom);
-  }
-
-  private static String safeName(String displayName) {
-    return displayName.replaceAll("[^a-zA-Z0-9_\\-.]", "_");
   }
 }
