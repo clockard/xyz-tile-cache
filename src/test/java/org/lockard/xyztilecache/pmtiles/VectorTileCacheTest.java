@@ -11,14 +11,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.TileResult;
 
-class VectorTileRemoteCacheTest {
+class VectorTileCacheTest {
 
   @TempDir Path tempDir;
 
-  private VectorTileRemoteCache cache(Path dir, long minFreeBytes) {
+  private VectorTileCache cache(Path dir, long minFreeBytes) {
     XyzConfiguration xConfig = new XyzConfiguration();
     xConfig.setMinFreeDiskBytes(minFreeBytes);
-    return new VectorTileRemoteCache(dir, xConfig);
+    return new VectorTileCache(dir, xConfig);
   }
 
   // ── get() ─────────────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ class VectorTileRemoteCacheTest {
 
   @Test
   void get_regularData_returnsWithNoCompression() throws IOException {
-    VectorTileRemoteCache c = cache(tempDir, 0);
+    VectorTileCache c = cache(tempDir, 0);
     byte[] data = {0x0a, 0x0b, 0x0c};
     Path path = c.cachePath(0, 0, 0);
     Files.createDirectories(path.getParent());
@@ -44,7 +44,7 @@ class VectorTileRemoteCacheTest {
 
   @Test
   void get_gzipMagicBytes_returnsWithGzipCompression() throws IOException {
-    VectorTileRemoteCache c = cache(tempDir, 0);
+    VectorTileCache c = cache(tempDir, 0);
     byte[] data = {0x1f, (byte) 0x8b, 0x08, 0x00};
     Path path = c.cachePath(1, 1, 1);
     Files.createDirectories(path.getParent());
@@ -57,7 +57,7 @@ class VectorTileRemoteCacheTest {
 
   @Test
   void get_singleByteData_treatedAsNoCompression() throws IOException {
-    VectorTileRemoteCache c = cache(tempDir, 0);
+    VectorTileCache c = cache(tempDir, 0);
     byte[] data = {0x1f}; // only 1 byte — isGzip requires >= 2
     Path path = c.cachePath(2, 2, 2);
     Files.createDirectories(path.getParent());
@@ -72,14 +72,14 @@ class VectorTileRemoteCacheTest {
 
   @Test
   void store_diskSpaceBelowMinimum_doesNotWrite() {
-    VectorTileRemoteCache c = cache(tempDir, Long.MAX_VALUE);
+    VectorTileCache c = cache(tempDir, Long.MAX_VALUE);
     c.store(5, 5, 5, new TileResult(new byte[] {1, 2, 3}, PmtilesHeader.COMPRESSION_NONE));
     assertThat(c.cachePath(5, 5, 5)).doesNotExist();
   }
 
   @Test
   void store_writesFileToDisk() {
-    VectorTileRemoteCache c = cache(tempDir, 0);
+    VectorTileCache c = cache(tempDir, 0);
     byte[] data = {0x0a, 0x0b};
     c.store(3, 3, 3, new TileResult(data, PmtilesHeader.COMPRESSION_NONE));
     assertThat(c.cachePath(3, 3, 3)).exists();
@@ -89,7 +89,7 @@ class VectorTileRemoteCacheTest {
 
   @Test
   void cachePath_returnsExpectedPath() {
-    VectorTileRemoteCache c = cache(tempDir, 0);
+    VectorTileCache c = cache(tempDir, 0);
     Path expected = tempDir.resolve("4").resolve("5").resolve("6.pbf");
     assertThat(c.cachePath(4, 5, 6)).isEqualTo(expected);
   }

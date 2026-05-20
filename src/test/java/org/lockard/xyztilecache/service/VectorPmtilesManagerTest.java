@@ -219,6 +219,26 @@ class VectorPmtilesManagerTest {
   }
 
   @Test
+  void getTile_offlineMode_remoteCache_servesCachedTile() throws Exception {
+    String layerId = "offline-cache-test";
+    Path layerDir = tileDir.toPath().resolve(layerId);
+    Files.createDirectories(layerDir.resolve("0").resolve("0"));
+    Files.write(layerDir.resolve("0").resolve("0").resolve("0.pbf"), new byte[] {0x0a, 0x0b});
+
+    Layer layer = new Layer();
+    layer.setId(layerId);
+    layer.setName("Offline Cache Test");
+    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setUrlTemplate("http://example.com/tiles.pmtiles");
+
+    manager.initLayer(layer);
+    // Even without a remote reader (offline=false here but no WireMock stub), cache is checked
+    // before remote and returns the pre-seeded tile.
+    assertThat(manager.getTile(layerId, 0, 0, 0)).isPresent();
+    manager.closeLayer(layerId);
+  }
+
+  @Test
   void notifyFileAvailable_parentDirMatchesLayerInStore_reloadsReader() throws Exception {
     // Copy fixture to a subdirectory named like a layer id
     String layerId = "notify-parent-test";

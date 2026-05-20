@@ -709,17 +709,17 @@ class ImportExportControllerTest {
 
   @Test
   void export_vectorPmtilesLayer_includesCachedTiles() throws Exception {
-    Path cacheDir = tileDir.toPath().resolve("vector-pmtiles").resolve("remote-cache");
-    Files.createDirectories(cacheDir.resolve("0").resolve("0"));
-    Files.write(cacheDir.resolve("0").resolve("0").resolve("0.pbf"), new byte[] {0x10, 0x20});
-    Files.createDirectories(cacheDir.resolve("1").resolve("1"));
-    Files.write(cacheDir.resolve("1").resolve("1").resolve("1.pbf"), new byte[] {0x30, 0x40});
+    Path layerDir = tileDir.toPath().resolve("vector-pmtiles");
+    Files.createDirectories(layerDir.resolve("0").resolve("0"));
+    Files.write(layerDir.resolve("0").resolve("0").resolve("0.pbf"), new byte[] {0x10, 0x20});
+    Files.createDirectories(layerDir.resolve("1").resolve("1"));
+    Files.write(layerDir.resolve("1").resolve("1").resolve("1.pbf"), new byte[] {0x30, 0x40});
 
     String jobId = submitExport("{\"layers\":[\"vector-pmtiles\"]}", adminJwt());
     Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
-    assertThat(entries).containsKey("vector-pmtiles/remote-cache/0/0/0.pbf");
-    assertThat(entries.get("vector-pmtiles/remote-cache/0/0/0.pbf")).containsExactly(0x10, 0x20);
-    assertThat(entries).containsKey("vector-pmtiles/remote-cache/1/1/1.pbf");
+    assertThat(entries).containsKey("vector-pmtiles/0/0/0.pbf");
+    assertThat(entries.get("vector-pmtiles/0/0/0.pbf")).containsExactly(0x10, 0x20);
+    assertThat(entries).containsKey("vector-pmtiles/1/1/1.pbf");
   }
 
   @Test
@@ -740,40 +740,34 @@ class ImportExportControllerTest {
 
   @Test
   void export_vectorPmtilesLayer_withBbox_filtersCachedTiles() throws Exception {
-    Path cacheDir = tileDir.toPath().resolve("vector-pmtiles").resolve("remote-cache");
+    Path layerDir = tileDir.toPath().resolve("vector-pmtiles");
     // z=1 x=0 y=0 is in western/northern hemisphere → included by bbox below
-    Files.createDirectories(cacheDir.resolve("1").resolve("0"));
-    Files.write(cacheDir.resolve("1").resolve("0").resolve("0.pbf"), new byte[] {0x50});
+    Files.createDirectories(layerDir.resolve("1").resolve("0"));
+    Files.write(layerDir.resolve("1").resolve("0").resolve("0.pbf"), new byte[] {0x50});
     // z=1 x=1 y=1 is in eastern hemisphere → excluded
-    Files.createDirectories(cacheDir.resolve("1").resolve("1"));
-    Files.write(cacheDir.resolve("1").resolve("1").resolve("1.pbf"), new byte[] {0x60});
+    Files.createDirectories(layerDir.resolve("1").resolve("1"));
+    Files.write(layerDir.resolve("1").resolve("1").resolve("1.pbf"), new byte[] {0x60});
 
     String body =
         "{\"layers\":[\"vector-pmtiles\"],"
             + "\"boundingBox\":{\"north\":85,\"south\":1,\"east\":-1,\"west\":-179,\"maxZoom\":1}}";
     String jobId = submitExport(body, adminJwt());
     Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
-    assertThat(entries).containsKey("vector-pmtiles/remote-cache/1/0/0.pbf");
-    assertThat(entries.get("vector-pmtiles/remote-cache/1/0/0.pbf")).containsExactly(0x50);
-    assertThat(entries).doesNotContainKey("vector-pmtiles/remote-cache/1/1/1.pbf");
+    assertThat(entries).containsKey("vector-pmtiles/1/0/0.pbf");
+    assertThat(entries.get("vector-pmtiles/1/0/0.pbf")).containsExactly(0x50);
+    assertThat(entries).doesNotContainKey("vector-pmtiles/1/1/1.pbf");
   }
 
   @Test
-  void importZip_vectorPmtiles_cachedTiles_writesToRemoteCache() throws Exception {
-    byte[] zip = buildZip(Map.of("vector-pmtiles/remote-cache/2/3/4.pbf", new byte[] {0x01, 0x02}));
+  void importZip_vectorPmtiles_cachedTiles_writesToLayerDir() throws Exception {
+    byte[] zip = buildZip(Map.of("vector-pmtiles/2/3/4.pbf", new byte[] {0x01, 0x02}));
     MockMultipartFile file = new MockMultipartFile("file", "x.zip", "application/zip", zip);
     mvc.perform(multipart("/import").file(file).with(adminJwt()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.tilesWritten").value(1));
 
     Path tile =
-        tileDir
-            .toPath()
-            .resolve("vector-pmtiles")
-            .resolve("remote-cache")
-            .resolve("2")
-            .resolve("3")
-            .resolve("4.pbf");
+        tileDir.toPath().resolve("vector-pmtiles").resolve("2").resolve("3").resolve("4.pbf");
     assertThat(Files.readAllBytes(tile)).containsExactly(0x01, 0x02);
   }
 

@@ -36,7 +36,8 @@ import org.springframework.stereotype.Service;
 /**
  * Streams layer tiles into a zip for download and ingests an uploaded zip back into the cache. Each
  * layer is laid out as {@code <layerId>/layer.json} plus tile files. Raster layers use {@code
- * <layerId>/<z>/<x>/<y>.png}; VECTOR_PMTILES layers use {@code <layerId>/<name>.pmtiles}.
+ * <layerId>/<z>/<x>/<y>.png}; VECTOR_PMTILES layers use {@code <layerId>/<name>.pmtiles} for
+ * pmtiles files and {@code <layerId>/<z>/<x>/<y>.pbf} for individually cached tiles.
  */
 @Service
 public class ImportExportService {
@@ -46,8 +47,7 @@ public class ImportExportService {
   private static final Pattern TILE_TAIL = Pattern.compile("\\d+/\\d+/\\d+\\.png");
   private static final Pattern SAFE_PMTILES_NAME =
       Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}\\.pmtiles");
-  private static final Pattern CACHED_TILE_TAIL =
-      Pattern.compile("remote-cache/\\d+/\\d+/\\d+\\.pbf");
+  private static final Pattern CACHED_TILE_TAIL = Pattern.compile("\\d+/\\d+/\\d+\\.pbf");
 
   private final XyzConfiguration configuration;
   private final VectorPmtilesManager vectorPmtilesManager;
@@ -70,12 +70,12 @@ public class ImportExportService {
 
   /**
    * Writes a zip containing each layer's {@code layer.json} and tile files. For raster layers, tile
-   * files are {@code <layerId>/<z>/<x>/<y>.png}. For VECTOR_PMTILES layers, locally cached tiles
-   * from {@code remote-cache/} are included as {@code <layerId>/remote-cache/<z>/<x>/<y>.pbf}. If
-   * {@code bbox} is null, local pmtiles file(s) are also included in full and all cached tiles are
-   * included; if {@code bbox} is non-null, the {@code pmtiles extract} CLI is used to produce a
-   * bbox-cropped pmtiles file (skipped with a warning if the CLI is unavailable or fails), and
-   * cached tile selection is filtered to the bbox.
+   * files are {@code <layerId>/<z>/<x>/<y>.png}. For VECTOR_PMTILES layers, pmtiles files are
+   * included as {@code <layerId>/<name>.pmtiles} and individually cached tiles as {@code
+   * <layerId>/<z>/<x>/<y>.pbf}. If {@code bbox} is null, all files are included in full; if {@code
+   * bbox} is non-null, the {@code pmtiles extract} CLI is used to produce a bbox-cropped pmtiles
+   * file (skipped with a warning if the CLI is unavailable or fails), and cached tile selection is
+   * filtered to the bbox.
    */
   public void streamExport(
       List<Layer> layers, BoundingBox bbox, Integer minZoom, Integer maxZoom, OutputStream out)
@@ -125,29 +125,25 @@ public class ImportExportService {
       pmtilesFiles = files.filter(p -> p.getFileName().toString().endsWith(".pmtiles")).toList();
     }
 
-    Path remoteCacheDir = layerDir.resolve("remote-cache");
-
     if (bbox == null) {
       for (Path p : pmtilesFiles) {
         writeEntry(zos, layerId + "/" + p.getFileName().toString(), p);
       }
-      if (Files.isDirectory(remoteCacheDir)) {
-        try (var paths = Files.walk(remoteCacheDir)) {
-          paths
-              .filter(Files::isRegularFile)
-              .filter(p -> p.getFileName().toString().endsWith(".pbf"))
-              .forEach(
-                  p -> {
-                    String rel = layerDir.relativize(p).toString().replace('\\', '/');
-                    try {
-                      writeEntry(zos, layerId + "/" + rel, p);
-                    } catch (IOException e) {
-                      throw new UncheckedIOException(e);
-                    }
-                  });
-        } catch (UncheckedIOException e) {
-          throw e.getCause();
-        }
+      try (var paths = Files.walk(layerDir)) {
+        paths
+            .filter(Files::isRegularFile)
+            .filter(p -> p.getFileName().toString().endsWith(".pbf"))
+            .forEach(
+                p -> {
+                  String rel = layerDir.relativize(p).toString().replace('\\', '/');
+                  try {
+                    writeEntry(zos, layerId + "/" + rel, p);
+                  } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                  }
+                });
+      } catch (UncheckedIOException e) {
+        throw e.getCause();
       }
     } else {
       int effectiveMax = Math.min(layer.getMaxZoom(), bbox.getMaxZoom());
@@ -158,10 +154,7 @@ public class ImportExportService {
         extractAndAddPmtiles(zos, layerId, pmtilesPath, bbox, start, effectiveMax);
       }
 
-      if (Files.isDirectory(remoteCacheDir)) {
-        addBboxTilesFromDir(
-            zos, remoteCacheDir, layerId + "/remote-cache/", ".pbf", bbox, start, effectiveMax);
-      }
+      addBboxTilesFromDir(zos, layerDir, layerId + "/", ".pbf", bbox, start, effectiveMax);
     }
   }
 

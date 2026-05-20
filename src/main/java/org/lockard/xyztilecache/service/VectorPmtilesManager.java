@@ -20,7 +20,7 @@ import org.lockard.xyztilecache.model.LayerChangedEvent;
 import org.lockard.xyztilecache.model.TileResult;
 import org.lockard.xyztilecache.pmtiles.PmtilesReader;
 import org.lockard.xyztilecache.pmtiles.RemotePmtilesReader;
-import org.lockard.xyztilecache.pmtiles.VectorTileRemoteCache;
+import org.lockard.xyztilecache.pmtiles.VectorTileCache;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,8 +39,7 @@ public class VectorPmtilesManager {
       new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, RemotePmtilesReader> remoteReaders =
       new ConcurrentHashMap<>();
-  private final ConcurrentHashMap<String, VectorTileRemoteCache> remoteCaches =
-      new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, VectorTileCache> caches = new ConcurrentHashMap<>();
 
   public VectorPmtilesManager(LayerStore layerStore, XyzConfiguration xyzConfig) {
     this.layerStore = layerStore;
@@ -57,17 +56,18 @@ public class VectorPmtilesManager {
   public void initLayer(Layer layer) {
     String layerId = layer.getEffectiveId();
     String source = layer.getUrlTemplate();
+
+    Path layerDir = layerDir(layerId);
+    openLocalReaders(layerId, findAllPmtiles(layerDir));
+    caches.put(layerId, new VectorTileCache(layerDir, xyzConfig));
+
     if (source == null || source.isBlank()) {
       LOGGER.warn("VECTOR_PMTILES layer '{}' has no urlTemplate; no reader opened", layerId);
       return;
     }
 
     if (source.startsWith("http://") || source.startsWith("https://")) {
-      Path layerDir = layerDir(layerId);
-      openLocalReaders(layerId, findAllPmtiles(layerDir));
-      if (!xyzConfig.isOffline()) {
-        openRemoteReader(layerId, source, layerDir);
-      }
+      openRemoteReader(layerId, source);
     } else {
       openLocalReaders(layerId, List.of(Path.of(source)));
     }
@@ -77,7 +77,7 @@ public class VectorPmtilesManager {
     List<PmtilesReader> locals = localReaders.remove(layerId);
     if (locals != null) locals.forEach(this::closeReaderSilently);
     remoteReaders.remove(layerId);
-    remoteCaches.remove(layerId);
+    caches.remove(layerId);
   }
 
   public Optional<TileResult> getTile(String layerId, int z, int x, int y) throws IOException {
@@ -91,18 +91,21 @@ public class VectorPmtilesManager {
       }
     }
 
-    RemotePmtilesReader remote = remoteReaders.get(layerId);
-    if (remote != null && !xyzConfig.isOffline()) {
-      VectorTileRemoteCache cache = remoteCaches.get(layerId);
-      if (cache != null) {
-        Optional<TileResult> cached = cache.get(z, x, y);
-        if (cached.isPresent()) return cached;
+    VectorTileCache cache = caches.get(layerId);
+    if (cache != null) {
+      Optional<TileResult> cached = cache.get(z, x, y);
+      if (cached.isPresent()) return cached;
+    }
+
+    if (!xyzConfig.isOffline()) {
+      RemotePmtilesReader remote = remoteReaders.get(layerId);
+      if (remote != null) {
+        Optional<TileResult> result = remote.getTile(z, x, y);
+        if (result.isPresent() && cache != null) {
+          cache.store(z, x, y, result.get());
+        }
+        return result;
       }
-      Optional<TileResult> result = remote.getTile(z, x, y);
-      if (result.isPresent() && cache != null) {
-        cache.store(z, x, y, result.get());
-      }
-      return result;
     }
 
     return Optional.empty();
@@ -145,7 +148,7 @@ public class VectorPmtilesManager {
     localReaders.values().forEach(list -> list.forEach(this::closeReaderSilently));
     localReaders.clear();
     remoteReaders.clear();
-    remoteCaches.clear();
+    caches.clear();
   }
 
   private void openLocalReaders(String layerId, List<Path> paths) {
@@ -164,7 +167,7 @@ public class VectorPmtilesManager {
     }
   }
 
-  private void openRemoteReader(String layerId, String sourceUrl, Path layerDir) {
+  private void openRemoteReader(String layerId, String sourceUrl) {
     String resolvedUrl = PmtilesDownloader.resolveSourceUrl(sourceUrl);
     if (resolvedUrl == null || resolvedUrl.isBlank()) return;
     HttpClient httpClient =
@@ -173,10 +176,7 @@ public class VectorPmtilesManager {
             .build();
     RemotePmtilesReader reader =
         new RemotePmtilesReader(resolvedUrl, httpClient, xyzConfig.getTileTimeoutSeconds());
-    Path cacheDir = layerDir.resolve("remote-cache");
-    VectorTileRemoteCache cache = new VectorTileRemoteCache(cacheDir, xyzConfig);
     remoteReaders.put(layerId, reader);
-    remoteCaches.put(layerId, cache);
     LOGGER.info("Opened remote PMTiles reader for layer '{}': {}", layerId, resolvedUrl);
   }
 

@@ -10,14 +10,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 
-public class VectorTileRemoteCache {
+public class VectorTileCache {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(VectorTileRemoteCache.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(VectorTileCache.class);
 
   private final Path cacheDir;
   private final XyzConfiguration xyzConfig;
 
-  public VectorTileRemoteCache(Path cacheDir, XyzConfiguration xyzConfig) {
+  public VectorTileCache(Path cacheDir, XyzConfiguration xyzConfig) {
     this.cacheDir = cacheDir;
     this.xyzConfig = xyzConfig;
   }
