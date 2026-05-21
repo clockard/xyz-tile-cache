@@ -1,0 +1,93 @@
+{
+  "realm": "xyz-tile-cache",
+  "enabled": true,
+  "accessTokenLifespan": 3600,
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Tile-cache administrator. Can manage all layers and read every layer."
+      }
+    ]
+  },
+  "groups": [
+    { "name": "admins" },
+    { "name": "team-foresters" },
+    { "name": "team-imagery" }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Admin",
+      "credentials": [{ "type": "password", "value": "password", "temporary": false }],
+      "realmRoles": ["admin"],
+      "groups": ["/admins"]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@example.com",
+      "firstName": "Bob",
+      "lastName": "Forester",
+      "credentials": [{ "type": "password", "value": "password", "temporary": false }],
+      "groups": ["/team-foresters"]
+    },
+    {
+      "username": "carol",
+      "enabled": true,
+      "email": "carol@example.com",
+      "firstName": "Carol",
+      "lastName": "Imager",
+      "credentials": [{ "type": "password", "value": "password", "temporary": false }],
+      "groups": ["/team-imagery"]
+    },
+    {
+      "username": "dan",
+      "enabled": true,
+      "email": "dan@example.com",
+      "firstName": "Dan",
+      "lastName": "Public",
+      "credentials": [{ "type": "password", "value": "password", "temporary": false }]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "xyz-tile-cache",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "redirectUris": ["http://localhost:8383/*"],
+      "webOrigins": ["*"],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "multivalued": "true",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

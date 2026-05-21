@@ -12,6 +12,8 @@ let downloadsPollInterval = null;
 let pendingBbox = null;
 let layerMap = {};
 let currentDownloads = [];
+let pendingExportBbox = null;
+let exportDrawInteraction = null;
 
 // ── Auth state ────────────────────────────────────────────────────────────────
 
@@ -27,6 +29,7 @@ const auth = {
 const PKCE_STORAGE_KEY = 'xyz-pkce';
 const TOKEN_STORAGE_KEY = 'xyz-tokens';
 const ADMIN_TOKEN_STORAGE_KEY = 'xyz-admin-token';
+const SSO_SILENT_CHECK_KEY = 'xyz-sso-silent';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
@@ -38,7 +41,12 @@ let preloadAllowedUsers, preloadAllowedGroups;
 let zoomIndicator, attributionEl;
 let geoTiffOverlay, geoTiffNameInput, geoTiffFileInput, geoTiffStatus;
 let geoTiffAllowedUsers, geoTiffAllowedGroups;
+let exportOverlay, exportLayersContainer, exportBboxDisplay, exportMaxZoom, exportStatus;
+let exportDrawBtn, exportClearBboxBtn;
+let exportsSection, exportsList;
+let importOverlay, importFileInput, importStatus;
 let loginBtn, logoutBtn, userDisplay;
+let offlineToggleBtn;
 let layerManagerOverlay, layerManagerTitle, lmListView, lmLayerList, lmFormView;
 let lfId, lfName, lfSourceType, lfUrl, lfUrlRow, lfWmtsSection;
 let lfWmtsLayer, lfWmtsMatrix, lfWmtsStyle, lfWmtsFormat, lfWmtsTime;
@@ -47,7 +55,6 @@ let lfAttribution, lfMaxZoom, lfExpiration, lfAllowedUsers, lfAllowedGroups;
 let editingLayerName = null;
 let lmDeleteConfirm = null;
 
-const VECTOR_LAYER_KEY = '__vector__';
 const VECTOR_MAX_ZOOM = 15;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -58,8 +65,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   downloadsBtn     = document.getElementById('downloads-btn');
   uploadGeoTiffBtn = document.getElementById('upload-geotiff-btn');
   manageLayersBtn  = document.getElementById('manage-layers-btn');
-  downloadsPanel = document.getElementById('downloads-panel');
-  downloadsList  = document.getElementById('downloads-list');
+  downloadsPanel  = document.getElementById('downloads-panel');
+  downloadsList   = document.getElementById('downloads-list');
+  exportsSection  = document.getElementById('exports-section');
+  exportsList     = document.getElementById('exports-list');
   preloadOverlay = document.getElementById('preload-overlay');
   bboxDisplay    = document.getElementById('bbox-display');
   zoomSlider     = document.getElementById('zoom-slider');
@@ -77,8 +86,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   geoTiffStatus = document.getElementById('geotiff-status');
   geoTiffAllowedUsers = document.getElementById('geotiff-allowed-users');
   geoTiffAllowedGroups = document.getElementById('geotiff-allowed-groups');
+  exportOverlay = document.getElementById('export-overlay');
+  exportLayersContainer = document.getElementById('export-layers');
+  exportBboxDisplay = document.getElementById('export-bbox-display');
+  exportMaxZoom = document.getElementById('export-max-zoom');
+  exportStatus = document.getElementById('export-status');
+  exportDrawBtn = document.getElementById('export-draw-btn');
+  exportClearBboxBtn = document.getElementById('export-clear-bbox-btn');
+  importOverlay = document.getElementById('import-overlay');
+  importFileInput = document.getElementById('import-file-input');
+  importStatus = document.getElementById('import-status');
   loginBtn = document.getElementById('login-btn');
   logoutBtn = document.getElementById('logout-btn');
+  offlineToggleBtn = document.getElementById('offline-toggle-btn');
   userDisplay = document.getElementById('user-display');
 
   layerManagerOverlay = document.getElementById('layer-manager-overlay');
@@ -127,6 +147,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('cancel-preload').addEventListener('click', hidePreloadModal);
   document.getElementById('submit-geotiff').addEventListener('click', submitGeoTiff);
   document.getElementById('cancel-geotiff').addEventListener('click', hideGeoTiffModal);
+  document.getElementById('export-btn').addEventListener('click', showExportModal);
+  document.getElementById('import-btn').addEventListener('click', showImportModal);
+  document.getElementById('submit-export').addEventListener('click', submitExport);
+  document.getElementById('cancel-export').addEventListener('click', hideExportModal);
+  document.getElementById('submit-import').addEventListener('click', submitImport);
+  document.getElementById('cancel-import').addEventListener('click', hideImportModal);
+  exportDrawBtn.addEventListener('click', startExportDraw);
+  exportClearBboxBtn.addEventListener('click', clearExportBbox);
+  exportOverlay.addEventListener('click', (e) => {
+    if (e.target === exportOverlay) hideExportModal();
+  });
+  importOverlay.addEventListener('click', (e) => {
+    if (e.target === importOverlay) hideImportModal();
+  });
   document.getElementById('submit-login').addEventListener('click', submitLogin);
   document.getElementById('cancel-login').addEventListener('click', hideLoginModal);
   document.getElementById('login-overlay').addEventListener('click', (e) => {
@@ -137,6 +171,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   loginBtn.addEventListener('click', login);
   logoutBtn.addEventListener('click', logout);
+  offlineToggleBtn.addEventListener('click', toggleOfflineMode);
 
   downloadsList.addEventListener('click', (e) => {
     const item = e.target.closest('.download-item');
@@ -148,6 +183,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (d && Array.isArray(d.bounds) && d.bounds.length === 4) {
       showDownloadBbox(d.bounds);
     }
+  });
+
+  exportsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.export-download-btn');
+    if (!btn) return;
+    downloadExportJob(btn.dataset.jobId, btn.dataset.filename);
   });
 
   preloadOverlay.addEventListener('click', (e) => {
@@ -163,13 +204,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   await initAuth();
   applyAuthUiState();
   await loadLayers();
+  await loadOfflineMode();
 });
+
+// ── Path helper ───────────────────────────────────────────────────────────────
+
+function appBasePath() {
+  const path = window.location.pathname;
+  const lastSegment = path.replace(/.*\//, '');
+  if (lastSegment.includes('.')) {
+    // Last segment is a file (e.g. index.html) — strip it
+    return path.replace(/\/[^/]*$/, '');
+  }
+  // Last segment is a bare directory or empty — strip only a trailing slash
+  return path.replace(/\/$/, '');
+}
+
+function apiPath(path) {
+  return appBasePath() + path;
+}
+
+function appBaseUrl() {
+  return window.location.origin + appBasePath() + '/';
+}
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 async function initAuth() {
   try {
-    const resp = await fetch('/auth/config');
+    const resp = await fetch(apiPath('/auth/config'));
     if (resp.ok) {
       auth.config = await resp.json();
     }
@@ -188,6 +251,10 @@ async function initAuth() {
 
   if (await maybeCompleteAuthRedirect()) return;
   loadStoredTokens();
+
+  if (!auth.accessToken) {
+    await trySilentSsoCheck();
+  }
 }
 
 async function maybeCompleteAuthRedirect() {
@@ -217,9 +284,9 @@ async function maybeCompleteAuthRedirect() {
   }
 }
 
-function cleanUrlParams() {
+function cleanUrlParams(extra = []) {
   const url = new URL(window.location.href);
-  ['code', 'state', 'session_state', 'iss'].forEach((p) => url.searchParams.delete(p));
+  ['code', 'state', 'session_state', 'iss', ...extra].forEach((p) => url.searchParams.delete(p));
   window.history.replaceState({}, '', url.pathname + (url.search || '') + url.hash);
 }
 
@@ -239,6 +306,40 @@ function loadStoredTokens() {
   }
 }
 
+async function trySilentSsoCheck() {
+  if (!auth.config || !auth.config.issuerUri) return;
+
+  const params = new URLSearchParams(window.location.search);
+
+  if (sessionStorage.getItem(SSO_SILENT_CHECK_KEY)) {
+    // Returning from a silent check — clean up and don't redirect again
+    sessionStorage.removeItem(SSO_SILENT_CHECK_KEY);
+    sessionStorage.removeItem(PKCE_STORAGE_KEY);
+    if (params.has('error')) cleanUrlParams(['error', 'error_description']);
+    return;
+  }
+
+  const codeVerifier = randomString(64);
+  const codeChallenge = await sha256Base64Url(codeVerifier);
+  const state = randomString(32);
+  const redirectUri = appBaseUrl();
+
+  sessionStorage.setItem(SSO_SILENT_CHECK_KEY, '1');
+  sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ codeVerifier, state, redirectUri }));
+
+  const authParams = new URLSearchParams({
+    client_id: auth.config.clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid profile',
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+    state,
+    prompt: 'none'
+  });
+  window.location.href = `${auth.config.issuerUri}/protocol/openid-connect/auth?${authParams}`;
+}
+
 async function login() {
   if (auth.config && auth.config.mode === 'token') {
     showLoginModal();
@@ -251,7 +352,7 @@ async function login() {
   const codeVerifier = randomString(64);
   const codeChallenge = await sha256Base64Url(codeVerifier);
   const state = randomString(32);
-  const redirectUri = window.location.origin + '/';
+  const redirectUri = appBaseUrl();
 
   sessionStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({
     codeVerifier, state, redirectUri
@@ -286,7 +387,7 @@ async function logout() {
 
   if (auth.config && auth.config.issuerUri) {
     const params = new URLSearchParams({
-      post_logout_redirect_uri: window.location.origin + '/',
+      post_logout_redirect_uri: appBaseUrl(),
       client_id: auth.config.clientId
     });
     if (idToken) params.set('id_token_hint', idToken);
@@ -319,7 +420,7 @@ async function submitLogin() {
   }
   status.textContent = 'Verifying…';
   try {
-    const probe = await fetch('/preloads', {
+    const probe = await fetch(apiPath('/preloads'), {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (probe.status === 401 || probe.status === 403) {
@@ -455,6 +556,9 @@ function applyAuthUiState() {
   }
   document.querySelectorAll('.admin-only').forEach((el) => {
     el.classList.toggle('hidden', !isAdmin());
+  });
+  document.querySelectorAll('.auth-only').forEach((el) => {
+    el.classList.toggle('hidden', !loggedIn);
   });
 }
 
@@ -613,7 +717,7 @@ async function loadLayers() {
 
   let layers = [];
   try {
-    const resp = await authFetch('/layers');
+    const resp = await authFetch(apiPath('/layers'));
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     layers = await resp.json();
   } catch (e) {
@@ -629,47 +733,39 @@ async function loadLayers() {
     layerSelect.appendChild(opt);
   });
 
-  const vectorOpt = document.createElement('option');
-  vectorOpt.value = '__vector__';
-  vectorOpt.textContent = 'OSM Vector';
-  layerSelect.appendChild(vectorOpt);
-
-  if (previous && (layerMap[previous] || previous === '__vector__')) {
+  if (previous && layerMap[previous]) {
     layerSelect.value = previous;
     switchLayer(previous);
   } else if (layers.length > 0) {
     const firstId = layers[0].id || layers[0].name;
     layerSelect.value = firstId;
     switchLayer(firstId);
-  } else {
-    layerSelect.value = '__vector__';
-    switchLayer('__vector__');
   }
 }
 
 function switchLayer(name) {
-  if (name === '__vector__') {
-    switchToVector();
-    return;
-  }
-
   const layer = layerMap[name] || {};
-  setMapTileLayer(
-    new ol.layer.Tile({
-      source: new ol.source.XYZ({
-        url: `/tilesZYX/${encodeURIComponent(name)}/{z}/{y}/{x}.png`,
-        crossOrigin: 'anonymous',
-        tileLoadFunction: authTileLoadFunction
+  if (layer.sourceType === 'VECTOR_PMTILES') {
+    switchToVectorPmtiles(name, layer);
+  } else {
+    setMapTileLayer(
+      new ol.layer.Tile({
+        source: new ol.source.XYZ({
+          url: apiPath(`/tilesZYX/${encodeURIComponent(name)}/{z}/{y}/{x}.png`),
+          crossOrigin: 'anonymous',
+          tileLoadFunction: authTileLoadFunction
+        })
       })
-    })
-  );
+    );
+  }
   updateAttribution(layer.attribution || '');
 }
 
-function switchToVector() {
+function switchToVectorPmtiles(name, layer) {
   const source = new ol.source.VectorTile({
-    url: '/vector/{z}/{x}/{y}',
-    format: new ol.format.MVT()
+    url: apiPath('/tilesZYX/' + encodeURIComponent(name) + '/{z}/{y}/{x}.mvt'),
+    format: new ol.format.MVT(),
+    maxZoom: layer.maxZoom || 14
   });
   source.setTileLoadFunction(authVectorTileLoader);
   setMapTileLayer(
@@ -679,29 +775,33 @@ function switchToVector() {
       style: vectorStyleFn
     })
   );
-  updateAttribution('© <a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>');
 }
 
 // ── Vector tile style (Protomaps LIGHT theme) ─────────────────────────────────
 
-const EARTH_STYLE = new ol.style.Style({ fill: new ol.style.Fill({ color: '#e2dfda' }) });
+const EARTH_STYLE = new ol.style.Style({ fill: new ol.style.Fill({ color: '#e2dfda' }), zIndex: 1 });
 
 const WATER_STYLE = new ol.style.Style({
-  fill: new ol.style.Fill({ color: '#80deea' })
+  fill: new ol.style.Fill({ color: '#80deea' }),
+  zIndex: 3
 });
 
 const TRANSIT_RAIL = new ol.style.Style({
-  stroke: new ol.style.Stroke({ color: '#a7b1b3', width: 1.5 })
+  stroke: new ol.style.Stroke({ color: '#a7b1b3', width: 1.5 }),
+  zIndex: 6
 });
 const TRANSIT_OTHER = new ol.style.Style({
-  stroke: new ol.style.Stroke({ color: '#a7b1b3', width: 1, lineDash: [6, 4] })
+  stroke: new ol.style.Stroke({ color: '#a7b1b3', width: 1, lineDash: [6, 4] }),
+  zIndex: 6
 });
 
 const BOUNDARY_COUNTRY = new ol.style.Style({
-  stroke: new ol.style.Stroke({ color: '#adadad', width: 1.5, lineDash: [8, 4] })
+  stroke: new ol.style.Stroke({ color: '#adadad', width: 1.5, lineDash: [8, 4] }),
+  zIndex: 7
 });
 const BOUNDARY_REGION = new ol.style.Style({
-  stroke: new ol.style.Stroke({ color: '#adadad', width: 1, lineDash: [8, 6] })
+  stroke: new ol.style.Stroke({ color: '#adadad', width: 1, lineDash: [8, 6] }),
+  zIndex: 7
 });
 
 const LANDUSE_COLORS = {
@@ -723,22 +823,23 @@ const LANDUSE_COLORS = {
   zoo: '#c6dcdc'
 };
 
+// Colors match OSM Carto standard stylesheet
 const ROAD_SPECS = {
-  highway:       { fill: '#ffffff', case_: '#e0e0e0', base: 6 },
-  motorway:      { fill: '#ffffff', case_: '#e0e0e0', base: 6 },
-  motorway_link: { fill: '#ffffff', case_: '#e0e0e0', base: 4 },
-  trunk:         { fill: '#ffffff', case_: '#e0e0e0', base: 5 },
-  trunk_link:    { fill: '#ffffff', case_: '#e0e0e0', base: 3.5 },
-  primary:       { fill: '#ffffff', case_: '#e0e0e0', base: 4.5 },
-  primary_link:  { fill: '#ffffff', case_: '#e0e0e0', base: 3 },
-  major_road:    { fill: '#ffffff', case_: '#e0e0e0', base: 4.5 },
-  secondary:     { fill: '#ffffff', case_: '#e0e0e0', base: 3.5 },
-  secondary_link:{ fill: '#ffffff', case_: '#e0e0e0', base: 2.5 },
-  tertiary:      { fill: '#ffffff', case_: '#e0e0e0', base: 3 },
-  tertiary_link: { fill: '#ffffff', case_: '#e0e0e0', base: 2 },
-  minor_road:    { fill: '#ebebeb', case_: '#e0e0e0', base: 2 },
-  residential:   { fill: '#ebebeb', case_: '#e0e0e0', base: 2 },
-  service:       { fill: '#ebebeb', case_: '#e0e0e0', base: 1 },
+  highway:       { fill: '#e892a2', case_: '#c0516b', base: 6 },
+  motorway:      { fill: '#e892a2', case_: '#c0516b', base: 6 },
+  motorway_link: { fill: '#e892a2', case_: '#c0516b', base: 4 },
+  trunk:         { fill: '#f9b29c', case_: '#c84816', base: 5 },
+  trunk_link:    { fill: '#f9b29c', case_: '#c84816', base: 3.5 },
+  primary:       { fill: '#fcd966', case_: '#a06b00', base: 4.5 },
+  primary_link:  { fill: '#fcd966', case_: '#a06b00', base: 3 },
+  major_road:    { fill: '#fcd966', case_: '#a06b00', base: 4.5 },
+  secondary:     { fill: '#f7fabf', case_: '#707d05', base: 3.5 },
+  secondary_link:{ fill: '#f7fabf', case_: '#707d05', base: 2.5 },
+  tertiary:      { fill: '#ffffff', case_: '#8f8f8f', base: 3 },
+  tertiary_link: { fill: '#ffffff', case_: '#8f8f8f', base: 2 },
+  minor_road:    { fill: '#ffffff', case_: '#c0c0c0', base: 2 },
+  residential:   { fill: '#ffffff', case_: '#c0c0c0', base: 2 },
+  service:       { fill: '#f5f5f5', case_: '#d0d0d0', base: 1 },
   track:         { fill: '#a0a0a0', case_: null, base: 1.5, dash: [6, 3] },
   path:          { fill: '#a0a0a0', case_: null, base: 1,   dash: [4, 3] },
   footway:       { fill: '#a0a0a0', case_: null, base: 1,   dash: [4, 2] },
@@ -749,25 +850,39 @@ const ROAD_SPECS = {
 const MAIN_ROAD_KINDS = new Set(['highway', 'motorway', 'trunk', 'major_road', 'primary']);
 const HIGH_ZOOM_KINDS = new Set(['path', 'footway', 'cycleway', 'service', 'residential']);
 
+// zIndex bands: cases 10-17, fills 20-27, labels 30-37
+const ROAD_IMPORTANCE = {
+  highway: 7, motorway: 7,
+  trunk: 6,   major_road: 6,
+  motorway_link: 5, trunk_link: 5, primary: 5,
+  primary_link: 4,
+  secondary: 3, secondary_link: 3,
+  tertiary: 2, tertiary_link: 2,
+  minor_road: 1, residential: 1,
+  service: 0, track: 0, path: 0, footway: 0, cycleway: 0, ferry: 0
+};
+
 function roadStyles(kind, z) {
   if (z < 5 && !MAIN_ROAD_KINDS.has(kind)) return null;
   if (z < 7 && !MAIN_ROAD_KINDS.has(kind) && kind !== 'secondary') return null;
   if (z < 10 && HIGH_ZOOM_KINDS.has(kind)) return null;
 
   const spec = ROAD_SPECS[kind] || ROAD_SPECS['minor_road'];
-  const scale = z >= 14 ? 2.0 : z >= 12 ? 1.5 : z >= 10 ? 1.0 : z >= 8 ? 0.7 : 0.5;
+  const scale = z >= 15 ? 2.0 : z >= 14 ? 1.4 : z >= 12 ? 0.9 : z >= 10 ? 0.55 : z >= 8 ? 0.4 : z >= 6 ? 0.3 : 0.2;
   const fillWidth = spec.base * scale;
+  const importance = ROAD_IMPORTANCE[kind] ?? 0;
 
   if (spec.dash) {
     return new ol.style.Style({
-      stroke: new ol.style.Stroke({ color: spec.fill, width: fillWidth, lineDash: spec.dash })
+      stroke: new ol.style.Stroke({ color: spec.fill, width: fillWidth, lineDash: spec.dash }),
+      zIndex: 20 + importance
     });
   }
 
   const caseWidth = fillWidth + (z >= 12 ? 2.5 : 1.5);
   return [
-    new ol.style.Style({ stroke: new ol.style.Stroke({ color: spec.case_, width: caseWidth }) }),
-    new ol.style.Style({ stroke: new ol.style.Stroke({ color: spec.fill, width: fillWidth }) })
+    new ol.style.Style({ stroke: new ol.style.Stroke({ color: spec.case_, width: caseWidth }), zIndex: 10 + importance }),
+    new ol.style.Style({ stroke: new ol.style.Stroke({ color: spec.fill, width: fillWidth }), zIndex: 20 + importance })
   ];
 }
 
@@ -775,42 +890,123 @@ function getLabel(feature) {
   return feature.get('name:en') || feature.get('name');
 }
 
+// Protomaps provides kind (broad: 'highway','major_road','minor_road') and
+// kind_detail (specific: 'motorway','trunk','primary'...). Check both so the
+// thresholds work regardless of which field carries the road classification.
+function roadLabelMinZoom(kind, kindDetail) {
+  if (HIGH_ZOOM_KINDS.has(kind) || HIGH_ZOOM_KINDS.has(kindDetail)) return 14;
+  if (MAIN_ROAD_KINDS.has(kind) || MAIN_ROAD_KINDS.has(kindDetail)) return 8;
+  if (kind === 'secondary' || kindDetail === 'secondary' ||
+      kind === 'secondary_link' || kindDetail === 'secondary_link') return 10;
+  return 12;
+}
+
 function roadNameStyle(feature, z) {
-  if (z < 12) return null;
   const name = getLabel(feature);
   if (!name) return null;
   const kind = feature.get('kind') || '';
-  if (z < 14 && HIGH_ZOOM_KINDS.has(kind)) return null;
+  const kindDetail = feature.get('kind_detail') || '';
+  if (z < roadLabelMinZoom(kind, kindDetail)) return null;
+  const importance = ROAD_IMPORTANCE[kind] ?? ROAD_IMPORTANCE[kindDetail] ?? 0;
   const fontSize = z >= 14 ? 11 : 10;
   return new ol.style.Style({
     text: new ol.style.Text({
       text: name,
       font: `${fontSize}px Arial, sans-serif`,
-      fill: new ol.style.Fill({ color: '#91888b' }),
+      fill: new ol.style.Fill({ color: '#555' }),
       stroke: new ol.style.Stroke({ color: '#ffffff', width: 3 }),
       placement: 'line',
       overflow: false
-    })
+    }),
+    zIndex: 30 + importance
+  });
+}
+
+// Route number shields (ref property). Protomaps includes ref on highway features
+// at low zoom levels, so shields can appear from z6 for major roads.
+// Uses backgroundFill/backgroundStroke to create a badge appearance.
+function roadShieldStyle(feature, z, kind, kindDetail) {
+  const ref = feature.get('ref');
+  if (!ref) return null;
+  const isMain = MAIN_ROAD_KINDS.has(kind) || MAIN_ROAD_KINDS.has(kindDetail);
+  const isTrunkish = kind === 'trunk' || kindDetail === 'trunk' ||
+                     kind === 'highway' || kindDetail === 'motorway';
+  if (isMain && z < 6) return null;
+  if (!isMain && z < 10) return null;
+
+  const spec = ROAD_SPECS[kindDetail] || ROAD_SPECS[kind] || ROAD_SPECS['minor_road'];
+  // Pick text color: dark on light fills (yellow/white), light on dark fills
+  const textColor = (spec.fill === '#e892a2' || spec.fill === '#f9b29c') ? '#ffffff' : '#333333';
+
+  return new ol.style.Style({
+    text: new ol.style.Text({
+      text: String(ref),
+      font: `bold ${z >= 10 ? 10 : 9}px Arial, sans-serif`,
+      fill: new ol.style.Fill({ color: textColor }),
+      backgroundFill: new ol.style.Fill({ color: spec.fill }),
+      backgroundStroke: new ol.style.Stroke({ color: spec.case_ || '#999', width: 1 }),
+      padding: [1, 3, 1, 3],
+      placement: 'point',
+      overflow: true
+    }),
+    zIndex: 38 + (ROAD_IMPORTANCE[kind] ?? ROAD_IMPORTANCE[kindDetail] ?? 0)
   });
 }
 
 const PLACE_SPECS = {
-  continent:    { minZ: 0,  maxSize: 16, minSize: 13, weight: '700', color: '#a3a3a3', upper: true },
-  country:      { minZ: 1,  maxSize: 18, minSize: 13, weight: '700', color: '#a3a3a3', upper: true },
-  state:        { minZ: 4,  maxSize: 15, minSize: 13, weight: '600', color: '#b3b3b3', upper: true },
-  province:     { minZ: 4,  maxSize: 15, minSize: 13, weight: '600', color: '#b3b3b3', upper: true },
-  city:         { minZ: 3,  maxSize: 18, minSize: 14, weight: '700', color: '#5c5c5c' },
-  town:         { minZ: 8,  maxSize: 14, minSize: 12, weight: '500', color: '#5c5c5c' },
-  village:      { minZ: 11, maxSize: 12, minSize: 11, weight: '400', color: '#5c5c5c' },
-  suburb:       { minZ: 12, maxSize: 12, minSize: 11, weight: '400', color: '#8f8f8f' },
-  neighborhood: { minZ: 13, maxSize: 11, minSize: 10, weight: '400', color: '#8f8f8f' },
-  locality:     { minZ: 13, maxSize: 11, minSize: 10, weight: '400', color: '#8f8f8f' }
+  continent:     { minZ: 0,  maxSize: 16, minSize: 13, weight: '700', color: '#a3a3a3', upper: true },
+  macroregion:   { minZ: 2,  maxSize: 14, minSize: 12, weight: '600', color: '#b3b3b3', upper: true },
+  country:       { minZ: 1,  maxSize: 18, minSize: 13, weight: '700', color: '#a3a3a3', upper: true },
+  region:        { minZ: 4,  maxSize: 15, minSize: 12, weight: '600', color: '#b3b3b3', upper: true },
+  state:         { minZ: 4,  maxSize: 15, minSize: 12, weight: '600', color: '#b3b3b3', upper: true },
+  province:      { minZ: 4,  maxSize: 15, minSize: 12, weight: '600', color: '#b3b3b3', upper: true },
+  county:        { minZ: 7,  maxSize: 13, minSize: 11, weight: '500', color: '#999999', upper: true },
+  macrocounty:   { minZ: 6,  maxSize: 13, minSize: 11, weight: '500', color: '#b3b3b3', upper: true },
+  city:          { minZ: 3,  maxSize: 18, minSize: 14, weight: '700', color: '#5c5c5c' },
+  town:          { minZ: 8,  maxSize: 14, minSize: 12, weight: '500', color: '#5c5c5c' },
+  village:       { minZ: 11, maxSize: 12, minSize: 11, weight: '400', color: '#5c5c5c' },
+  hamlet:        { minZ: 12, maxSize: 11, minSize: 10, weight: '400', color: '#7c7c7c' },
+  suburb:        { minZ: 12, maxSize: 12, minSize: 11, weight: '400', color: '#8f8f8f' },
+  neighborhood:  { minZ: 13, maxSize: 11, minSize: 10, weight: '400', color: '#8f8f8f' },
+  neighbourhood: { minZ: 13, maxSize: 11, minSize: 10, weight: '400', color: '#8f8f8f' },
+  locality:      { minZ: 3,  maxSize: 16, minSize: 10, weight: '400', color: '#5c5c5c' }
 };
+
+// Protomaps encodes all settlements (cities, towns, villages) as kind=locality and
+// uses pmap:min_zoom per-feature to distinguish importance (2=major city, 12=hamlet).
+// Tiles are already filtered by zoom, so defaulting to 2 is safe — at z5 only major
+// cities are present in the tile data at all.
+function localityStyle(feature, z, name) {
+  const featureMinZ = feature.get('pmap:min_zoom') ?? feature.get('min_zoom') ?? 2;
+  if (z < featureMinZ) return null;
+  const importance = Math.max(0, 12 - featureMinZ);
+  const fontSize = Math.round(10 + importance * 0.55 + Math.min(1, (z - featureMinZ) / 4) * 3);
+  const weight = featureMinZ <= 4 ? '700' : featureMinZ <= 7 ? '600' : featureMinZ <= 9 ? '500' : '400';
+  const color = featureMinZ <= 7 ? '#4a4a4a' : '#5c5c5c';
+  return new ol.style.Style({
+    text: new ol.style.Text({
+      text: name,
+      font: `${weight} ${fontSize}px Arial, sans-serif`,
+      fill: new ol.style.Fill({ color }),
+      stroke: new ol.style.Stroke({ color: '#e0e0e0', width: 3 }),
+      overflow: true,
+      placement: 'point'
+    })
+  });
+}
 
 function placeStyle(feature, z) {
   const name = getLabel(feature);
   if (!name) return null;
-  const spec = PLACE_SPECS[feature.get('kind')] || PLACE_SPECS['locality'];
+  const kind = feature.get('kind') || '';
+
+  // Protomaps uses locality for all settlements; delegate to per-feature zoom
+  if (kind === 'locality' || kind === 'neighbourhood' || kind === 'neighborhood') {
+    return localityStyle(feature, z, name);
+  }
+
+  const spec = PLACE_SPECS[kind];
+  if (!spec) return null;
   if (z < spec.minZ) return null;
 
   const t = Math.min(1, (z - spec.minZ) / 4);
@@ -830,11 +1026,12 @@ function placeStyle(feature, z) {
 
 function buildingStyle(feature, z) {
   if (z < 13) return null;
-  const alpha = Math.min(1, 0.4 + (z - 13) * 0.3).toFixed(2);
+  const alpha = Math.min(1, 0.55 + (z - 13) * 0.25).toFixed(2);
   const styles = [
     new ol.style.Style({
-      fill: new ol.style.Fill({ color: `rgba(204,204,204,${alpha})` }),
-      stroke: new ol.style.Stroke({ color: `rgba(176,176,176,${alpha})`, width: 0.75 })
+      fill: new ol.style.Fill({ color: `rgba(210,200,185,${alpha})` }),
+      stroke: new ol.style.Stroke({ color: `rgba(120,105,90,${alpha})`, width: 1 }),
+      zIndex: 8
     })
   ];
   if (z >= 15) {
@@ -877,7 +1074,7 @@ function vectorStyleFn(feature, resolution) {
     case 'earth':     return EARTH_STYLE;
     case 'landuse': {
       const color = LANDUSE_COLORS[kind];
-      return color ? new ol.style.Style({ fill: new ol.style.Fill({ color }) }) : null;
+      return color ? new ol.style.Style({ fill: new ol.style.Fill({ color }), zIndex: 2 }) : null;
     }
     case 'water': {
       const wname = getLabel(feature);
@@ -896,11 +1093,14 @@ function vectorStyleFn(feature, resolution) {
       ];
     }
     case 'roads': {
+      const kindDetail = feature.get('kind_detail') || '';
       const geomStyle = roadStyles(kind, z);
       const nameStyle = roadNameStyle(feature, z);
-      if (!geomStyle && !nameStyle) return null;
+      const shieldStyle = roadShieldStyle(feature, z, kind, kindDetail);
+      if (!geomStyle && !nameStyle && !shieldStyle) return null;
       const arr = Array.isArray(geomStyle) ? [...geomStyle] : (geomStyle ? [geomStyle] : []);
       if (nameStyle) arr.push(nameStyle);
+      if (shieldStyle) arr.push(shieldStyle);
       return arr.length === 1 ? arr[0] : arr;
     }
     case 'buildings': return buildingStyle(feature, z);
@@ -1030,9 +1230,13 @@ function hidePreloadModal() {
 
 function buildPreloadLayerCheckboxes() {
   preloadLayersContainer.innerHTML = '';
-  appendPreloadLayerRow(VECTOR_LAYER_KEY, 'OSM Vector', { recommended: true, checked: true });
+  const vectorIds = Object.keys(layerMap).filter((id) => layerMap[id].sourceType === 'VECTOR_PMTILES');
+  vectorIds.forEach((id) => {
+    appendPreloadLayerRow(id, layerMap[id].name || id, { recommended: true, checked: vectorIds.length === 1 });
+  });
   Object.keys(layerMap).forEach((id) => {
     const layer = layerMap[id];
+    if (layer.sourceType === 'VECTOR_PMTILES') return;
     if (layer.sourceType === 'LOCAL') return;
     if (layerHasTimeComponent(layer)) return;
     appendPreloadLayerRow(id, layer.name || id, { recommended: false, checked: false });
@@ -1074,7 +1278,7 @@ function updatePreloadEstimates() {
     const checked = row.querySelector('input').checked;
     const estimateEl = row.querySelector('.tile-estimate');
 
-    if (key === VECTOR_LAYER_KEY) {
+    if (layerMap[key] && layerMap[key].sourceType === 'VECTOR_PMTILES') {
       estimateEl.textContent = '';
       return;
     }
@@ -1143,30 +1347,29 @@ async function submitPreload() {
     return;
   }
 
-  const maxZoom = parseInt(zoomSlider.value, 10);
+  const maxZoomRaw = parseInt(zoomSlider.value, 10);
   const bbox = { ...pendingBbox };
   const name = preloadNameInput.value.trim() || null;
 
-  const xyzLayers = selected.filter((k) => k !== VECTOR_LAYER_KEY);
-  const includeVector = selected.includes(VECTOR_LAYER_KEY);
+  const vectorKeys = selected.filter((k) => layerMap[k] && layerMap[k].sourceType === 'VECTOR_PMTILES');
+  const xyzLayers = selected.filter((k) => !layerMap[k] || layerMap[k].sourceType !== 'VECTOR_PMTILES');
+  const includeVector = vectorKeys.length > 0;
+  const vectorLayerId = vectorKeys.length > 0 ? vectorKeys[0] : null;
+  const vectorMaxZoom = vectorLayerId && layerMap[vectorLayerId]
+    ? (layerMap[vectorLayerId].maxZoom || VECTOR_MAX_ZOOM)
+    : VECTOR_MAX_ZOOM;
+  const maxZoom = includeVector ? Math.min(maxZoomRaw, vectorMaxZoom) : maxZoomRaw;
   const allowedUsers = splitList(preloadAllowedUsers.value);
   const allowedGroups = splitList(preloadAllowedGroups.value);
 
   hidePreloadModal();
 
   try {
-    const resp = await authFetch('/preloads', {
+    const body = { name, boundingBox: bbox, maxZoom, layers: selected, allowedUsers, allowedGroups };
+    const resp = await authFetch(apiPath('/preloads'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        boundingBox: bbox,
-        maxZoom: includeVector ? Math.min(maxZoom, VECTOR_MAX_ZOOM) : maxZoom,
-        layers: xyzLayers,
-        includeVector,
-        allowedUsers,
-        allowedGroups
-      })
+      body: JSON.stringify(body)
     });
 
     if (resp.status === 202) {
@@ -1220,8 +1423,12 @@ function stopDownloadPolling() {
 }
 
 async function loadDownloads() {
+  await Promise.all([loadPreloads(), loadExportJobs()]);
+}
+
+async function loadPreloads() {
   try {
-    const resp = await authFetch('/preloads');
+    const resp = await authFetch(apiPath('/preloads'));
     if (!resp.ok) {
       downloadsList.innerHTML = '<li class="empty-state">Preloads unavailable</li>';
       return;
@@ -1229,6 +1436,72 @@ async function loadDownloads() {
     renderDownloads(await resp.json());
   } catch (e) {
     downloadsList.innerHTML = '<li class="empty-state">Failed to load preloads</li>';
+  }
+}
+
+async function loadExportJobs() {
+  if (!isLoggedIn()) {
+    exportsSection.classList.add('hidden');
+    exportsList.innerHTML = '';
+    return;
+  }
+  try {
+    const resp = await authFetch(apiPath('/exports'));
+    if (!resp.ok) {
+      exportsSection.classList.add('hidden');
+      return;
+    }
+    renderExportJobs(await resp.json());
+  } catch (e) {
+    exportsSection.classList.add('hidden');
+  }
+}
+
+function renderExportJobs(jobs) {
+  if (!jobs || jobs.length === 0) {
+    exportsSection.classList.add('hidden');
+    exportsList.innerHTML = '';
+    return;
+  }
+  exportsSection.classList.remove('hidden');
+  const statusLabels = { PENDING: 'Pending', RUNNING: 'Building…', DONE: 'Ready', FAILED: 'Failed' };
+  exportsList.innerHTML = jobs.map((job) => {
+    const statusLabel = statusLabels[job.status] || job.status;
+    const statusClass = job.status.toLowerCase();
+    const actionHtml = job.status === 'DONE'
+      ? `<button class="export-download-btn" data-job-id="${escapeHtml(job.id)}" data-filename="${escapeHtml(job.filename || '')}">Download</button>`
+      : job.status === 'FAILED' && job.error
+        ? `<div class="export-error">${escapeHtml(job.error)}</div>`
+        : '';
+    return `<li class="export-item">
+      <div class="export-item-header">
+        <span class="export-filename">${escapeHtml(job.filename || job.id)}</span>
+        <span class="export-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
+      </div>
+      ${actionHtml}
+    </li>`;
+  }).join('');
+}
+
+async function downloadExportJob(jobId, filename) {
+  try {
+    const dlResp = await authFetch(apiPath('/exports/' + jobId + '/download'));
+    if (!dlResp.ok) {
+      showToast(`Download failed (${dlResp.status})`, 'error');
+      return;
+    }
+    const blob = await dlResp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || ('tile-export-' + Date.now() + '.zip');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    loadDownloads();
+  } catch (e) {
+    showToast('Download failed', 'error');
   }
 }
 
@@ -1276,10 +1549,11 @@ function renderDownloads(preloads) {
 }
 
 function buildLayerLabels(p) {
-  const labels = [];
-  if (p.includesVector) labels.push('OSM Vector');
-  if (Array.isArray(p.layers)) labels.push(...p.layers);
-  return labels;
+  if (!Array.isArray(p.layers)) return [];
+  return p.layers.map((id) => {
+    const l = layerMap[id];
+    return l ? (l.name || id) : id;
+  });
 }
 
 function bboxToBounds(bbox) {
@@ -1325,8 +1599,8 @@ function hideGeoTiffModal() {
 }
 
 async function submitGeoTiff() {
-  if (!isAdmin()) {
-    geoTiffStatus.textContent = 'Admin role required.';
+  if (!isLoggedIn()) {
+    geoTiffStatus.textContent = 'Login required.';
     return;
   }
   const name = geoTiffNameInput.value.trim();
@@ -1354,7 +1628,7 @@ async function submitGeoTiff() {
   submitBtn.disabled = true;
 
   try {
-    const resp = await authFetch('/layers/geotiff', {
+    const resp = await authFetch(apiPath('/layers/geotiff'), {
       method: 'POST',
       body: fd
     });
@@ -1370,7 +1644,7 @@ async function submitGeoTiff() {
     }
     const text = await resp.text();
     if (resp.status === 401 || resp.status === 403) {
-      geoTiffStatus.textContent = 'Login required (admin role).';
+      geoTiffStatus.textContent = 'Login required.';
     } else if (resp.status === 409) {
       geoTiffStatus.textContent = text || 'Layer already exists.';
     } else if (resp.status === 422) {
@@ -1391,12 +1665,7 @@ function addLayerToSelect(layer) {
   const opt = document.createElement('option');
   opt.value = key;
   opt.textContent = layer.name || key;
-  const vectorOpt = layerSelect.querySelector('option[value="__vector__"]');
-  if (vectorOpt) {
-    layerSelect.insertBefore(opt, vectorOpt);
-  } else {
-    layerSelect.appendChild(opt);
-  }
+  layerSelect.appendChild(opt);
 }
 
 // ── Layer manager ─────────────────────────────────────────────────────────────
@@ -1511,6 +1780,9 @@ function onSourceTypeChange() {
   const type = lfSourceType.value;
   lfWmtsSection.classList.toggle('hidden', type !== 'WMTS_KVP');
   lfUrlRow.classList.toggle('hidden', type === 'LOCAL');
+  lfUrl.placeholder = type === 'VECTOR_PMTILES'
+    ? '/path/to/tiles.pmtiles or https://example.com/tiles.pmtiles'
+    : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 }
 
 function readLayerForm() {
@@ -1555,13 +1827,13 @@ async function saveLayer() {
   try {
     let resp;
     if (editingLayerName) {
-      resp = await authFetch(`/layers/${encodeURIComponent(editingLayerName)}`, {
+      resp = await authFetch(apiPath(`/layers/${encodeURIComponent(editingLayerName)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(layer)
       });
     } else {
-      resp = await authFetch('/layers', {
+      resp = await authFetch(apiPath('/layers'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(layer)
@@ -1589,7 +1861,7 @@ async function saveLayer() {
 
 async function executeDeleteLayer(name) {
   try {
-    const resp = await authFetch(`/layers/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const resp = await authFetch(apiPath(`/layers/${encodeURIComponent(name)}`), { method: 'DELETE' });
     if (resp.status === 204) {
       showToast(`Layer '${name}' deleted`, 'success');
       await loadLayers();
@@ -1602,6 +1874,238 @@ async function executeDeleteLayer(name) {
     else showToast(`Delete failed (${resp.status})`, 'error');
   } catch (e) {
     showToast('Network error deleting layer', 'error');
+  }
+}
+
+// ── Export modal ──────────────────────────────────────────────────────────────
+
+function showExportModal() {
+  if (!isLoggedIn()) { showToast('Login required', 'error'); return; }
+  exportStatus.textContent = '';
+  exportMaxZoom.value = '';
+  buildExportLayerCheckboxes();
+  renderExportBbox();
+  exportOverlay.classList.remove('hidden');
+}
+
+function hideExportModal() {
+  exportOverlay.classList.add('hidden');
+  cancelExportDrawInteraction();
+}
+
+function buildExportLayerCheckboxes() {
+  exportLayersContainer.innerHTML = '';
+  Object.keys(layerMap).forEach((id) => {
+    const layer = layerMap[id];
+    const row = document.createElement('div');
+    row.className = 'preload-layer-row';
+    row.dataset.key = id;
+    const cbid = `export-layer-${cssEscape(id)}`;
+    row.innerHTML =
+      `<input type="checkbox" id="${cbid}">` +
+      `<label for="${cbid}">${escapeHtml(layer.name || id)}</label>`;
+    exportLayersContainer.appendChild(row);
+  });
+}
+
+function getSelectedExportLayerKeys() {
+  return Array.from(exportLayersContainer.querySelectorAll('input[type="checkbox"]:checked'))
+    .map((el) => el.parentElement.dataset.key);
+}
+
+function renderExportBbox() {
+  if (pendingExportBbox) {
+    const { north, south, east, west } = pendingExportBbox;
+    exportBboxDisplay.textContent =
+      `N ${north.toFixed(4)}  S ${south.toFixed(4)}\nE ${east.toFixed(4)}  W ${west.toFixed(4)}`;
+    exportClearBboxBtn.disabled = false;
+  } else {
+    exportBboxDisplay.textContent =
+      'No bounding box — exporting all cached tiles for the selected layers.';
+    exportClearBboxBtn.disabled = true;
+  }
+}
+
+function clearExportBbox() {
+  pendingExportBbox = null;
+  drawSource.clear();
+  renderExportBbox();
+}
+
+function startExportDraw() {
+  cancelExportDrawInteraction();
+  drawSource.clear();
+  exportOverlay.classList.add('hidden');
+  exportDrawInteraction = new ol.interaction.Draw({
+    source: drawSource,
+    type: 'Circle',
+    geometryFunction: ol.interaction.Draw.createBox()
+  });
+  exportDrawInteraction.on('drawend', onExportDrawEnd);
+  map.addInteraction(exportDrawInteraction);
+}
+
+function cancelExportDrawInteraction() {
+  if (exportDrawInteraction) {
+    map.removeInteraction(exportDrawInteraction);
+    exportDrawInteraction = null;
+  }
+}
+
+function onExportDrawEnd(event) {
+  cancelExportDrawInteraction();
+  const extent = event.feature.getGeometry().getExtent();
+  const [west, south] = ol.proj.toLonLat([extent[0], extent[1]]);
+  const [east, north] = ol.proj.toLonLat([extent[2], extent[3]]);
+  pendingExportBbox = { north, south, east, west };
+  renderExportBbox();
+  exportOverlay.classList.remove('hidden');
+}
+
+async function submitExport() {
+  if (!isLoggedIn()) {
+    exportStatus.textContent = 'Login required.';
+    return;
+  }
+  const layers = getSelectedExportLayerKeys();
+  if (layers.length === 0) {
+    exportStatus.textContent = 'Select at least one layer.';
+    return;
+  }
+  const body = { layers };
+  if (pendingExportBbox) {
+    body.boundingBox = { ...pendingExportBbox, maxZoom: 22 };
+  }
+  const maxZoomRaw = exportMaxZoom.value.trim();
+  if (maxZoomRaw) {
+    const mz = parseInt(maxZoomRaw, 10);
+    if (Number.isFinite(mz) && mz >= 0) body.maxZoom = mz;
+  }
+
+  const submitBtn = document.getElementById('submit-export');
+  submitBtn.disabled = true;
+  exportStatus.textContent = 'Submitting export job…';
+  try {
+    const resp = await authFetch(apiPath('/export'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      if (resp.status === 401 || resp.status === 403) {
+        exportStatus.textContent = 'Access denied: ' + (text || resp.status);
+      } else if (resp.status === 404) {
+        exportStatus.textContent = text || 'Layer not found.';
+      } else {
+        exportStatus.textContent = `Export failed (${resp.status}): ${text}`;
+      }
+      return;
+    }
+    await resp.json();
+    hideExportModal();
+    showToast('Export started — check Downloads for progress', 'success');
+    openDownloadsPanel();
+  } catch (e) {
+    exportStatus.textContent = 'Network error during export.';
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
+// ── Import modal ──────────────────────────────────────────────────────────────
+
+function showImportModal() {
+  if (!isAdmin()) { showToast('Admin role required', 'error'); return; }
+  importFileInput.value = '';
+  importStatus.textContent = '';
+  importOverlay.classList.remove('hidden');
+}
+
+function hideImportModal() {
+  importOverlay.classList.add('hidden');
+}
+
+async function submitImport() {
+  if (!isAdmin()) {
+    importStatus.textContent = 'Admin role required.';
+    return;
+  }
+  const file = importFileInput.files[0];
+  if (!file) {
+    importStatus.textContent = 'Choose a zip file.';
+    return;
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  const submitBtn = document.getElementById('submit-import');
+  submitBtn.disabled = true;
+  importStatus.textContent = 'Uploading and ingesting — this may take a while…';
+  try {
+    const resp = await authFetch(apiPath('/import'), { method: 'POST', body: fd });
+    if (!resp.ok) {
+      const text = await resp.text();
+      if (resp.status === 401 || resp.status === 403) {
+        importStatus.textContent = 'Login required.';
+      } else {
+        importStatus.textContent = `Import failed (${resp.status}): ${text}`;
+      }
+      return;
+    }
+    const summary = await resp.json();
+    hideImportModal();
+    const added = (summary.layersAdded || []).length;
+    const skipped = (summary.layersSkipped || []).length;
+    showToast(
+      `Imported ${summary.tilesWritten} tiles · ${added} layer(s) added, ${skipped} skipped`,
+      'success'
+    );
+    await loadLayers();
+  } catch (e) {
+    importStatus.textContent = 'Network error during import.';
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
+// ── Offline mode ──────────────────────────────────────────────────────────────
+
+async function loadOfflineMode() {
+  try {
+    const resp = await fetch(apiPath('/config/offline'));
+    if (resp.ok) {
+      const data = await resp.json();
+      updateOfflineModeBtn(data.offline);
+    }
+  } catch (e) {}
+}
+
+function updateOfflineModeBtn(offline) {
+  offlineToggleBtn.classList.toggle('active', offline);
+  offlineToggleBtn.title = offline
+    ? 'System is offline — click to go online'
+    : 'System is online — click to go offline';
+  offlineToggleBtn.querySelector('.btn-label').textContent = offline ? 'Go Online' : 'Go Offline';
+}
+
+async function toggleOfflineMode() {
+  if (!isAdmin()) { showToast('Admin role required', 'error'); return; }
+  const newOffline = !offlineToggleBtn.classList.contains('active');
+  try {
+    const resp = await authFetch(apiPath('/config/offline'), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ offline: newOffline }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      updateOfflineModeBtn(data.offline);
+      showToast(`Offline mode ${data.offline ? 'enabled' : 'disabled'}`, 'success');
+    } else {
+      showToast(`Failed to toggle offline mode (${resp.status})`, 'error');
+    }
+  } catch (e) {
+    showToast('Network error toggling offline mode', 'error');
   }
 }
 

@@ -89,6 +89,9 @@ jobs:
         with:
           name: trivy-findings
 
+      - name: Move Trivy findings out of repo tree
+        run: mv trivy-results.json /tmp/trivy-results.json
+
       - name: Install Trivy CLI
         run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 
@@ -110,7 +113,7 @@ jobs:
           for ITERATION in $(seq 1 $MAX_ITERATIONS); do
             echo "=== Iteration ${ITERATION}/${MAX_ITERATIONS} ==="
 
-            REMAINING=$(jq '[.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length' trivy-results.json)
+            REMAINING=$(jq '[.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length' /tmp/trivy-results.json)
             echo "HIGH/CRITICAL count: ${REMAINING}"
 
             if [ "$REMAINING" -eq 0 ]; then
@@ -123,7 +126,7 @@ jobs:
                | select(.Severity == "HIGH" or .Severity == "CRITICAL")]
               | map("- [\(.Severity)] \(.VulnerabilityID) in \(.PkgName)@\(.InstalledVersion) (fixed in: \(.FixedVersion // "no fix available")) | \(.Title)")
               | .[]
-            ' trivy-results.json)
+            ' /tmp/trivy-results.json)
 
             # Ensure baseline is formatted before Claude starts
             mvn fmt:format --no-transfer-progress -q
@@ -143,8 +146,8 @@ jobs:
           4. Then run: mvn --no-transfer-progress clean verify
              If the build fails, diagnose the output and fix the issue, then retry.
           5. Do NOT change the Java version or overall architecture.
-          6. Stage all changed files and commit with: git add -A && git commit -m 'fix: address HIGH/CRITICAL vulnerabilities (iteration ${ITERATION})'
-             Only commit if the build passes."
+          6. Stage all changed project files and commit with: git add -A && git commit -m 'fix: address HIGH/CRITICAL vulnerabilities (iteration ${ITERATION})'
+             Only commit if the build passes. Non project files like trivy-results.json shouldn't be added to git"
 
             # If Claude made no commits, nothing more can be done
             COMMITS_ON_BRANCH=$(git rev-list --count "origin/main..HEAD" 2>/dev/null || echo "0")
@@ -158,7 +161,7 @@ jobs:
             docker build --build-arg VERSION="$PROJECT_VERSION" -t xyz-tile-cache:autofix-scan .
 
             trivy image --format json --severity HIGH,CRITICAL --ignore-unfixed \
-              -o trivy-results.json xyz-tile-cache:autofix-scan
+              -o /tmp/trivy-results.json xyz-tile-cache:autofix-scan
           done
 
           if [ "$FIX_STATUS" != "fixed" ]; then
@@ -175,8 +178,22 @@ jobs:
             git push origin "$BRANCH_NAME"
           fi
 
+      - name: Check for existing automated fix PR
+        id: check-existing-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COUNT=$(gh pr list --state open --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("auto-fix/vuln-scan"))] | length')
+          echo "Open automated fix PRs: ${COUNT}"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create PR (all findings resolved)
-        if: steps.fix-loop.outputs.fix_status == 'fixed'
+        if: steps.fix-loop.outputs.fix_status == 'fixed' && steps.check-existing-pr.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -201,11 +218,11 @@ jobs:
           )"
 
       - name: Create PR (partial fix — manual review needed)
-        if: steps.fix-loop.outputs.fix_status == 'partial'
+        if: steps.fix-loop.outputs.fix_status == 'partial' && steps.check-existing-pr.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REMAINING=$(jq '[.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length' trivy-results.json)
+          REMAINING=$(jq '[.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length' /tmp/trivy-results.json)
           gh pr create \
             --base main \
             --head "${{ steps.fix-loop.outputs.branch_name }}" \

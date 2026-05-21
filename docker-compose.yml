@@ -11,7 +11,6 @@ services:
       - "8080:8080"
     volumes:
       - ./scripts/keycloak/xyz-tile-cache-realm.json:/opt/keycloak/data/import/xyz-tile-cache-realm.json:ro
-
   xyz-tile-cache:
     image: xyz-tile-cache:latest
     container_name: xyz
@@ -21,11 +20,13 @@ services:
       - "8383:8383/tcp"
     volumes:
       - /tmp/tiles:/tmp/tiles
+      - /tmp/imports:/app/imports
     environment:
 #      XYZ_AUTH_MODE: jwt
 #      XYZ_AUTH_ADMIN_TOKEN: xyz-admin
 #      XYZ_UI_ENABLED: true
 #      XYZ_ADMIN_ROLE: admin
+      XYZ_PROTOMAPS_INIT_ZOOM: 5
       # Tokens are fetched from the host at http://localhost:8080, so the iss
       # claim is http://localhost:8080/... — that's what Spring validates against.
       KEYCLOAK_ISSUER_URI: http://localhost:8080/realms/xyz-tile-cache

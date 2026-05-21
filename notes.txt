@@ -1,0 +1,54 @@
+● I can see the exact problem, and your docker-compose.yml already has the workaround with a comment explaining it. Here's why it happens:
+
+  The root cause: split-network issuer mismatch
+
+  In a Docker setup with Keycloak, you have two distinct networks:
+
+  Browser                     Docker network
+    │                              │
+    └─→ localhost:8080 (Keycloak)  │   keycloak:8080 (same Keycloak)
+                                   │
+                        tile proxy container
+
+  Keycloak stamps every JWT it issues with an iss (issuer) claim equal to the URL the requester used to get the token. Your browser gets tokens from http://localhost:8080,
+   so every JWT has:
+
+  { "iss": "http://localhost:8080/realms/xyz-tile-cache" }
+
+  When you set KEYCLOAK_ISSUER_URI=http://keycloak:8080/realms/xyz-tile-cache in the tile proxy container:
+  1. Spring fetches the OIDC discovery doc from http://keycloak:8080/... — works fine within Docker
+  2. Gets the JWKS endpoint from that doc — also http://keycloak:8080/.../certs
+  3. Fetches the signing keys — works
+  4. Validates the iss claim in the JWT against the configured issuer → http://localhost:8080/... ≠ http://keycloak:8080/... → rejected
+
+  The "certs not trusted" error is Spring saying the JWKS keys don't validate the token — because the issuer check fails before or alongside the signature check. The keys
+  come from the same realm (same place), but the issuer string comparison fails.
+
+  Why the dual-URI workaround in your compose file works
+
+  KEYCLOAK_ISSUER_URI: http://localhost:8080/realms/xyz-tile-cache        # matches iss claim in tokens
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/xyz-tile-cache/protocol/openid-connect/certs  # reachable from inside Docker
+
+  - issuer-uri = localhost:8080 → matches the iss in every JWT ✓
+  - jwk-set-uri set explicitly → Spring skips OIDC discovery (no attempt to hit localhost:8080 from inside the container) and goes straight to the key endpoint via the
+  Docker hostname ✓
+  - Setting jwk-set-uri directly also avoids the startup race condition where Spring tries to hit Keycloak before it's ready
+
+  The proper long-term fix
+
+  The cleanest solution is to tell Keycloak what its public-facing URL is, regardless of what internal hostname it uses. In Keycloak this is KC_HOSTNAME:
+
+  keycloak:
+    environment:
+      KC_HOSTNAME: http://localhost:8080   # or your real external domain
+
+  With this set, Keycloak stamps iss=http://localhost:8080/... consistently on all tokens, regardless of how the request arrived. Then
+  KEYCLOAK_ISSUER_URI=http://localhost:8080/... and jwk-set-uri=http://keycloak:8080/... (or just one URI if you add a hosts alias) works cleanly.
+
+  For SSO integration with other apps
+
+  Other apps on the same Docker network have the same split: their tokens will have iss=http://localhost:8080/... (browser-issued) or iss=http://keycloak:8080/...
+  (server-to-server). As long as KC_HOSTNAME is set consistently, all tokens from that realm will have the same issuer, and the dual-URI workaround keeps working.
+
+  The dual-URI approach in your compose is correct and already handles this — it just needs to be uncommented and KC_HOSTNAME added to the Keycloak service to make it
+  robust.

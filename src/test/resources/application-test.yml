@@ -5,3 +5,7 @@ spring:
         jwt:
           issuer-uri:
           jwk-set-uri: http://localhost:0/jwks
+
+xyz:
+  vector:
+    sourceUrl: ""

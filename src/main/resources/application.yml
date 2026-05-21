@@ -45,14 +45,6 @@ xyz:
       wmtsStyle: "default"
       wmtsFormat: "image/png"
 
-    - id: "accu-weather-legacy"
-      name: "AccuWeather Radar (legacy)"
-      sourceType: XYZ
-      urlTemplate: 'https://api.accuweather.com/maps/v1/radar/globalSIR/zxy/{time}/{z}/{x}/{y}.png?apikey=de13920f574d420984d3080b1fa6132b'
-      timeFormat: "yyyy-MM-dd'T'HH:mm:ss'Z'"
-      tileExpirationMinutes: 5
-      maxZoom: 7
-
     # ─── XYZ: Streets & General ────────────────────────────────────────────────
 
     - id: "osm"
@@ -280,19 +272,31 @@ xyz:
       sourceType: XYZ
       maxZoom: 7
       attribution: "© AccuWeather"
-      urlTemplate: "https://api.accuweather.com/maps/v1/radar/globalSIR/zxy/{time}/{z}/{y}/{x}.png?apikey=de13920f574d420984d3080b1fa6132b"
+      urlTemplate: "https://api.accuweather.com/maps/v1/radar/globalSIR/zxy/{time}/{z}/{x}/{y}.png?apikey=de13920f574d420984d3080b1fa6132b"
       tileExpirationMinutes: 5
       timeFormat: "yyyy-MM-dd'T'HH:mm:ss'Z'"
       headers:
         Referer: "https://www.accuweather.com"
 
-  vector:
-    bundledPath: "${xyz.baseTileDirectory}/vector/world_z0-7.pmtiles"
-    downloadDirectory: "${xyz.baseTileDirectory}/vector"
-    # {date} is replaced with today's date (YYYYMMDD) at download time.
-    sourceUrl: "${PMTILES_SOURCE_URL:https://build.protomaps.com/{date}.pmtiles}"
-    maxDownloadZoom: 15
-    enabled: true
+  # ─── Vector (VECTOR_PMTILES) ───────────────────────────────────────────────
+  # A VECTOR_PMTILES layer serves raw MVT tiles at
+  # /tilesZYX/{id}/{z}/{y}/{x}.mvt  and  /tilesZXY/{id}/{z}/{x}/{y}.mvt
+  #
+  # urlTemplate: local file path OR remote https:// URL to a .pmtiles archive.
+  #   - Local:  urlTemplate: "/var/data/basemap.pmtiles"
+  #   - Remote: urlTemplate: "https://build.protomaps.com/{date}.pmtiles"
+  #             ({date} is substituted with yesterday's date YYYYMMDD at startup)
+  # maxZoom: limits tile serving; also the extract --maxzoom when downloading.
+  # initZoom: if > 0, runs a world-wide pmtiles extract up to this zoom level
+  #           on first startup (remote urlTemplate only). Set via
+  #           XYZ_PROTOMAPS_INIT_ZOOM env var (default 0 = disabled).
+
+    - id: "protomaps"
+      name: "Protomaps Vector"
+      sourceType: VECTOR_PMTILES
+      maxZoom: 15
+      urlTemplate: "${PMTILES_SOURCE_URL:https://build.protomaps.com/{date}.pmtiles}"
+      initZoom: "${XYZ_PROTOMAPS_INIT_ZOOM:0}"
 
 #  boundingBoxes:
 #    - preCache: true

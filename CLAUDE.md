@@ -32,22 +32,29 @@ Spring Boot tile proxy on port 8383. Caches XYZ raster tiles, MVT vector tiles, 
 ### Tile request flow
 
 ```
-GET /tilesZYX/{layer}/{z}/{y}/{x}.png
-  → Guava LoadingCache (500 tiles)
-  → miss → CacheLoader (Online or Offline, by xyz.offline)
-       online: HTTP fetch from layer source
-       offline: read {baseTileDir}/{layer}/{z}/{x}/{y}.png
-  → TileWriter.storeTile() (@Async, off the response path)
-  → return image/png
+GET /tilesZYX/{layer}/{z}/{y}/{x}.{ext}
+  → TileController → TileSourceHandlerRegistry → TileSourceHandler (by Layer.SourceType)
+       RasterTileHandler: Guava LoadingCache (500 tiles)
+         miss → CacheLoader (Online or Offline, by xyz.offline)
+              online: HTTP fetch from layer source
+              offline: read {baseTileDir}/{layer}/{z}/{x}/{y}.png
+         → TileWriter.storeTile() (@Async, off the response path)
+       VectorPmtilesHandler: VectorPmtilesManager → PmtilesReader/RemotePmtilesReader
+  → return tile bytes
 ```
 
 ### Key classes
 
-- `XyzTileCacheApplication` — entry point + raster tile endpoints (`/tilesZYX`, `/tilesZXY`), legacy `/preload`.
+- `XyzTileCacheApplication` — entry point + startup initialization.
+- `TileController` — raster tile endpoints (`/tilesZYX`, `/tilesZXY`), legacy `/preload`; dispatches via `TileSourceHandlerRegistry`.
+- `TileSourceHandler` (interface) / `RasterTileHandler` / `VectorPmtilesHandler` / `TileSourceHandlerRegistry` — handler dispatch pattern by `Layer.SourceType`.
 - `LayerController` — `/layers` CRUD; persisted via `LayerStore` to `layers.json`.
 - `PreloadController` / `PreloadService` / `PreloadStore` — bounding-box preload jobs.
-- `VectorTileController` / `VectorTileService` — MVT/PBF serving; PMTiles backed via `PmtilesReader`, `PmtilesDownloader`.
+- `VectorPmtilesManager` — manages PMTiles vector layers; backed by `PmtilesReader` (local) / `RemotePmtilesReader`.
+- `PmtilesDownloader` — downloads remote PMTiles files.
+- `ImportExportController` / `ImportExportService` / `ExportService` — tile package import/export (`/import`, `/export`, `/exports`).
 - `GeoTiffController` / `GeoTiffTiler` — GeoTIFF upload + tiling.
+- `ConfigController` — `/config/offline` (offline mode discovery).
 - `StatsController`, `AuthConfigController` — `/stats`, `/auth/config` (UI auth discovery).
 - `XyzConfiguration` — `@ConfigurationProperties("xyz")` for `application.yml`.
 - `Layer` — source URL template + circuit-breaker blocking (exponential 100ms→60s; states PROCEED / BLOCK / RETRY).

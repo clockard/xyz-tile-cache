@@ -37,7 +37,7 @@ jobs:
         run: mvn --no-transfer-progress versions:set -DnewVersion=${{ inputs.version }} -DgenerateBackupPoms=false
 
       - name: Build and test
-        run: mvn --no-transfer-progress clean verify
+        run: mvn --no-transfer-progress clean verify -Ddocker.skip=true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

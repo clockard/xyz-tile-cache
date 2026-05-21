@@ -7,15 +7,17 @@ Capabilities:
 - Raster tile sources — XYZ (standard slippy map), WMTS-REST, and WMTS-KVP.
 - Time-aware sources — weather radar, daily satellite imagery (URL `{time}` substitution or WMTS `TIME` dimension).
 - User-uploaded local layers — upload a GeoTIFF and the proxy tiles it with `gdal2tiles` and serves it as a `LOCAL` layer.
-- Vector tiles — bundled `world_z0-7.pmtiles` ships in the image; larger areas can be downloaded on demand from a Protomaps-style PMTiles source.
+- Vector tiles — `VECTOR_PMTILES` layers served from a local or remote PMTiles source; areas can be preloaded on demand via a normal preload that includes the vector layer, and per-layer `initZoom > 0` triggers a world-covering download at startup.
 - Authenticated layer management — JSON-driven CRUD with Keycloak (JWT) or a single shared admin token, plus per-layer ACLs.
-- A web UI on `/` for browsing layers, triggering preloads, and managing layers (toggleable).
+- Tile import/export — download a portable zip of cached raster tiles and/or cached vector tiles (optionally clipped to a bounding box), then re-import it on any other instance. Per-layer ACLs are enforced on both endpoints.
+- Startup auto-import — drop zip files into a watched directory and the proxy ingests them on boot, skipping files it has already processed.
+- A web UI on `/` for browsing layers, triggering preloads, managing layers, and importing/exporting tiles (toggleable).
 
 ## How It Works
 
 ```mermaid
 flowchart TD
-    Client([Map Client]) -->|GET /tilesZYX/{layer}/{z}/{y}/{x}.png| App
+    Client([Map Client]) -->|"GET /tilesZYX/#123;layer#125;/#123;z#125;/#123;y#125;/#123;x#125;.png"| App
 
     App --> ACL{Per-layer ACL}
     ACL -->|deny| Forbidden([401 / 403])
@@ -65,7 +67,10 @@ xyz:
   layerSyncSeconds: 10             # how often to re-read layers.json so multiple instances stay in sync
   uiEnabled: true                  # set to false to disable the web UI (UI paths return 404)
   adminRole: admin                 # Keycloak realm role required for write operations
+  importDirectory: "/app/imports"  # directory scanned for zip files to auto-import on startup
 ```
+
+`importDirectory` is scanned once at startup. Any `*.zip` file not yet listed in `{importDirectory}/.imported` is ingested as the admin user, then recorded in `.imported` so it is not re-processed on the next start. If the directory does not exist, startup imports are skipped. Set the property to an empty string to disable startup imports entirely.
 
 `minFreeDiskBytes` replaces the older `maxTileStorage` byte cap. The proxy keeps writing tiles until the underlying filesystem has less than this many bytes free, then stops accepting new tiles. Existing tiles are still served.
 
@@ -191,31 +196,39 @@ The current time is substituted into `{time}` using the layer's `timeFormat` at 
 
 `LOCAL` layers have no upstream URL — tiles are read from disk only. They are typically created by uploading a GeoTIFF to `POST /layers/geotiff` (see the API section); the proxy runs `gdal2tiles.py` against the file and writes XYZ tiles into `{baseTileDirectory}/{id}/`.
 
-### Vector tiles (PMTiles)
+### Vector tiles (VECTOR_PMTILES layers)
+
+Vector tile layers are configured as regular layers in `xyz.layers` with `sourceType: VECTOR_PMTILES`. The `urlTemplate` field points to the PMTiles source — either a local file path or a remote HTTPS URL. Per-layer ACL and `maxZoom` rules apply exactly as for raster layers.
 
 ```yaml
 xyz:
-  vector:
-    bundledPath: "${xyz.baseTileDirectory}/vector/world_z0-7.pmtiles"
-    downloadDirectory: "${xyz.baseTileDirectory}/vector"
-    sourceUrl: "${PMTILES_SOURCE_URL:https://build.protomaps.com/planet.pmtiles}"
-    maxDownloadZoom: 15
-    enabled: true
+  layers:
+    - id: "protomaps"
+      name: "Protomaps Vector"
+      sourceType: VECTOR_PMTILES
+      maxZoom: 15
+      urlTemplate: "${PMTILES_SOURCE_URL:https://build.protomaps.com/{date}.pmtiles}"
+      initZoom: "${XYZ_PROTOMAPS_INIT_ZOOM:0}"
 ```
 
-| Field | Description |
-|-------|-------------|
-| `enabled` | When `false`, vector endpoints return empty results. |
-| `bundledPath` | Path to a PMTiles file shipped/preloaded with the deployment. The Docker image bakes a `world_z0-7.pmtiles` planet basemap at build time and copies it here. |
-| `downloadDirectory` | Where on-demand PMTiles bundles are written by preloads. Required when issuing preloads with `includeVector: true`. |
-| `sourceUrl` | HTTP(S) URL to a PMTiles archive (Protomaps-style range-request friendly). The proxy uses `pmtiles extract` to download only the bytes covering the requested bounding box. |
-| `maxDownloadZoom` | Cap on the zoom level fetched during a vector preload. |
+| Field | Default | Description |
+|-------|---------|-------------|
+| `urlTemplate` | — | Local file path (`/var/data/basemap.pmtiles`) or remote URL (`https://…`). The `{date}` placeholder is replaced with yesterday's date (YYYYMMDD) at startup. |
+| `maxZoom` | `22` | Tile requests above this zoom return 404; also the `--maxzoom` cap when `pmtiles extract` is invoked during a preload. |
+| `initZoom` | `0` | When `> 0` and `urlTemplate` is a remote URL, triggers a world-covering PMTiles download at startup (zoom 0 → `initZoom`) if the output file does not yet exist. The downloaded bundle is written to `{baseTileDirectory}/{id}/`. |
 
-Override `sourceUrl` per environment with the `PMTILES_SOURCE_URL` env var.
+PMTiles bundles for a layer are stored in `{baseTileDirectory}/{id}/`. All `.pmtiles` files found there are opened as local readers. Individually fetched remote tiles are cached at `{baseTileDirectory}/{id}/{z}/{x}/{y}.pbf`.
+
+**Tile lookup order:** local PMTiles readers → individual tile disk cache → remote URL via HTTP range requests (if not offline). Fetched remote tiles are cached to disk asynchronously.
+
+Override the remote source URL per environment with the `PMTILES_SOURCE_URL` env var (substituted in the YAML default above).
 
 ### Startup bounding-box preloading
 
-Define one or more bounding boxes to fill the disk cache automatically at startup. The proxy fetches every tile for all configured layers across zoom 0 → `maxZoom`.
+Define one or more bounding boxes to fill the disk cache automatically at startup.
+The proxy fetches every tile for all configured layers across zoom 0 → `maxZoom`.
+
+[WARNING] These should only be done for small areas. For larger ares use vector preloading.
 
 ```yaml
 xyz:
@@ -238,9 +251,10 @@ For ad-hoc preloads use the `POST /preloads` API instead; those are persisted, c
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/tilesZYX/{layer}/{z}/{y}/{x}.png` | per-layer | Fetch a tile (ZYX coordinate order). |
-| `GET` | `/tilesZXY/{layer}/{z}/{x}/{y}.png` | per-layer | Fetch a tile (ZXY coordinate order). |
-| `GET` | `/vector/{z}/{x}/{y}` | none | Fetch a Mapbox Vector Tile (`application/x-protobuf`, gzip when applicable). |
+| `GET` | `/tilesZYX/{layer}/{z}/{y}/{x}.{ext}` | per-layer | Fetch a tile (ZYX coordinate order). |
+| `GET` | `/tilesZXY/{layer}/{z}/{x}/{y}.{ext}` | per-layer | Fetch a tile (ZXY coordinate order). |
+
+Both endpoints serve raster (`.png`) and vector (`.mvt`) tiles depending on the layer's `sourceType`. The extension in the URL is accepted but not validated — the `Content-Type` is set by the handler.
 
 All tile responses set `Access-Control-Allow-Origin: *`. Tile endpoints return `401` for anonymous requests against private layers and `403` when authenticated principals lack access.
 
@@ -258,15 +272,17 @@ Layer changes are persisted immediately to `{baseTileDirectory}/layers.json` and
 
 ### Preloads
 
-The current preload model is a first-class entity with its own ACL. Legacy `POST /preload` is still accepted for back-compat but does not persist a record.
+The current preload model is a first-class entity with its own ACL.
+Legacy `POST /preload` is still accepted for back-compat but does not persist a record.
+
+For larger ares use protomaps vector layer. If the area is too large (too many tiles) it's likely the raster tile source will start blocking your requests.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/preloads` | none (filtered) | List persisted preloads visible to the caller. |
-| `POST` | `/preloads` | admin | Create a preload (see body below). 409 if a vector download is already in progress; 503 if vector requested without `xyz.vector.downloadDirectory`. |
+| `POST` | `/preloads` | admin | Create a preload (see body below). 409 if a vector download is already in progress; 503 if a `VECTOR_PMTILES` layer has no `urlTemplate` configured. |
 | `DELETE` | `/preloads/{id}` | admin | Remove a preload record (does not delete cached tiles). |
 | `POST` | `/preload` | admin | Legacy fire-and-forget preload (not persisted). |
-| `POST` | `/vector/preload` | admin | Convenience endpoint that submits a vector-only preload. |
 
 `POST /preloads` body:
 
@@ -277,14 +293,106 @@ The current preload model is a first-class entity with its own ACL. Legacy `POST
     "north": 40.1, "south": 39.8, "east": -74.9, "west": -75.3
   },
   "maxZoom": 14,
-  "layers": ["osm", "esri-satellite"],
-  "includeVector": false,
+  "layers": ["osm", "esri-satellite", "protomaps"],
   "allowedUsers": [],
   "allowedGroups": ["team-imagery"]
 }
 ```
 
-If `includeVector` is true, the proxy runs `pmtiles extract` against `xyz.vector.sourceUrl` to materialize a PMTiles bundle covering the bounding box (capped at `xyz.vector.maxDownloadZoom`) and writes it under `xyz.vector.downloadDirectory`. Only one vector download runs at a time.
+If `layers` includes a `VECTOR_PMTILES` layer, the proxy runs `pmtiles extract` against that layer's `urlTemplate` to materialize a PMTiles bundle covering the bounding box (capped at `maxZoom`) and writes it under `{baseTileDirectory}/{layerId}/`. Only one vector download runs at a time.
+
+### Import & Export
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/export` | authenticated | Submit an async export job. Returns 202 with a job-status object. |
+| `GET` | `/exports` | authenticated | List export jobs submitted by the current user. |
+| `GET` | `/exports/{id}` | authenticated | Get the status of a specific export job. |
+| `GET` | `/exports/{id}/download` | authenticated | Download the completed export zip (removes the job after transfer). |
+| `POST` | `/import` | admin | Upload a zip (same format) to seed the cache on this instance. |
+
+Export requires an authenticated principal; import requires the admin role. Per-layer ACLs are enforced:
+- **Export** — each requested layer is checked with `layerAccessService.canRead`. Admin users bypass this check; non-admin JWT users may only export layers their token grants access to.
+- **Import** — each zip entry's layer is checked the same way. Importing tiles to a layer the caller cannot read returns 403 and the entire upload is rejected. Creating a brand-new layer via import additionally requires the admin role (consistent with `POST /layers`).
+
+#### Export request body
+
+```json
+{
+  "layers": ["osm", "esri-satellite", "protomaps"],
+  "boundingBox": {
+    "north": 40.1, "south": 39.8, "east": -74.9, "west": -75.3,
+    "maxZoom": 14
+  },
+  "minZoom": 8,
+  "maxZoom": 14
+}
+```
+
+`boundingBox`, `minZoom`, and `maxZoom` are all optional. `layers` must be specified. When `boundingBox` is omitted every cached tile under each layer directory is included. `minZoom`/`maxZoom` further restrict the zoom range (clamped by each layer's `maxZoom`). Tiles not present on disk are silently skipped.
+
+`VECTOR_PMTILES` layers are included like any other layer. Without a `boundingBox`, all `.pmtiles` bundles and individually cached `.pbf` tiles in `{baseTileDirectory}/{id}/` are included. With a `boundingBox`, `pmtiles extract` is run on each bundle to produce a cropped copy (skipped with a warning if the CLI is unavailable or fails), and individual `.pbf` tiles are filtered to the bbox.
+
+`POST /export` returns 202 Accepted immediately with a job-status object:
+
+```json
+{ "id": "a1b2c3d4-...", "status": "PENDING", "filename": "tile-export-20260101-120000.zip", "error": null }
+```
+
+`status` cycles through `PENDING → RUNNING → DONE` (or `FAILED`). Poll `GET /exports/{id}` until `status` is `DONE`, then fetch the file from `GET /exports/{id}/download`. The download response is `Content-Type: application/zip`; the job entry is deleted after a successful download.
+
+#### Export zip layout
+
+```
+osm/layer.json
+osm/8/45/102.png
+osm/8/45/103.png
+...
+esri-satellite/layer.json
+esri-satellite/8/45/102.png
+protomaps/layer.json
+protomaps/region.pmtiles
+protomaps/8/45/102.pbf
+```
+
+Every layer (raster or vector) occupies a top-level directory named by its id, containing `layer.json` and tile files. Raster tile files use `{z}/{x}/{y}.png` layout; `VECTOR_PMTILES` layers store PMTiles bundles as `{name}.pmtiles` and individually cached tiles as `{z}/{x}/{y}.pbf`.
+
+#### Import response
+
+```json
+{
+  "layersAdded": ["new-layer"],
+  "layersSkipped": ["existing-layer"],
+  "tilesWritten": 1842,
+  "pmtilesImported": 1
+}
+```
+
+`layersAdded` — layers registered from `layer.json` entries not already in the layer store.
+`layersSkipped` — layers whose id already existed; the existing definition is kept but tiles are still written.
+`tilesWritten` — total number of raster `.png` tile files and individually cached `.pbf` vector tiles written (existing tiles are overwritten).
+`pmtilesImported` — number of `.pmtiles` bundles successfully written and registered.
+
+PMTiles bundles in `{layerId}/*.pmtiles` entries are written to `{baseTileDirectory}/{layerId}/` and immediately registered for serving by the corresponding `VECTOR_PMTILES` layer.
+
+#### Startup auto-import
+
+Any `*.zip` files placed in `xyz.importDirectory` (default `/app/imports`) are imported automatically on startup as the admin user. The proxy records processed filenames in `{importDirectory}/.imported` and skips any file already listed there, so files are safe to leave in place across restarts.
+
+```bash
+# Copy a previously exported zip into the watched directory before starting the container
+cp ~/tiles-backup.zip /path/to/imports/
+docker run ... -v /path/to/imports:/app/imports xyz-tile-cache:latest
+```
+
+### Runtime config
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/config/offline` | none | Returns `{"offline": true/false}`. |
+| `PUT` | `/config/offline` | admin | Toggles offline mode at runtime (no restart required). Body: `{"offline": true}`. |
+
+Offline mode can also be set at startup via `xyz.offline` in `application.yml` or the `XYZ_OFFLINE` env var. The `PUT` endpoint lets you switch it on or off without restarting the container.
 
 ### Stats
 
@@ -370,7 +478,7 @@ docker build \
   -t xyz-tile-cache:latest .
 ```
 
-The image bundles `gdal-tools` (for GeoTIFF tiling), the `pmtiles` CLI, and a world basemap PMTiles file extracted at build time from `https://build.protomaps.com/<date>.pmtiles`.
+The image bundles `gdal-tools` (for GeoTIFF tiling) and the `pmtiles` CLI (for vector preloads). No PMTiles data is baked in at build time — set `initZoom > 0` on a `VECTOR_PMTILES` layer to trigger a world download on first startup, or export tiles from a connected instance and drop the zip into `xyz.importDirectory`.
 
 ### Docker run
 
@@ -408,9 +516,15 @@ bash scripts/keycloak/setup.sh
 
 ## Offline Mode
 
-Set `xyz.offline: true` to prevent any outbound requests. The proxy will serve tiles from the local disk cache only and return 404 for anything not already cached. This is useful for field deployments or air-gapped environments where network access is unavailable.
+Set `xyz.offline: true` to prevent any outbound requests. The proxy will serve tiles from the local disk cache only and return 404 for anything not already cached. This is useful for field deployments or air-gapped environments where network access is unavailable. The web UI is served entirely from the application — no external CDN requests are made at runtime.
 
-Pre-populate the cache by running with `offline: false` and using either the startup `boundingBoxes` config or the `POST /preloads` API (with `includeVector: true` to also stage a vector PMTiles bundle), then switch to `offline: true` for the deployment.
+**Pre-populating the cache** before going offline:
+
+1. **Preload API** — Run with `offline: false` and call `POST /preloads` (or configure `xyz.boundingBoxes`) to fetch and cache tiles from upstream sources. Include a `VECTOR_PMTILES` layer in the preload's `layers` set to also download a PMTiles bundle for the area, or set `initZoom > 0` on a vector layer to download a world-covering bundle at startup.
+
+2. **Export then import** — Export a bounding box of tiles from a connected instance with `POST /export` (include any `VECTOR_PMTILES` layers to export their cached tiles and bundles), then import the resulting zip on the offline target with `POST /import` (or place the zip in `xyz.importDirectory` for automatic ingestion on the next startup).
+
+The two approaches can be combined: preload raster tiles via the API and transfer a separate export zip for layers that require fine-grained bounding-box control.
 
 ## CI/CD
 
