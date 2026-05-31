@@ -83,6 +83,9 @@ public class XyzTileCacheApplication {
 
   @EventListener
   void onLayerChanged(LayerChangedEvent event) {
+    if (event.kind() == LayerChangedEvent.Kind.UPDATED_ACL) {
+      return;
+    }
     tileCache.asMap().keySet().removeIf(t -> t.layer().getEffectiveId().equals(event.layerName()));
   }
 

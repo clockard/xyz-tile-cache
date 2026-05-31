@@ -9,9 +9,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LayerRuntimeState;
@@ -36,7 +37,7 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
 
   private final HttpClient httpClient;
 
-  private final Set<String> layerLocks = Collections.synchronizedSet(new HashSet<>());
+  private final ConcurrentMap<String, CountDownLatch> retryLatches = new ConcurrentHashMap<>();
 
   public OnlineCacheLoader(
       final XyzConfiguration configuration,
@@ -80,17 +81,38 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
     final var requestStrategy = state.requestStrategy();
     if (requestStrategy == Layer.RequestStrategy.PROCEED) {
       return loadTileOnline(tile, state);
-    } else if (requestStrategy == Layer.RequestStrategy.RETRY
-        && layerLocks.add(tile.layer().getEffectiveId())) {
+    }
+    if (requestStrategy == Layer.RequestStrategy.BLOCK) {
+      throw new UpstreamUnavailableException(
+          "Source for layer %s is temporarily blocked.".formatted(tile.layer()));
+    }
+
+    // RETRY: one thread probes the source; concurrent callers wait on a latch and then re-read
+    // the state so they get a clean PROCEED / BLOCK answer instead of a false "blocked".
+    String layerId = tile.layer().getEffectiveId();
+    CountDownLatch ourLatch = new CountDownLatch(1);
+    CountDownLatch existing = retryLatches.putIfAbsent(layerId, ourLatch);
+    if (existing == null) {
       LOGGER.info("Retrying source for layer {}.", tile.layer());
       try {
         return loadTileOnline(tile, state);
       } finally {
-        layerLocks.remove(tile.layer().getEffectiveId());
+        retryLatches.remove(layerId);
+        ourLatch.countDown();
       }
-    } else {
-      throw new IOException("Source for layer %s is temporarily blocked.".formatted(tile.layer()));
     }
+    try {
+      existing.await(configuration.getTileTimeoutSeconds() + 1L, TimeUnit.SECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new InterruptedException("Interrupted while waiting for retry of layer " + layerId);
+    }
+    Layer.RequestStrategy after = state.requestStrategy();
+    if (after == Layer.RequestStrategy.PROCEED) {
+      return loadTileOnline(tile, state);
+    }
+    throw new UpstreamUnavailableException(
+        "Source for layer %s is temporarily blocked.".formatted(tile.layer()));
   }
 
   private byte[] loadTileOnline(final Tile tile, final LayerRuntimeState state)

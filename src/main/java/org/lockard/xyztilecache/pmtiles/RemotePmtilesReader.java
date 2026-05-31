@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
 public class RemotePmtilesReader {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(RemotePmtilesReader.class);
+  private static final long INITIAL_BACKOFF_MS = 30_000L;
+  private static final long MAX_BACKOFF_MS = 300_000L;
 
   private final String url;
   private final HttpClient httpClient;
@@ -28,7 +30,8 @@ public class RemotePmtilesReader {
   private volatile List<PmtilesEntry> rootDir;
   private final Cache<Long, List<PmtilesEntry>> leafCache;
   private final Object initLock = new Object();
-  private volatile boolean initialized = false;
+  private volatile long lastInitAttemptMs = 0L;
+  private volatile long nextBackoffMs = INITIAL_BACKOFF_MS;
 
   public RemotePmtilesReader(String url, HttpClient httpClient, int timeoutSeconds) {
     this.url = url;
@@ -66,27 +69,41 @@ public class RemotePmtilesReader {
   }
 
   private void ensureInitialized() {
-    if (initialized) {
+    if (header != null) {
+      return;
+    }
+    long now = System.currentTimeMillis();
+    if (now - lastInitAttemptMs < nextBackoffMs) {
       return;
     }
     synchronized (initLock) {
-      if (initialized) {
+      if (header != null) {
         return;
       }
+      now = System.currentTimeMillis();
+      if (now - lastInitAttemptMs < nextBackoffMs) {
+        return;
+      }
+      lastInitAttemptMs = now;
       try {
         byte[] headerBytes = fetchRange(0, 127);
-        header = PmtilesHeader.parse(headerBytes);
-        byte[] rootRaw = fetchRange(header.rootDirOffset(), header.rootDirLength());
-        rootDir =
+        PmtilesHeader parsed = PmtilesHeader.parse(headerBytes);
+        byte[] rootRaw = fetchRange(parsed.rootDirOffset(), parsed.rootDirLength());
+        List<PmtilesEntry> parsedRoot =
             PmtilesReader.decodeDirectory(
-                PmtilesReader.decompress(rootRaw, header.internalCompression()));
+                PmtilesReader.decompress(rootRaw, parsed.internalCompression()));
+        rootDir = parsedRoot;
+        header = parsed; // set last — guards the success check above
+        nextBackoffMs = INITIAL_BACKOFF_MS;
         LOGGER.info("RemotePmtilesReader initialized from {}", url);
-      } catch (IOException e) {
-        LOGGER.warn("Failed to initialize RemotePmtilesReader from {}: {}", url, e.getMessage());
-        header = null;
-        rootDir = null;
+      } catch (IOException | RuntimeException e) {
+        LOGGER.warn(
+            "Failed to initialize RemotePmtilesReader from {}: {} (will retry after {} ms)",
+            url,
+            e.getMessage(),
+            nextBackoffMs);
+        nextBackoffMs = Math.min(nextBackoffMs * 2, MAX_BACKOFF_MS);
       }
-      initialized = true;
     }
   }
 

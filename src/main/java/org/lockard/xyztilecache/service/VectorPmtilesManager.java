@@ -152,6 +152,9 @@ public class VectorPmtilesManager {
 
   @EventListener
   void onLayerChanged(LayerChangedEvent event) {
+    if (event.kind() == LayerChangedEvent.Kind.UPDATED_ACL) {
+      return;
+    }
     String layerId = event.layerName();
     closeLayer(layerId);
     Layer layer = layerStore.getLayers().get(layerId);

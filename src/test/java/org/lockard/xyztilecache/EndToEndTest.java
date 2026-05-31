@@ -18,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.store.LayerStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -78,12 +79,15 @@ class EndToEndTest {
 
   @Autowired TestRestTemplate http;
   @Autowired ObjectMapper objectMapper;
+  @Autowired LayerStore layerStore;
 
   private WireMock wireMock;
 
   @BeforeEach
   void setupWireMock() {
     wireMock = new WireMock(wireMockContainer.getHost(), wireMockContainer.getMappedPort(8080));
+    // Tests share a Spring context; reset any leftover circuit-breaker state per test.
+    layerStore.getRuntimeState("osm").sourceSucceeded();
   }
 
   // ── GET /layers ───────────────────────────────────────────────────────────

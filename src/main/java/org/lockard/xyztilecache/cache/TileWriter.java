@@ -84,29 +84,37 @@ public class TileWriter {
     }
   }
 
-  /** Removes the on-disk tile directory for a layer that has been deleted from the config. */
+  /**
+   * Removes the on-disk tile directory for a layer that has been removed from the config or whose
+   * source has changed (which makes previously-cached tiles stale).
+   */
   @EventListener
   void onLayerChanged(LayerChangedEvent event) {
-    if (layerStore.getLayers().containsKey(event.layerName())) {
+    if (event.kind() != LayerChangedEvent.Kind.REMOVED
+        && event.kind() != LayerChangedEvent.Kind.UPDATED_SOURCE) {
       return;
     }
     Path layerDir = Paths.get(configuration.getBaseTileDirectory(), event.layerName());
-    if (!Files.exists(layerDir)) {
-      return;
+    if (Files.exists(layerDir)) {
+      try (var paths = Files.walk(layerDir)) {
+        paths
+            .sorted(Comparator.reverseOrder())
+            .forEach(
+                p -> {
+                  try {
+                    Files.delete(p);
+                  } catch (IOException e) {
+                    LOGGER.warn("Failed to delete {}", p, e);
+                  }
+                });
+      } catch (IOException e) {
+        LOGGER.warn("Failed to delete layer tile dir for {}", event.layerName(), e);
+      }
     }
-    try (var paths = Files.walk(layerDir)) {
-      paths
-          .sorted(Comparator.reverseOrder())
-          .forEach(
-              p -> {
-                try {
-                  Files.delete(p);
-                } catch (IOException e) {
-                  LOGGER.warn("Failed to delete {}", p, e);
-                }
-              });
-    } catch (IOException e) {
-      LOGGER.warn("Failed to delete layer tile dir for {}", event.layerName(), e);
+    if (event.kind() == LayerChangedEvent.Kind.UPDATED_SOURCE) {
+      var state = layerStore.getRuntimeState(event.layerName());
+      state.setCachedTiles(0);
+      state.setCachedTilesSize(0);
     }
   }
 

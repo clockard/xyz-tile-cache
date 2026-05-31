@@ -2,6 +2,7 @@ package org.lockard.xyztilecache.controller;
 
 import java.io.IOException;
 import java.util.Optional;
+import org.lockard.xyztilecache.cache.UpstreamUnavailableException;
 import org.lockard.xyztilecache.handler.TileNotFoundException;
 import org.lockard.xyztilecache.handler.TileSourceHandlerRegistry;
 import org.lockard.xyztilecache.model.Layer;
@@ -118,6 +119,9 @@ class TileController {
     Optional<TileResult> result;
     try {
       result = handler.get().getTile(layer, z, x, y);
+    } catch (UpstreamUnavailableException e) {
+      LOGGER.debug("Upstream blocked for layer {}: {}", layerName, e.getMessage());
+      return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
     } catch (TileNotFoundException e) {
       return ResponseEntity.notFound().build();
     } catch (IOException e) {

@@ -120,27 +120,61 @@ class TileWriterTest {
   }
 
   @Test
-  void onLayerChanged_deletesDirectoryWhenLayerNoLongerConfigured() throws IOException {
+  void onLayerChanged_removed_deletesDirectory() throws IOException {
     Path layerDir = tempDir.resolve("ghost");
     Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
     Files.createDirectories(tileFile.getParent());
     Files.write(tileFile, new byte[] {1, 2, 3});
 
     TileWriter writer = new TileWriter(configuration, layerStore);
-    writer.onLayerChanged(new LayerChangedEvent("ghost"));
+    writer.onLayerChanged(new LayerChangedEvent("ghost", LayerChangedEvent.Kind.REMOVED));
 
     assertThat(layerDir).doesNotExist();
   }
 
   @Test
-  void onLayerChanged_keepsDirectoryWhenLayerStillConfigured() throws IOException {
+  void onLayerChanged_updatedSource_deletesDirectoryAndResetsStats() throws IOException {
+    Path layerDir = tempDir.resolve("test");
+    Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
+    Files.createDirectories(tileFile.getParent());
+    Files.write(tileFile, new byte[] {1, 2, 3});
+    LayerRuntimeState state = layerStore.getRuntimeState("test");
+    state.addTileStats(3);
+
+    TileWriter writer = new TileWriter(configuration, layerStore);
+    writer.onLayerChanged(new LayerChangedEvent("test", LayerChangedEvent.Kind.UPDATED_SOURCE));
+
+    assertThat(layerDir).doesNotExist();
+    assertThat(state.getCachedTiles()).isZero();
+    assertThat(state.getCachedTilesSize()).isZero();
+  }
+
+  @Test
+  void onLayerChanged_updatedAcl_keepsDirectoryAndStats() throws IOException {
+    Path layerDir = tempDir.resolve("test");
+    Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
+    Files.createDirectories(tileFile.getParent());
+    Files.write(tileFile, new byte[] {1, 2, 3});
+    LayerRuntimeState state = layerStore.getRuntimeState("test");
+    state.addTileStats(3);
+
+    TileWriter writer = new TileWriter(configuration, layerStore);
+    writer.onLayerChanged(new LayerChangedEvent("test", LayerChangedEvent.Kind.UPDATED_ACL));
+
+    assertThat(tileFile).exists();
+    assertThat(state.getCachedTiles()).isEqualTo(1);
+    assertThat(state.getCachedTilesSize()).isEqualTo(3);
+  }
+
+  @Test
+  void onLayerChanged_added_keepsDirectory() throws IOException {
     Path layerDir = tempDir.resolve("test");
     Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
     Files.createDirectories(tileFile.getParent());
     Files.write(tileFile, new byte[] {1, 2, 3});
 
     TileWriter writer = new TileWriter(configuration, layerStore);
-    writer.onLayerChanged(new LayerChangedEvent("test"));
+    writer.onLayerChanged(new LayerChangedEvent("test", LayerChangedEvent.Kind.ADDED));
 
     assertThat(tileFile).exists();
   }

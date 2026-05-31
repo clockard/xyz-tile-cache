@@ -1,10 +1,12 @@
 package org.lockard.xyztilecache.handler;
 
 import com.google.common.cache.LoadingCache;
+import java.io.IOException;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import org.lockard.xyztilecache.cache.UpstreamUnavailableException;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.model.TileResult;
@@ -35,19 +37,18 @@ public class RasterTileHandler implements TileSourceHandler {
   }
 
   @Override
-  public Optional<TileResult> getTile(Layer layer, int z, int x, int y) {
+  public Optional<TileResult> getTile(Layer layer, int z, int x, int y) throws IOException {
     try {
       byte[] data = tileCache.get(new Tile(layer, x, y, z));
       return Optional.of(new TileResult(data, 0, detectContentType(data)));
     } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof UpstreamUnavailableException uu) {
+        throw uu;
+      }
       LOGGER.debug(
-          "Failed to retrieve tile {}/{}/{} for layer {}",
-          z,
-          x,
-          y,
-          layer.getEffectiveId(),
-          e.getCause());
-      throw new TileNotFoundException(e.getCause());
+          "Failed to retrieve tile {}/{}/{} for layer {}", z, x, y, layer.getEffectiveId(), cause);
+      throw new TileNotFoundException(cause);
     }
   }
 

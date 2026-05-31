@@ -23,6 +23,10 @@ public class XyzConfiguration {
 
   private int layerSyncSeconds = 10;
 
+  private int exportRetentionMinutes = 60;
+
+  private int exportSweepSeconds = 300;
+
   private boolean uiEnabled = true;
 
   private String adminRole = "admin";
@@ -63,6 +67,22 @@ public class XyzConfiguration {
 
   public void setLayerSyncSeconds(int layerSyncSeconds) {
     this.layerSyncSeconds = layerSyncSeconds;
+  }
+
+  public int getExportRetentionMinutes() {
+    return exportRetentionMinutes;
+  }
+
+  public void setExportRetentionMinutes(int exportRetentionMinutes) {
+    this.exportRetentionMinutes = exportRetentionMinutes;
+  }
+
+  public int getExportSweepSeconds() {
+    return exportSweepSeconds;
+  }
+
+  public void setExportSweepSeconds(int exportSweepSeconds) {
+    this.exportSweepSeconds = exportSweepSeconds;
   }
 
   public boolean isUiEnabled() {

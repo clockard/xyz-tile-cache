@@ -10,10 +10,12 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import java.io.File;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.store.LayerStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +37,8 @@ class XyzTileCacheApplicationCircuitBreakerTests {
           .options(wireMockConfig().dynamicPort().gzipDisabled(true))
           .build();
 
+  @Autowired LayerStore layerStore;
+
   @DynamicPropertySource
   static void testProperties(DynamicPropertyRegistry registry) {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
@@ -48,17 +52,23 @@ class XyzTileCacheApplicationCircuitBreakerTests {
         });
   }
 
+  @BeforeEach
+  void clearCircuitBreaker() {
+    // Tests share a Spring context; reset the per-layer block so each test sees a clean state.
+    layerStore.getRuntimeState("cb").sourceSucceeded();
+  }
+
   @Test
   void sourceBlockedAfterFailure(@Autowired MockMvc mvc) throws Exception {
     wireMock.stubFor(WireMock.get(urlPathEqualTo("/1/0/0")).willReturn(notFound()));
 
-    // First request: tile not found → layer enters BLOCK state (100 ms window)
+    // First request: upstream 404 → TileNotFound, layer enters BLOCK (100 ms window)
     mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/cb/1/0/0.png"))
         .andExpect(MockMvcResultMatchers.status().isNotFound());
 
-    // Second immediate request: BLOCK state — source is not contacted again
+    // Second immediate request: BLOCK state — source is not re-contacted, returns 503
     mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/cb/1/0/0.png"))
-        .andExpect(MockMvcResultMatchers.status().isNotFound());
+        .andExpect(MockMvcResultMatchers.status().isServiceUnavailable());
 
     wireMock.verify(1, getRequestedFor(urlPathEqualTo("/1/0/0")));
   }

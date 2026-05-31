@@ -12,7 +12,6 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import org.lockard.xyztilecache.XyzUtil;
 import org.lockard.xyztilecache.model.BoundingBox;
@@ -36,7 +35,6 @@ public class PreloadService {
   private final PmtilesDownloader pmtilesDownloader;
 
   private final ExecutorService xyzExecutor = Executors.newSingleThreadExecutor();
-  private volatile Future<?> xyzFuture;
 
   public PreloadService(
       LayerStore layerStore,
@@ -124,12 +122,8 @@ public class PreloadService {
     runXyzPreload(validLayers, bbox);
   }
 
-  private synchronized void submitXyz(Set<String> layers, BoundingBox bbox) {
-    if (xyzFuture != null && !xyzFuture.isDone()) {
-      LOGGER.info("Skipping xyz preload dispatch — a previous preload is still running.");
-      return;
-    }
-    xyzFuture = xyzExecutor.submit(() -> runXyzPreload(layers, bbox));
+  private void submitXyz(Set<String> layers, BoundingBox bbox) {
+    xyzExecutor.submit(() -> runXyzPreload(layers, bbox));
   }
 
   private void runXyzPreload(Set<String> layers, BoundingBox bbox) {

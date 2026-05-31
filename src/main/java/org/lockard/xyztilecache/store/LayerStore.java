@@ -74,21 +74,27 @@ public class LayerStore extends JsonFileStore<Layer> {
           this.layers.put(id, layer);
         });
     logger.info("Added layer '{}'.", id);
-    eventPublisher.publishEvent(new LayerChangedEvent(id));
+    eventPublisher.publishEvent(new LayerChangedEvent(id, LayerChangedEvent.Kind.ADDED));
   }
 
   public void updateLayer(String id, Layer layer) throws IOException {
     validateLayer(layer);
+    LayerChangedEvent.Kind[] kindHolder = new LayerChangedEvent.Kind[1];
     withLockedReloadAndWrite(
         () -> {
-          if (!this.layers.containsKey(id)) {
+          Layer existing = this.layers.get(id);
+          if (existing == null) {
             throw new NoSuchElementException("Layer '" + id + "' not found.");
           }
           layer.setId(id);
           this.layers.put(id, layer);
+          kindHolder[0] =
+              sameSource(existing, layer)
+                  ? LayerChangedEvent.Kind.UPDATED_ACL
+                  : LayerChangedEvent.Kind.UPDATED_SOURCE;
         });
     logger.info("Updated layer '{}'.", id);
-    eventPublisher.publishEvent(new LayerChangedEvent(id));
+    eventPublisher.publishEvent(new LayerChangedEvent(id, kindHolder[0]));
   }
 
   public void removeLayer(String id) throws IOException {
@@ -100,7 +106,7 @@ public class LayerStore extends JsonFileStore<Layer> {
           this.runtimeStates.remove(id);
         });
     logger.info("Removed layer '{}'.", id);
-    eventPublisher.publishEvent(new LayerChangedEvent(id));
+    eventPublisher.publishEvent(new LayerChangedEvent(id, LayerChangedEvent.Kind.REMOVED));
   }
 
   // ── JsonFileStore hooks ───────────────────────────────────────────────────
@@ -144,8 +150,12 @@ public class LayerStore extends JsonFileStore<Layer> {
     before.forEach(
         (name, old) -> {
           Layer updated = this.layers.get(name);
-          if (updated == null || !sameSource(old, updated)) {
-            eventPublisher.publishEvent(new LayerChangedEvent(name));
+          if (updated == null) {
+            eventPublisher.publishEvent(
+                new LayerChangedEvent(name, LayerChangedEvent.Kind.REMOVED));
+          } else if (!sameSource(old, updated)) {
+            eventPublisher.publishEvent(
+                new LayerChangedEvent(name, LayerChangedEvent.Kind.UPDATED_SOURCE));
           }
         });
   }

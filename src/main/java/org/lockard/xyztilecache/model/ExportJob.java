@@ -14,15 +14,19 @@ public class ExportJob {
   private final Instant createdAt;
 
   public ExportJob(String id, String filename, Path tempFile, String ownerName) {
+    this(id, filename, tempFile, ownerName, Instant.now());
+  }
+
+  public ExportJob(String id, String filename, Path tempFile, String ownerName, Instant createdAt) {
     this.id = id;
     this.filename = filename;
     this.tempFile = tempFile;
     this.ownerName = ownerName;
     this.status = ExportStatus.PENDING;
-    this.createdAt = Instant.now();
+    this.createdAt = createdAt;
   }
 
-  String getId() {
+  public String getId() {
     return id;
   }
 
@@ -46,7 +50,7 @@ public class ExportJob {
     return ownerName;
   }
 
-  String getError() {
+  public String getError() {
     return error;
   }
 
@@ -54,7 +58,7 @@ public class ExportJob {
     this.error = error;
   }
 
-  Instant getCreatedAt() {
+  public Instant getCreatedAt() {
     return createdAt;
   }
 }
