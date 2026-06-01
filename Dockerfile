@@ -20,7 +20,8 @@ WORKDIR /app
 # gdal-tools provides gdal2tiles.py used by /layers/geotiff to tile uploaded GeoTIFFs.
 # Alpine splits GDAL drivers into separate packages; png is required for gdal2tiles output,
 # jpeg covers JPEG-compressed input TIFFs commonly used in remote sensing.
-RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg
+RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg \
+ && apk upgrade --no-cache libxml2
 COPY target/xyz-tile-cache-${VERSION}.jar /app/xyz-tile-cache.jar
 COPY --from=builder /usr/local/bin/pmtiles /usr/local/bin/pmtiles
 COPY entrypoint.sh /app/entrypoint.sh
