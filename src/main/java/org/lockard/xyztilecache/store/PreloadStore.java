@@ -49,6 +49,26 @@ public class PreloadStore extends JsonFileStore<Preload> {
     logger.info("Added preload '{}'.", preload.getId());
   }
 
+  public void update(Preload preload) throws IOException {
+    if (preload.getId() == null || preload.getId().isBlank()) {
+      throw new IllegalArgumentException("Preload id must not be blank.");
+    }
+    withLockedReloadAndWrite(
+        () -> {
+          int idx = -1;
+          for (int i = 0; i < preloads.size(); i++) {
+            if (preload.getId().equals(preloads.get(i).getId())) {
+              idx = i;
+              break;
+            }
+          }
+          if (idx < 0) {
+            throw new NoSuchElementException("Preload '" + preload.getId() + "' not found.");
+          }
+          preloads.set(idx, preload);
+        });
+  }
+
   public void removePreload(String id) throws IOException {
     withLockedReloadAndWrite(
         () -> {

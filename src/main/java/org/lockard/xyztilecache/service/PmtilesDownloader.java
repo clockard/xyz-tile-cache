@@ -6,12 +6,14 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.NoSuchElementException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
+import org.lockard.xyztilecache.store.PreloadStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -23,12 +25,17 @@ public class PmtilesDownloader {
 
   private final XyzConfiguration xyzConfig;
   private final VectorPmtilesManager vectorPmtilesManager;
+  private final PreloadStore preloadStore;
 
   private final AtomicBoolean downloadInProgress = new AtomicBoolean(false);
 
-  public PmtilesDownloader(XyzConfiguration xyzConfig, VectorPmtilesManager vectorPmtilesManager) {
+  public PmtilesDownloader(
+      XyzConfiguration xyzConfig,
+      VectorPmtilesManager vectorPmtilesManager,
+      PreloadStore preloadStore) {
     this.xyzConfig = xyzConfig;
     this.vectorPmtilesManager = vectorPmtilesManager;
+    this.preloadStore = preloadStore;
   }
 
   public boolean isDownloadInProgress() {
@@ -59,16 +66,22 @@ public class PmtilesDownloader {
         Path.of(xyzConfig.getBaseTileDirectory(), layerId).toAbsolutePath().normalize();
     Path outputPath = downloadDir.resolve(outputFilename(preload.getName())).normalize();
     if (!outputPath.startsWith(downloadDir)) {
-      LOGGER.error("PMTiles filename escapes download directory: {}", outputPath);
+      String msg = "PMTiles filename escapes download directory: " + outputPath;
+      LOGGER.error(msg);
+      markFailed(preload, msg);
       return;
     }
 
     try {
       Files.createDirectories(outputPath.getParent());
     } catch (IOException e) {
-      LOGGER.error("Could not create download directory: {}", e.getMessage());
+      String msg = "Could not create download directory: " + e.getMessage();
+      LOGGER.error(msg);
+      markFailed(preload, msg);
       return;
     }
+
+    markRunning(preload);
 
     String sourceUrl = resolveSourceUrl(layer.getUrlTemplate());
     LOGGER.info("Starting pmtiles extract: source={} output={}", sourceUrl, outputPath);
@@ -77,7 +90,9 @@ public class PmtilesDownloader {
     try {
       process = buildProcess(preload, layer, outputPath).start();
     } catch (IOException e) {
-      LOGGER.error("Could not start pmtiles extract process: {}", e.getMessage());
+      String msg = "Could not start pmtiles extract process: " + e.getMessage();
+      LOGGER.error(msg);
+      markFailed(preload, msg);
       return;
     }
 
@@ -86,15 +101,19 @@ public class PmtilesDownloader {
       output = new String(process.getInputStream().readAllBytes());
       int exitCode = process.waitFor();
       if (exitCode != 0) {
-        LOGGER.error(
-            "pmtiles extract failed (exit {}): {}",
-            exitCode,
-            output.isBlank() ? "(no output)" : output);
+        String msg =
+            "pmtiles extract failed (exit "
+                + exitCode
+                + "): "
+                + (output.isBlank() ? "(no output)" : output.trim());
+        LOGGER.error(msg);
         Files.deleteIfExists(outputPath);
+        markFailed(preload, msg);
         return;
       }
     } catch (IOException | InterruptedException e) {
-      LOGGER.error("Error waiting for pmtiles extract: {}", e.getMessage());
+      String msg = "Error waiting for pmtiles extract: " + e.getMessage();
+      LOGGER.error(msg);
       try {
         Files.deleteIfExists(outputPath);
       } catch (IOException ignored) {
@@ -102,12 +121,42 @@ public class PmtilesDownloader {
       if (e instanceof InterruptedException) {
         Thread.currentThread().interrupt();
       }
+      markFailed(preload, msg);
       return;
     }
 
     LOGGER.info("PMTiles download completed: {}", outputPath);
     vectorPmtilesManager.closeLayer(layerId);
     vectorPmtilesManager.initLayer(layer);
+    markDone(preload);
+  }
+
+  private void markRunning(Preload preload) {
+    updateStatus(preload, Preload.Status.RUNNING, null);
+  }
+
+  private void markDone(Preload preload) {
+    updateStatus(preload, Preload.Status.DONE, null);
+  }
+
+  private void markFailed(Preload preload, String message) {
+    updateStatus(preload, Preload.Status.FAILED, message);
+  }
+
+  private void updateStatus(Preload preload, Preload.Status status, String errorMessage) {
+    preload.setStatus(status);
+    preload.setErrorMessage(errorMessage);
+    try {
+      preloadStore.update(preload);
+    } catch (IOException e) {
+      LOGGER.warn(
+          "Failed to persist preload status {} for '{}': {}",
+          status,
+          preload.getId(),
+          e.getMessage());
+    } catch (NoSuchElementException e) {
+      LOGGER.debug("Preload '{}' no longer present; skipping status update", preload.getId());
+    }
   }
 
   protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path outputPath) {

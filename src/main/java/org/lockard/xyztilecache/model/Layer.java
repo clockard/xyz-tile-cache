@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class Layer {
@@ -197,6 +198,37 @@ public class Layer {
   @JsonIgnore
   public boolean isPublic() {
     return allowedUsers.isEmpty() && allowedGroups.isEmpty();
+  }
+
+  /** File-system extension (without dot) for tiles stored under this layer's directory. */
+  @JsonIgnore
+  public String getTileFileExtension() {
+    if (sourceType == SourceType.VECTOR_PMTILES) {
+      return "pbf";
+    }
+    if (sourceType == SourceType.WMTS_KVP || sourceType == SourceType.WMTS_REST) {
+      if (wmtsFormat != null) {
+        String f = wmtsFormat.toLowerCase(Locale.ROOT);
+        if (f.contains("jpeg") || f.contains("jpg")) return "jpg";
+        if (f.contains("webp")) return "webp";
+        if (f.contains("gif")) return "gif";
+      }
+      return "png";
+    }
+    if (urlTemplate != null) {
+      String url = urlTemplate.toLowerCase(Locale.ROOT);
+      int q = url.indexOf('?');
+      if (q >= 0) url = url.substring(0, q);
+      int dot = url.lastIndexOf('.');
+      if (dot >= 0) {
+        String ext = url.substring(dot + 1);
+        if (ext.equals("jpg") || ext.equals("jpeg")) return "jpg";
+        if (ext.equals("webp")) return "webp";
+        if (ext.equals("gif")) return "gif";
+        if (ext.equals("png")) return "png";
+      }
+    }
+    return "png";
   }
 
   public enum RequestStrategy {

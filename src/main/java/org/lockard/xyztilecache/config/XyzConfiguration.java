@@ -27,6 +27,10 @@ public class XyzConfiguration {
 
   private int exportSweepSeconds = 300;
 
+  private int defaultCacheMaxAgeSeconds = 86_400;
+
+  private long tileCacheBytes = 256L * 1024 * 1024;
+
   private boolean uiEnabled = true;
 
   private String adminRole = "admin";
@@ -83,6 +87,22 @@ public class XyzConfiguration {
 
   public void setExportSweepSeconds(int exportSweepSeconds) {
     this.exportSweepSeconds = exportSweepSeconds;
+  }
+
+  public int getDefaultCacheMaxAgeSeconds() {
+    return defaultCacheMaxAgeSeconds;
+  }
+
+  public void setDefaultCacheMaxAgeSeconds(int defaultCacheMaxAgeSeconds) {
+    this.defaultCacheMaxAgeSeconds = defaultCacheMaxAgeSeconds;
+  }
+
+  public long getTileCacheBytes() {
+    return tileCacheBytes;
+  }
+
+  public void setTileCacheBytes(long tileCacheBytes) {
+    this.tileCacheBytes = tileCacheBytes;
   }
 
   public boolean isUiEnabled() {

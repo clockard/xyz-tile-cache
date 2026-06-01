@@ -124,6 +124,6 @@ public class TileWriter {
         tile.layer().getEffectiveId(),
         String.valueOf(tile.z()),
         String.valueOf(tile.x()),
-        tile.y() + ".png");
+        tile.y() + "." + tile.layer().getTileFileExtension());
   }
 }

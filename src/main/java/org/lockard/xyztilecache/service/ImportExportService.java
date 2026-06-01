@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -44,10 +45,12 @@ public class ImportExportService {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ImportExportService.class);
   private static final Pattern SAFE_LAYER_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
-  private static final Pattern TILE_TAIL = Pattern.compile("\\d+/\\d+/\\d+\\.png");
+  private static final Pattern TILE_TAIL =
+      Pattern.compile("\\d+/\\d+/\\d+\\.(png|jpg|jpeg|webp|gif)");
   private static final Pattern SAFE_PMTILES_NAME =
       Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}\\.pmtiles");
   private static final Pattern CACHED_TILE_TAIL = Pattern.compile("\\d+/\\d+/\\d+\\.pbf");
+  private static final Set<String> RASTER_TILE_EXTS = Set.of("png", "jpg", "jpeg", "webp", "gif");
 
   private final XyzConfiguration configuration;
   private final VectorPmtilesManager vectorPmtilesManager;
@@ -98,14 +101,14 @@ public class ImportExportService {
         if (layer.getSourceType() == Layer.SourceType.VECTOR_PMTILES) {
           addPmtilesLayer(zos, layerId, layerDir, bbox, minZoom, maxZoom, layer);
         } else if (bbox == null) {
-          addAllTiles(zos, layerId, layerDir);
+          addAllRasterTiles(zos, layerId, layerDir);
         } else {
           int effectiveMax = Math.min(layer.getMaxZoom(), bbox.getMaxZoom());
           if (maxZoom != null) {
             effectiveMax = Math.min(effectiveMax, maxZoom);
           }
           int start = minZoom != null ? Math.max(0, minZoom) : 0;
-          addBboxTilesFromDir(zos, layerDir, layerId + "/", ".png", bbox, start, effectiveMax);
+          addRasterBboxTilesFromDir(zos, layerDir, layerId + "/", bbox, start, effectiveMax);
         }
       }
     }
@@ -226,11 +229,12 @@ public class ImportExportService {
     }
   }
 
-  private void addAllTiles(ZipOutputStream zos, String layerId, Path layerDir) throws IOException {
+  private void addAllRasterTiles(ZipOutputStream zos, String layerId, Path layerDir)
+      throws IOException {
     try (var paths = Files.walk(layerDir)) {
       paths
           .filter(Files::isRegularFile)
-          .filter(p -> p.getFileName().toString().endsWith(".png"))
+          .filter(p -> RASTER_TILE_EXTS.contains(fileExtension(p.getFileName().toString())))
           .forEach(
               p -> {
                 String rel = layerDir.relativize(p).toString().replace('\\', '/');
@@ -242,6 +246,58 @@ public class ImportExportService {
               });
     } catch (UncheckedIOException e) {
       throw e.getCause();
+    }
+  }
+
+  private static String fileExtension(String fileName) {
+    int dot = fileName.lastIndexOf('.');
+    return dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
+  }
+
+  private void addRasterBboxTilesFromDir(
+      ZipOutputStream zos, Path tileDir, String entryPrefix, BoundingBox bbox, int startZ, int endZ)
+      throws IOException {
+    for (int z = startZ; z <= endZ; z++) {
+      Path zDir = tileDir.resolve(Integer.toString(z));
+      if (!Files.isDirectory(zDir)) continue;
+      Point ul = XyzUtil.getTileNumber(bbox.getNorth(), bbox.getWest(), z);
+      int xMin = ul.x;
+      int xMax = XyzUtil.getTileNumber(bbox.getNorth(), bbox.getEast(), z).x;
+      int yMin = ul.y;
+      int yMax = XyzUtil.getTileNumber(bbox.getSouth(), bbox.getWest(), z).y;
+      List<Path> xDirs;
+      try (Stream<Path> s = Files.list(zDir)) {
+        xDirs = s.filter(Files::isDirectory).toList();
+      }
+      for (Path xDir : xDirs) {
+        int x;
+        try {
+          x = Integer.parseInt(xDir.getFileName().toString());
+        } catch (NumberFormatException e) {
+          continue;
+        }
+        if (x < xMin || x > xMax) continue;
+        List<Path> yFiles;
+        try (Stream<Path> s = Files.list(xDir)) {
+          yFiles =
+              s.filter(Files::isRegularFile)
+                  .filter(p -> RASTER_TILE_EXTS.contains(fileExtension(p.getFileName().toString())))
+                  .toList();
+        }
+        for (Path yFile : yFiles) {
+          String fname = yFile.getFileName().toString();
+          int dot = fname.lastIndexOf('.');
+          if (dot <= 0) continue;
+          int y;
+          try {
+            y = Integer.parseInt(fname.substring(0, dot));
+          } catch (NumberFormatException e) {
+            continue;
+          }
+          if (y < yMin || y > yMax) continue;
+          writeEntry(zos, entryPrefix + z + "/" + x + "/" + fname, yFile);
+        }
+      }
     }
   }
 

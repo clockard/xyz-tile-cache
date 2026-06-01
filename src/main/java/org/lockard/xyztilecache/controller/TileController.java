@@ -3,6 +3,7 @@ package org.lockard.xyztilecache.controller;
 import java.io.IOException;
 import java.util.Optional;
 import org.lockard.xyztilecache.cache.UpstreamUnavailableException;
+import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.handler.TileNotFoundException;
 import org.lockard.xyztilecache.handler.TileSourceHandlerRegistry;
 import org.lockard.xyztilecache.model.Layer;
@@ -30,21 +31,25 @@ class TileController {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(TileController.class);
   private static final int COMPRESSION_GZIP = 2;
+  private static final long IMMUTABLE_MAX_AGE_SECONDS = 31_536_000L;
 
   private final LayerStore layerStore;
   private final LayerAccessService layerAccessService;
   private final PreloadService preloadService;
   private final TileSourceHandlerRegistry handlerRegistry;
+  private final XyzConfiguration configuration;
 
   TileController(
       LayerStore layerStore,
       LayerAccessService layerAccessService,
       PreloadService preloadService,
-      TileSourceHandlerRegistry handlerRegistry) {
+      TileSourceHandlerRegistry handlerRegistry,
+      XyzConfiguration configuration) {
     this.layerStore = layerStore;
     this.layerAccessService = layerAccessService;
     this.preloadService = preloadService;
     this.handlerRegistry = handlerRegistry;
+    this.configuration = configuration;
   }
 
   /** Legacy endpoint — prefer POST /preloads for new integrations. */
@@ -139,9 +144,25 @@ class TileController {
     HttpHeaders headers = new HttpHeaders();
     headers.add("Access-Control-Allow-Origin", "*");
     headers.add("Content-Type", tile.contentType());
+    headers.add(HttpHeaders.CACHE_CONTROL, cacheControlFor(layer));
     if (tile.tileCompression() == COMPRESSION_GZIP) {
       headers.add("Content-Encoding", "gzip");
     }
     return new ResponseEntity<>(tile.data(), headers, HttpStatus.OK);
+  }
+
+  private String cacheControlFor(Layer layer) {
+    String visibility = layer.isPublic() ? "public" : "private";
+    Layer.SourceType type = layer.getSourceType();
+    int expirationMinutes = layer.getTileExpirationMinutes();
+    if (expirationMinutes == 0
+        && (type == Layer.SourceType.LOCAL || type == Layer.SourceType.VECTOR_PMTILES)) {
+      return visibility + ", immutable, max-age=" + IMMUTABLE_MAX_AGE_SECONDS;
+    }
+    long maxAge =
+        expirationMinutes > 0
+            ? expirationMinutes * 60L
+            : configuration.getDefaultCacheMaxAgeSeconds();
+    return visibility + ", max-age=" + maxAge;
   }
 }

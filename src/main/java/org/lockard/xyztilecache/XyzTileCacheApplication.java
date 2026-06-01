@@ -62,8 +62,12 @@ public class XyzTileCacheApplication {
   }
 
   @Bean
-  static LoadingCache<Tile, byte[]> tileCache(CacheLoader<Tile, byte[]> cacheLoader) {
-    return CacheBuilder.newBuilder().maximumSize(500).build(cacheLoader);
+  static LoadingCache<Tile, byte[]> tileCache(
+      CacheLoader<Tile, byte[]> cacheLoader, XyzConfiguration configuration) {
+    return CacheBuilder.newBuilder()
+        .maximumWeight(configuration.getTileCacheBytes())
+        .weigher((Tile k, byte[] v) -> v.length)
+        .build(cacheLoader);
   }
 
   // ── Lifecycle / events ────────────────────────────────────────────────────

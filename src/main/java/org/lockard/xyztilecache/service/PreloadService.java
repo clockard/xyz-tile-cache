@@ -101,7 +101,7 @@ public class PreloadService {
 
     if (!validLayers.isEmpty()) {
       boundingBox.setMaxZoom(maxZoom);
-      submitXyz(validLayers, boundingBox);
+      submitXyz(preload, validLayers, boundingBox);
     }
     if (vectorLayer != null) {
       try {
@@ -124,6 +124,48 @@ public class PreloadService {
 
   private void submitXyz(Set<String> layers, BoundingBox bbox) {
     xyzExecutor.submit(() -> runXyzPreload(layers, bbox));
+  }
+
+  private void submitXyz(Preload preload, Set<String> layers, BoundingBox bbox) {
+    xyzExecutor.submit(() -> runXyzPreload(preload, layers, bbox));
+  }
+
+  private void runXyzPreload(Preload preload, Set<String> layers, BoundingBox bbox) {
+    updateRasterStatus(preload, Preload.Status.RUNNING, null);
+    try {
+      runXyzPreload(layers, bbox);
+      // Leave PENDING/RUNNING if a parallel PMTiles download owns the lifecycle.
+      if (preload != null && hasOnlyRasterLayers(layers)) {
+        updateRasterStatus(preload, Preload.Status.DONE, null);
+      }
+    } catch (RuntimeException e) {
+      updateRasterStatus(preload, Preload.Status.FAILED, e.getMessage());
+      throw e;
+    }
+  }
+
+  private boolean hasOnlyRasterLayers(Set<String> layers) {
+    return layers.stream()
+        .map(layerStore.getLayers()::get)
+        .filter(java.util.Objects::nonNull)
+        .noneMatch(l -> l.getSourceType() == Layer.SourceType.VECTOR_PMTILES);
+  }
+
+  private void updateRasterStatus(Preload preload, Preload.Status status, String errorMessage) {
+    if (preload == null) return;
+    preload.setStatus(status);
+    preload.setErrorMessage(errorMessage);
+    try {
+      preloadStore.update(preload);
+    } catch (IOException e) {
+      LOGGER.warn(
+          "Failed to persist preload status {} for '{}': {}",
+          status,
+          preload.getId(),
+          e.getMessage());
+    } catch (java.util.NoSuchElementException e) {
+      LOGGER.debug("Preload '{}' no longer present; skipping status update", preload.getId());
+    }
   }
 
   private void runXyzPreload(Set<String> layers, BoundingBox bbox) {

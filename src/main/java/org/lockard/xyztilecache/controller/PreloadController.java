@@ -149,6 +149,8 @@ public class PreloadController {
         p.getCreatedAt(),
         sizeBytes,
         p.getAllowedUsers(),
-        p.getAllowedGroups());
+        p.getAllowedGroups(),
+        p.getStatus(),
+        p.getErrorMessage());
   }
 }

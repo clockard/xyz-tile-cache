@@ -42,12 +42,22 @@ public class OfflineCacheLoader extends CacheLoader<Tile, byte[]> {
   }
 
   public File toFile(final Tile tile) {
+    String ext = tile.layer().getTileFileExtension();
+    File preferred = tilePath(tile, ext);
+    if (preferred.exists() || ext.equals("png")) {
+      return preferred;
+    }
+    File pngFallback = tilePath(tile, "png");
+    return pngFallback.exists() ? pngFallback : preferred;
+  }
+
+  private File tilePath(final Tile tile, final String ext) {
     return Paths.get(
             configuration.getBaseTileDirectory(),
             tile.layer().getEffectiveId(),
             String.valueOf(tile.z()),
             String.valueOf(tile.x()),
-            tile.y() + ".png")
+            tile.y() + "." + ext)
         .toFile();
   }
 }
