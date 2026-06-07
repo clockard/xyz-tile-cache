@@ -1,9 +1,9 @@
 ARG JRE_IMAGE=eclipse-temurin:25-jre-alpine
 
 # ── Stage 1: build go-pmtiles CLI ─────────────────────────────────────────────
-# golang:1.26-alpine tracks the latest Go 1.26.x patch, ensuring stdlib CVE
-# fixes (CVE-2026-32280/32281/32283/33810 fixed in 1.26.2) are included.
-FROM golang:1.26-alpine AS builder
+# Pin to go1.26.4, which fixes CVE-2026-42504 (MIME header decoding DoS,
+# fixed in 1.25.11/1.26.4) as well as the earlier 1.26.2 stdlib CVEs.
+FROM golang:1.26.4-alpine AS builder
 ARG PMTILES_VERSION=1.30.2
 RUN apk add --no-cache git
 RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
@@ -20,8 +20,10 @@ WORKDIR /app
 # gdal-tools provides gdal2tiles.py used by /layers/geotiff to tile uploaded GeoTIFFs.
 # Alpine splits GDAL drivers into separate packages; png is required for gdal2tiles output,
 # jpeg covers JPEG-compressed input TIFFs commonly used in remote sensing.
+# Pin libxml2 to >=2.13.9-r1 to fix CVE-2026-6732 (XSD-validation DoS),
+# overriding whatever older build gdal's dependency resolution would pull in.
 RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg \
- && apk upgrade --no-cache libxml2
+ && apk add --no-cache --upgrade 'libxml2>=2.13.9-r1'
 COPY target/xyz-tile-cache-${VERSION}.jar /app/xyz-tile-cache.jar
 COPY --from=builder /usr/local/bin/pmtiles /usr/local/bin/pmtiles
 COPY entrypoint.sh /app/entrypoint.sh
