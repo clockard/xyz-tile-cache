@@ -3,7 +3,7 @@ ARG JRE_IMAGE=eclipse-temurin:25-jre-alpine
 # ── Stage 1: build go-pmtiles CLI ─────────────────────────────────────────────
 # golang:1.26-alpine tracks the latest Go 1.26.x patch, ensuring stdlib CVE
 # fixes (CVE-2026-32280/32281/32283/33810 fixed in 1.26.2) are included.
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.4-alpine AS builder
 ARG PMTILES_VERSION=1.30.2
 RUN apk add --no-cache git
 RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
