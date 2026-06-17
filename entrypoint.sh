@@ -11,7 +11,7 @@ CUSTOM_TRUST_P12_PASSWORD="${CUSTOM_TRUST_P12_PASSWORD:-changeit}"
 
 # Only create merged truststore if custom truststore exists
 if [ -f "${CUSTOM_TRUST_P12}" ]; then
-  echo "Custom truststore found at ${CUSTOM_P12}"
+  echo "Custom truststore found at ${CUSTOM_TRUST_P12}"
   echo "Creating merged JVM truststore..."
 
   # Copy default JVM truststore
@@ -23,8 +23,8 @@ if [ -f "${CUSTOM_TRUST_P12}" ]; then
     -srckeystore "${CUSTOM_TRUST_P12}" \
     -srcstoretype PKCS12 \
     -srcstorepass "${CUSTOM_TRUST_P12_PASSWORD}" \
-    -destkeystore "${CUSTOM_TRUSTSTORE}"
-    -destkeystore "${CUSTOM_TRUSTSTORE}"
+    -destkeystore "${CUSTOM_TRUSTSTORE}" \
+    -deststorepass changeit
 
   # Configure JVM to use merged truststore
   export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS} \

@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.14</version>
+        <version>3.5.15</version>
     </parent>
     <groupId>org.lockard</groupId>
     <artifactId>xyz-tile-cache</artifactId>
@@ -180,7 +180,7 @@
             <plugin>
                 <groupId>io.fabric8</groupId>
                 <artifactId>docker-maven-plugin</artifactId>
-                <version>0.45.1</version>
+                <version>0.48.1</version>
                 <configuration>
                     <skip>${docker.skip}</skip>
                     <verbose>true</verbose>
