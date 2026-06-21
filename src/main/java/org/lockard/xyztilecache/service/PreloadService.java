@@ -1,6 +1,6 @@
 package org.lockard.xyztilecache.service;
 
-import com.google.common.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import java.awt.Point;
 import java.io.IOException;
 import java.time.Instant;
@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -69,15 +69,15 @@ public class PreloadService {
     Layer vectorLayer =
         validLayers.stream()
             .map(layerStore.getLayers()::get)
-            .filter(l -> l.getSourceType() == Layer.SourceType.VECTOR_PMTILES)
+            .filter(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES)
             .findFirst()
             .orElse(null);
 
     if (vectorLayer != null) {
-      if (vectorLayer.getUrlTemplate() == null || vectorLayer.getUrlTemplate().isBlank()) {
+      if (vectorLayer.urlTemplate() == null || vectorLayer.urlTemplate().isBlank()) {
         throw new IllegalArgumentException(
             "VECTOR_PMTILES layer '"
-                + vectorLayer.getEffectiveId()
+                + vectorLayer.effectiveId()
                 + "' has no urlTemplate configured");
       }
       if (pmtilesDownloader.isDownloadInProgress()) {
@@ -148,7 +148,7 @@ public class PreloadService {
     return layers.stream()
         .map(layerStore.getLayers()::get)
         .filter(java.util.Objects::nonNull)
-        .noneMatch(l -> l.getSourceType() == Layer.SourceType.VECTOR_PMTILES);
+        .noneMatch(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES);
   }
 
   private void updateRasterStatus(Preload preload, Preload.Status status, String errorMessage) {
@@ -172,13 +172,13 @@ public class PreloadService {
     List<Set<Point>> allPoints = XyzUtil.calculateAllBboxTiles(bbox);
     for (String layerName : layers) {
       Layer layer = layerStore.getLayers().get(layerName);
-      if (layer == null || layer.getSourceType() == Layer.SourceType.VECTOR_PMTILES) continue;
+      if (layer == null || layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) continue;
       for (int z = 0; z < allPoints.size(); z++) {
         for (Point p : allPoints.get(z)) {
           Tile tile = new Tile(layer, p.x, p.y, z);
           try {
             tileCache.get(tile);
-          } catch (ExecutionException e) {
+          } catch (CompletionException e) {
             LOGGER.error("Error pre-loading bounding box tile: {}.", tile, e.getCause());
           }
         }

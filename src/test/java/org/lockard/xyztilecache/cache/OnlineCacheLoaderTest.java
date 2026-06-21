@@ -13,7 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.config.XyzConfiguration;
-import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.model.LocalLayer;
 import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.mockito.Mockito;
@@ -32,7 +32,7 @@ class OnlineCacheLoaderTest {
     configuration = new XyzConfiguration();
     configuration.setBaseTileDirectory(tempDir.getAbsolutePath());
     configuration.setTileTimeoutSeconds(1);
-    configuration.setLayers(List.of());
+    configuration.installLayers(List.of());
 
     layerStore = new LayerStore(configuration, new ObjectMapper(), event -> {});
     layerStore.init();
@@ -48,13 +48,13 @@ class OnlineCacheLoaderTest {
     }
   }
 
+  private static LocalLayer localLayer() {
+    return new LocalLayer("local-layer", "local-layer", null, 22, 0, 0, List.of(), List.of());
+  }
+
   @Test
   void load_returnsBytesFromDiskForLocalLayer() throws Exception {
-    Layer local = new Layer();
-    local.setName("local-layer");
-    local.setSourceType(Layer.SourceType.LOCAL);
-
-    Tile tile = new Tile(local, 1, 2, 3);
+    Tile tile = new Tile(localLayer(), 1, 2, 3);
     File file =
         new File(
             tempDir,
@@ -68,13 +68,7 @@ class OnlineCacheLoaderTest {
 
   @Test
   void load_throwsWithoutHttpFetchWhenLocalLayerMissesTile() {
-    Layer local = new Layer();
-    local.setName("local-layer");
-    local.setSourceType(Layer.SourceType.LOCAL);
-    // Bogus URL — if HTTP were attempted, the test would hang/fail differently.
-    local.setUrlTemplate("http://127.0.0.1:1/{z}/{x}/{y}.png");
-
-    Tile tile = new Tile(local, 1, 2, 99);
+    Tile tile = new Tile(localLayer(), 1, 2, 99);
     assertThatThrownBy(() -> loader.load(tile))
         .isInstanceOf(IOException.class)
         .hasMessageContaining("LOCAL");

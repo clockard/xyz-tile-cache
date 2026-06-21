@@ -1,8 +1,9 @@
 package org.lockard.xyztilecache.pmtiles;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -11,7 +12,6 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
 import org.lockard.xyztilecache.model.TileResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,7 +37,7 @@ public class RemotePmtilesReader {
     this.url = url;
     this.httpClient = httpClient;
     this.timeoutSeconds = timeoutSeconds;
-    this.leafCache = CacheBuilder.newBuilder().maximumSize(64).build();
+    this.leafCache = Caffeine.newBuilder().maximumSize(64).build();
   }
 
   public Optional<TileResult> getTile(int z, int x, int y) throws IOException {
@@ -111,15 +111,19 @@ public class RemotePmtilesReader {
     try {
       return leafCache.get(
           pointer.offset(),
-          () -> {
-            byte[] raw = fetchRange(header.leafDirsOffset() + pointer.offset(), pointer.length());
-            return PmtilesReader.decodeDirectory(
-                PmtilesReader.decompress(raw, header.internalCompression()));
+          k -> {
+            try {
+              byte[] raw = fetchRange(header.leafDirsOffset() + pointer.offset(), pointer.length());
+              return PmtilesReader.decodeDirectory(
+                  PmtilesReader.decompress(raw, header.internalCompression()));
+            } catch (IOException e) {
+              throw new UncheckedIOException(e);
+            }
           });
-    } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof IOException ioe) throw ioe;
-      throw new IOException("Failed to load remote leaf directory", cause);
+    } catch (UncheckedIOException e) {
+      throw e.getCause();
+    } catch (RuntimeException e) {
+      throw new IOException("Failed to load remote leaf directory", e);
     }
   }
 

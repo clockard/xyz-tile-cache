@@ -13,6 +13,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.model.Layer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -41,12 +42,12 @@ class XyzTileCacheApplicationWmtsTests {
     registry.add(
         "xyz.layers",
         () -> {
-          Layer wmtsRest = new Layer();
+          LayerProperties wmtsRest = new LayerProperties();
           wmtsRest.setName("wmts-rest");
           wmtsRest.setSourceType(Layer.SourceType.WMTS_REST);
           wmtsRest.setUrlTemplate(wireMock.baseUrl() + "/{TileMatrix}/{TileRow}/{TileCol}");
 
-          Layer wmtsKvp = new Layer();
+          LayerProperties wmtsKvp = new LayerProperties();
           wmtsKvp.setName("wmts-kvp");
           wmtsKvp.setSourceType(Layer.SourceType.WMTS_KVP);
           wmtsKvp.setUrlTemplate(wireMock.baseUrl() + "/wmts");

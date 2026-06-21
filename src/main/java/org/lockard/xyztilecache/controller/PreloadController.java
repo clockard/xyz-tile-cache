@@ -118,7 +118,7 @@ public class PreloadController {
         p.getLayers().stream()
             .map(layerStore.getLayers()::get)
             .filter(Objects::nonNull)
-            .filter(l -> l.getSourceType() == Layer.SourceType.VECTOR_PMTILES)
+            .filter(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES)
             .findFirst()
             .orElse(null);
 
@@ -128,9 +128,7 @@ public class PreloadController {
     if (pmtilesFilename != null) {
       Path path =
           Path.of(
-              xyzConfiguration.getBaseTileDirectory(),
-              vectorLayer.getEffectiveId(),
-              pmtilesFilename);
+              xyzConfiguration.getBaseTileDirectory(), vectorLayer.effectiveId(), pmtilesFilename);
       if (Files.exists(path)) {
         try {
           sizeBytes = Files.size(path);

@@ -97,13 +97,16 @@ class GeoTiffController {
       }
     }
 
-    Layer layer = new Layer();
-    layer.setId(name);
-    layer.setName(name);
-    layer.setSourceType(Layer.SourceType.LOCAL);
-    layer.setMaxZoom(tilingResult.maxZoom());
-    layer.setAllowedUsers(parseCommaSeparated(allowedUsersRaw));
-    layer.setAllowedGroups(parseCommaSeparated(allowedGroupsRaw));
+    Layer layer =
+        new org.lockard.xyztilecache.model.LocalLayer(
+            name,
+            name,
+            null,
+            tilingResult.maxZoom(),
+            0,
+            0,
+            parseCommaSeparated(allowedUsersRaw),
+            parseCommaSeparated(allowedGroupsRaw));
 
     try {
       layerStore.addLayer(layer);

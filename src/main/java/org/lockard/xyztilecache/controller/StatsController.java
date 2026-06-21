@@ -40,12 +40,12 @@ class StatsController {
             .map(
                 l ->
                     new StatsResponse.LayerStats(
-                        l.getEffectiveId(),
-                        layerStore.getRuntimeState(l.getEffectiveId()).getTilesServed()))
+                        l.effectiveId(),
+                        layerStore.getRuntimeState(l.effectiveId()).getTilesServed()))
             .toList();
     long totalServed =
         layers.stream()
-            .mapToLong(l -> layerStore.getRuntimeState(l.getEffectiveId()).getTilesServed())
+            .mapToLong(l -> layerStore.getRuntimeState(l.effectiveId()).getTilesServed())
             .sum();
 
     long diskFreeBytes = 0;

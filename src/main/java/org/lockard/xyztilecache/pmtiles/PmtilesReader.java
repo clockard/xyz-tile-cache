@@ -1,10 +1,11 @@
 package org.lockard.xyztilecache.pmtiles;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
@@ -12,7 +13,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
 import java.util.zip.GZIPInputStream;
 import org.lockard.xyztilecache.model.TileResult;
 import org.slf4j.Logger;
@@ -39,7 +39,7 @@ public class PmtilesReader implements Closeable {
       channel.close();
       throw e;
     }
-    leafCache = CacheBuilder.newBuilder().maximumSize(64).build();
+    leafCache = Caffeine.newBuilder().maximumSize(64).build();
   }
 
   public PmtilesHeader getHeader() {
@@ -91,15 +91,20 @@ public class PmtilesReader implements Closeable {
     try {
       return leafCache.get(
           leafPointer.offset(),
-          () -> {
-            byte[] raw =
-                readRawBytes(header.leafDirsOffset() + leafPointer.offset(), leafPointer.length());
-            return decodeDirectory(decompress(raw, header.internalCompression()));
+          k -> {
+            try {
+              byte[] raw =
+                  readRawBytes(
+                      header.leafDirsOffset() + leafPointer.offset(), leafPointer.length());
+              return decodeDirectory(decompress(raw, header.internalCompression()));
+            } catch (IOException e) {
+              throw new UncheckedIOException(e);
+            }
           });
-    } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof IOException ioe) throw ioe;
-      throw new IOException("Failed to load leaf directory", cause);
+    } catch (UncheckedIOException e) {
+      throw e.getCause();
+    } catch (RuntimeException e) {
+      throw new IOException("Failed to load leaf directory", e);
     }
   }
 

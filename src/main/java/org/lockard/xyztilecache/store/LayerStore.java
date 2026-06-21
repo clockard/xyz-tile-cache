@@ -65,7 +65,7 @@ public class LayerStore extends JsonFileStore<Layer> {
 
   public void addLayer(Layer layer) throws IOException {
     validateLayer(layer);
-    String id = layer.getEffectiveId();
+    String id = layer.effectiveId();
     withLockedReloadAndWrite(
         () -> {
           if (this.layers.containsKey(id)) {
@@ -78,7 +78,8 @@ public class LayerStore extends JsonFileStore<Layer> {
   }
 
   public void updateLayer(String id, Layer layer) throws IOException {
-    validateLayer(layer);
+    Layer reidentified = layer.withId(id);
+    validateLayer(reidentified);
     LayerChangedEvent.Kind[] kindHolder = new LayerChangedEvent.Kind[1];
     withLockedReloadAndWrite(
         () -> {
@@ -86,10 +87,9 @@ public class LayerStore extends JsonFileStore<Layer> {
           if (existing == null) {
             throw new NoSuchElementException("Layer '" + id + "' not found.");
           }
-          layer.setId(id);
-          this.layers.put(id, layer);
+          this.layers.put(id, reidentified);
           kindHolder[0] =
-              sameSource(existing, layer)
+              sameSource(existing, reidentified)
                   ? LayerChangedEvent.Kind.UPDATED_ACL
                   : LayerChangedEvent.Kind.UPDATED_SOURCE;
         });
@@ -134,7 +134,7 @@ public class LayerStore extends JsonFileStore<Layer> {
   @Override
   protected void applyLoaded(List<Layer> loaded) {
     this.layers.clear();
-    loaded.forEach(l -> this.layers.put(l.getEffectiveId(), l));
+    loaded.forEach(l -> this.layers.put(l.effectiveId(), l));
     this.runtimeStates.keySet().retainAll(this.layers.keySet());
   }
 
@@ -146,7 +146,7 @@ public class LayerStore extends JsonFileStore<Layer> {
   @Override
   protected void onReloaded(List<Layer> previousSnapshot) {
     Map<String, Layer> before = new HashMap<>();
-    previousSnapshot.forEach(l -> before.put(l.getEffectiveId(), l));
+    previousSnapshot.forEach(l -> before.put(l.effectiveId(), l));
     before.forEach(
         (name, old) -> {
           Layer updated = this.layers.get(name);
@@ -163,17 +163,16 @@ public class LayerStore extends JsonFileStore<Layer> {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   private static boolean sameSource(Layer a, Layer b) {
-    return Objects.equals(a.getUrlTemplate(), b.getUrlTemplate())
-        && a.getSourceType() == b.getSourceType();
+    return Objects.equals(a.urlTemplate(), b.urlTemplate()) && a.sourceType() == b.sourceType();
   }
 
   private static void validateLayer(Layer layer) {
-    if (layer.getEffectiveId() == null || layer.getEffectiveId().isBlank()) {
+    if (layer.effectiveId() == null || layer.effectiveId().isBlank()) {
       throw new IllegalArgumentException("Layer id must not be blank.");
     }
-    if (layer.getSourceType() != Layer.SourceType.LOCAL
-        && layer.getSourceType() != Layer.SourceType.VECTOR_PMTILES
-        && (layer.getUrlTemplate() == null || layer.getUrlTemplate().isBlank())) {
+    if (layer.sourceType() != Layer.SourceType.LOCAL
+        && layer.sourceType() != Layer.SourceType.VECTOR_PMTILES
+        && (layer.urlTemplate() == null || layer.urlTemplate().isBlank())) {
       throw new IllegalArgumentException("Layer urlTemplate must not be blank.");
     }
   }

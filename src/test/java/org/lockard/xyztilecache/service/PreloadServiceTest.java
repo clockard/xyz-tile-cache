@@ -9,11 +9,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.google.common.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
@@ -50,21 +51,21 @@ class PreloadServiceTest {
   }
 
   private static Layer xyzLayer(String id) {
-    Layer l = new Layer();
+    LayerProperties l = new LayerProperties();
     l.setId(id);
     l.setName(id);
     l.setSourceType(Layer.SourceType.XYZ);
     l.setUrlTemplate("http://example.com/{z}/{x}/{y}.png");
-    return l;
+    return l.toLayer();
   }
 
   private static Layer vectorLayer(String id, String url) {
-    Layer l = new Layer();
+    LayerProperties l = new LayerProperties();
     l.setId(id);
     l.setName(id);
     l.setSourceType(Layer.SourceType.VECTOR_PMTILES);
     l.setUrlTemplate(url);
-    return l;
+    return l.toLayer();
   }
 
   // ── vector layer validation ────────────────────────────────────────────────

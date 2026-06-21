@@ -61,13 +61,13 @@ public class VectorPmtilesManager {
   @PostConstruct
   void init() {
     layerStore.getLayers().values().stream()
-        .filter(l -> l.getSourceType() == Layer.SourceType.VECTOR_PMTILES)
+        .filter(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES)
         .forEach(this::initLayer);
   }
 
   public void initLayer(Layer layer) {
-    String layerId = layer.getEffectiveId();
-    String source = layer.getUrlTemplate();
+    String layerId = layer.effectiveId();
+    String source = layer.urlTemplate();
 
     Path layerDir = layerDir(layerId);
     List<Path> pmtilesFiles = new ArrayList<>(findAllPmtiles(layerDir));
@@ -131,11 +131,11 @@ public class VectorPmtilesManager {
   public void notifyFileAvailable(Path filePath) {
     String pathStr = filePath.toAbsolutePath().normalize().toString();
     layerStore.getLayers().values().stream()
-        .filter(l -> l.getSourceType() == Layer.SourceType.VECTOR_PMTILES)
-        .filter(l -> pathStr.equals(l.getUrlTemplate()))
+        .filter(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES)
+        .filter(l -> pathStr.equals(l.urlTemplate()))
         .forEach(
             l -> {
-              closeLayer(l.getEffectiveId());
+              closeLayer(l.effectiveId());
               initLayer(l);
             });
 
@@ -143,7 +143,7 @@ public class VectorPmtilesManager {
     if (parent != null) {
       String layerId = parent.getFileName().toString();
       Layer layer = layerStore.getLayers().get(layerId);
-      if (layer != null && layer.getSourceType() == Layer.SourceType.VECTOR_PMTILES) {
+      if (layer != null && layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) {
         closeLayer(layerId);
         initLayer(layer);
       }
@@ -158,7 +158,7 @@ public class VectorPmtilesManager {
     String layerId = event.layerName();
     closeLayer(layerId);
     Layer layer = layerStore.getLayers().get(layerId);
-    if (layer != null && layer.getSourceType() == Layer.SourceType.VECTOR_PMTILES) {
+    if (layer != null && layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) {
       initLayer(layer);
     }
   }

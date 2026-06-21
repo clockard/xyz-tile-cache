@@ -13,6 +13,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
@@ -29,13 +30,13 @@ class PmtilesDownloaderTest {
   }
 
   private Layer layer(String urlTemplate, int maxZoom) {
-    Layer l = new Layer();
+    LayerProperties l = new LayerProperties();
     l.setId("test-layer");
     l.setName("Test Layer");
     l.setSourceType(Layer.SourceType.VECTOR_PMTILES);
     l.setUrlTemplate(urlTemplate);
     l.setMaxZoom(maxZoom);
-    return l;
+    return l.toLayer();
   }
 
   private Preload preload(double w, double s, double e, double n, int zoom) {
@@ -85,7 +86,7 @@ class PmtilesDownloaderTest {
             xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class));
     ProcessBuilder pb = downloader.buildProcess(p, l, tempDir.resolve("test.pmtiles"));
     assertThat(pb.command()).contains("pmtiles", "extract");
-    assertThat(pb.command()).contains(l.getUrlTemplate());
+    assertThat(pb.command()).contains(l.urlTemplate());
     assertThat(pb.command()).anyMatch(a -> a.startsWith("--bbox="));
     assertThat(pb.command()).contains("--maxzoom=12");
   }

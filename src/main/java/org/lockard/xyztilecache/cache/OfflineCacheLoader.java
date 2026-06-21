@@ -1,6 +1,6 @@
 package org.lockard.xyztilecache.cache;
 
-import com.google.common.cache.CacheLoader;
+import com.github.benmanes.caffeine.cache.CacheLoader;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnProperty(name = "xyz.offline", havingValue = "true")
-public class OfflineCacheLoader extends CacheLoader<Tile, byte[]> {
+public class OfflineCacheLoader implements CacheLoader<Tile, byte[]> {
   private static final Logger LOGGER = LoggerFactory.getLogger(OfflineCacheLoader.class);
 
   protected final XyzConfiguration configuration;
@@ -27,7 +27,7 @@ public class OfflineCacheLoader extends CacheLoader<Tile, byte[]> {
   public byte[] load(final Tile tile) throws Exception {
     LOGGER.debug("Loading tile {} from local file cache.", tile);
     final File file = toFile(tile);
-    final int expirationMinutes = tile.layer().getTileExpirationMinutes();
+    final int expirationMinutes = tile.layer().tileExpirationMinutes();
     if (expirationMinutes > 0 && file.exists()) {
       final long ageMs = System.currentTimeMillis() - file.lastModified();
       if (ageMs > expirationMinutes * 60_000L) {
@@ -42,7 +42,7 @@ public class OfflineCacheLoader extends CacheLoader<Tile, byte[]> {
   }
 
   public File toFile(final Tile tile) {
-    String ext = tile.layer().getTileFileExtension();
+    String ext = tile.layer().tileFileExtension();
     File preferred = tilePath(tile, ext);
     if (preferred.exists() || ext.equals("png")) {
       return preferred;
@@ -54,7 +54,7 @@ public class OfflineCacheLoader extends CacheLoader<Tile, byte[]> {
   private File tilePath(final Tile tile, final String ext) {
     return Paths.get(
             configuration.getBaseTileDirectory(),
-            tile.layer().getEffectiveId(),
+            tile.layer().effectiveId(),
             String.valueOf(tile.z()),
             String.valueOf(tile.x()),
             tile.y() + "." + ext)

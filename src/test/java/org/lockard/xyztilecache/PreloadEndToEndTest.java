@@ -9,7 +9,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -54,7 +54,7 @@ class PreloadEndToEndTest {
         () -> {
           String tileBaseUrl =
               "http://" + wireMockContainer.getHost() + ":" + wireMockContainer.getMappedPort(8080);
-          Layer layer = new Layer();
+          LayerProperties layer = new LayerProperties();
           layer.setName("osm");
           layer.setUrlTemplate(tileBaseUrl + "/{z}/{y}/{x}");
           layer.setMaxZoom(18);

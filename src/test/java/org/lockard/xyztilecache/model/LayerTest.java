@@ -67,23 +67,60 @@ class LayerTest {
 
   @Test
   void doesUrlHaveTime_trueWhenUrlTemplateContainsTimePlaceholder() {
-    final var layer = new Layer();
-    layer.setUrlTemplate("https://example.com/{time}/{z}/{x}/{y}.png");
+    Layer layer =
+        new XyzLayer(
+            "t",
+            "t",
+            "https://example.com/{time}/{z}/{x}/{y}.png",
+            null,
+            22,
+            0,
+            0,
+            java.util.List.of(),
+            java.util.List.of(),
+            java.util.Map.of(),
+            null);
     assertThat(layer.doesUrlHaveTime()).isTrue();
   }
 
   @Test
   void doesUrlHaveTime_trueWhenWmtsTimeEnabled() {
-    final var layer = new Layer();
-    layer.setUrlTemplate("https://example.com/wmts");
-    layer.setWmtsTime(true);
+    Layer layer =
+        new WmtsKvpLayer(
+            "t",
+            "t",
+            "https://example.com/wmts",
+            null,
+            22,
+            0,
+            0,
+            java.util.List.of(),
+            java.util.List.of(),
+            java.util.Map.of(),
+            "L",
+            "EPSG:3857",
+            "default",
+            "image/png",
+            true,
+            null);
     assertThat(layer.doesUrlHaveTime()).isTrue();
   }
 
   @Test
   void doesUrlHaveTime_falseWhenNoTimePlaceholderAndWmtsTimeDisabled() {
-    final var layer = new Layer();
-    layer.setUrlTemplate("https://example.com/{z}/{x}/{y}.png");
+    Layer layer =
+        new XyzLayer(
+            "t",
+            "t",
+            "https://example.com/{z}/{x}/{y}.png",
+            null,
+            22,
+            0,
+            0,
+            java.util.List.of(),
+            java.util.List.of(),
+            java.util.Map.of(),
+            null);
     assertThat(layer.doesUrlHaveTime()).isFalse();
   }
 }

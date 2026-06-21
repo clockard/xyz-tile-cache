@@ -16,6 +16,7 @@ import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LayerChangedEvent;
 import org.lockard.xyztilecache.model.LayerRuntimeState;
 import org.lockard.xyztilecache.model.Tile;
+import org.lockard.xyztilecache.model.XyzLayer;
 import org.lockard.xyztilecache.store.LayerStore;
 
 class TileWriterTest {
@@ -28,12 +29,23 @@ class TileWriterTest {
 
   @BeforeEach
   void setUp() throws Exception {
-    layer = new Layer();
-    layer.setName("test");
+    layer =
+        new XyzLayer(
+            "test",
+            "test",
+            "https://example.com/{z}/{x}/{y}.png",
+            null,
+            22,
+            0,
+            0,
+            List.of(),
+            List.of(),
+            java.util.Map.of(),
+            null);
 
     configuration = new XyzConfiguration();
     configuration.setBaseTileDirectory(tempDir.toString());
-    configuration.setLayers(List.of(layer));
+    configuration.installLayers(List.of(layer));
 
     layerStore = new LayerStore(configuration, new ObjectMapper(), event -> {});
     layerStore.init();
@@ -73,7 +85,7 @@ class TileWriterTest {
 
     writer.storeTile(tile, data);
 
-    LayerRuntimeState state = layerStore.getRuntimeState(layer.getEffectiveId());
+    LayerRuntimeState state = layerStore.getRuntimeState(layer.effectiveId());
     assertThat(state.getCachedTiles()).isEqualTo(1);
     assertThat(state.getCachedTilesSize()).isEqualTo(data.length);
   }
@@ -102,7 +114,7 @@ class TileWriterTest {
     TileWriter writer = new TileWriter(configuration, layerStore);
     writer.inventoryExistingTiles();
 
-    LayerRuntimeState state = layerStore.getRuntimeState(layer.getEffectiveId());
+    LayerRuntimeState state = layerStore.getRuntimeState(layer.effectiveId());
     assertThat(state.getCachedTiles()).isEqualTo(1);
     assertThat(state.getCachedTilesSize()).isEqualTo(existing.length);
   }

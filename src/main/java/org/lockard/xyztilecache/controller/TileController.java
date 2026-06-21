@@ -110,15 +110,15 @@ class TileController {
       return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
-    if (z > layer.getMaxZoom()) {
-      LOGGER.debug("Zoom {} exceeds maxZoom {} for layer {}", z, layer.getMaxZoom(), layerName);
+    if (z > layer.maxZoom()) {
+      LOGGER.debug("Zoom {} exceeds maxZoom {} for layer {}", z, layer.maxZoom(), layerName);
       return ResponseEntity.notFound().build();
     }
 
-    var handler = handlerRegistry.getHandler(layer.getSourceType());
+    var handler = handlerRegistry.getHandler(layer.sourceType());
     if (handler.isEmpty()) {
       return ResponseEntity.badRequest()
-          .body(("No handler for layer type " + layer.getSourceType()).getBytes());
+          .body(("No handler for layer type " + layer.sourceType()).getBytes());
     }
 
     Optional<TileResult> result;
@@ -139,7 +139,7 @@ class TileController {
       return ResponseEntity.noContent().build();
     }
 
-    layerStore.getRuntimeState(layer.getEffectiveId()).incrementTilesServed();
+    layerStore.getRuntimeState(layer.effectiveId()).incrementTilesServed();
     TileResult tile = result.get();
     HttpHeaders headers = new HttpHeaders();
     headers.add("Access-Control-Allow-Origin", "*");
@@ -153,8 +153,8 @@ class TileController {
 
   private String cacheControlFor(Layer layer) {
     String visibility = layer.isPublic() ? "public" : "private";
-    Layer.SourceType type = layer.getSourceType();
-    int expirationMinutes = layer.getTileExpirationMinutes();
+    Layer.SourceType type = layer.sourceType();
+    int expirationMinutes = layer.tileExpirationMinutes();
     if (expirationMinutes == 0
         && (type == Layer.SourceType.LOCAL || type == Layer.SourceType.VECTOR_PMTILES)) {
       return visibility + ", immutable, max-age=" + IMMUTABLE_MAX_AGE_SECONDS;

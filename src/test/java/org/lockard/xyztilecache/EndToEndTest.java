@@ -17,6 +17,7 @@ import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,7 +69,7 @@ class EndToEndTest {
         () -> {
           String tileBaseUrl =
               "http://" + wireMockContainer.getHost() + ":" + wireMockContainer.getMappedPort(8080);
-          Layer osm = new Layer();
+          LayerProperties osm = new LayerProperties();
           osm.setName("osm");
           // URL template: {z}/{y}/{x} — matches ZYX path variable order
           osm.setUrlTemplate(tileBaseUrl + "/{z}/{y}/{x}");
@@ -105,7 +106,7 @@ class EndToEndTest {
 
   @Test
   void createLayer_noToken_returns401() {
-    Layer layer = new Layer();
+    LayerProperties layer = new LayerProperties();
     layer.setName("unauthorized-attempt");
     layer.setUrlTemplate("http://example.com/{z}/{y}/{x}");
 
@@ -117,7 +118,7 @@ class EndToEndTest {
 
   @Test
   void layerCrudLifecycle_admin_createUpdateDelete() {
-    Layer layer = new Layer();
+    LayerProperties layer = new LayerProperties();
     layer.setName("e2e-crud");
     layer.setUrlTemplate("http://example.com/tiles/{z}/{y}/{x}");
     layer.setMaxZoom(10);
@@ -126,10 +127,10 @@ class EndToEndTest {
     ResponseEntity<Layer> created =
         http.postForEntity("/layers", new HttpEntity<>(layer, jsonAdminHeaders()), Layer.class);
     assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-    assertThat(created.getBody().getEffectiveId()).isEqualTo("e2e-crud");
+    assertThat(created.getBody().effectiveId()).isEqualTo("e2e-crud");
 
     // Update
-    Layer update = new Layer();
+    LayerProperties update = new LayerProperties();
     update.setName("e2e-crud");
     update.setUrlTemplate("http://example.com/updated/{z}/{y}/{x}");
     update.setMaxZoom(12);
@@ -291,7 +292,7 @@ class EndToEndTest {
     Map<String, byte[]> entries = readZip(zip);
     assertThat(entries).containsKey("osm/layer.json");
     Layer exported = objectMapper.readValue(entries.get("osm/layer.json"), Layer.class);
-    assertThat(exported.getEffectiveId()).isEqualTo("osm");
+    assertThat(exported.effectiveId()).isEqualTo("osm");
   }
 
   @Test
@@ -322,7 +323,7 @@ class EndToEndTest {
 
   @Test
   void import_admin_registersNewLayerAndWritesTile() throws Exception {
-    Layer fresh = new Layer();
+    LayerProperties fresh = new LayerProperties();
     fresh.setName("e2e-imported");
     fresh.setUrlTemplate("https://example.com/imported/{z}/{y}/{x}");
     fresh.setMaxZoom(8);
@@ -361,7 +362,7 @@ class EndToEndTest {
   @Test
   void import_existingLayer_skipsLayerJsonButWritesTiles() throws Exception {
     // "osm" is already configured; importing its layer.json should be skipped
-    Layer impostor = new Layer();
+    LayerProperties impostor = new LayerProperties();
     impostor.setName("osm");
     impostor.setUrlTemplate("https://malicious.example.com/{z}/{y}/{x}");
     impostor.setMaxZoom(99);
@@ -386,7 +387,7 @@ class EndToEndTest {
 
   @Test
   void importThenExport_roundTrip_preservesTileContent() throws Exception {
-    Layer layer = new Layer();
+    LayerProperties layer = new LayerProperties();
     layer.setName("e2e-roundtrip");
     layer.setUrlTemplate("https://example.com/rt/{z}/{y}/{x}");
     layer.setMaxZoom(5);
@@ -412,7 +413,7 @@ class EndToEndTest {
 
     Layer roundTripped =
         objectMapper.readValue(entries.get("e2e-roundtrip/layer.json"), Layer.class);
-    assertThat(roundTripped.getEffectiveId()).isEqualTo("e2e-roundtrip");
+    assertThat(roundTripped.effectiveId()).isEqualTo("e2e-roundtrip");
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────

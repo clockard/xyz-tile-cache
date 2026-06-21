@@ -61,7 +61,7 @@ public class PmtilesDownloader {
   }
 
   private void doDownload(Preload preload, Layer layer) {
-    String layerId = layer.getEffectiveId();
+    String layerId = layer.effectiveId();
     Path downloadDir =
         Path.of(xyzConfig.getBaseTileDirectory(), layerId).toAbsolutePath().normalize();
     Path outputPath = downloadDir.resolve(outputFilename(preload.getName())).normalize();
@@ -83,7 +83,7 @@ public class PmtilesDownloader {
 
     markRunning(preload);
 
-    String sourceUrl = resolveSourceUrl(layer.getUrlTemplate());
+    String sourceUrl = resolveSourceUrl(layer.urlTemplate());
     LOGGER.info("Starting pmtiles extract: source={} output={}", sourceUrl, outputPath);
 
     Process process;
@@ -170,7 +170,7 @@ public class PmtilesDownloader {
             bbox.getSouth(),
             bbox.getEast(),
             bbox.getNorth());
-    String sourceUrl = resolveSourceUrl(layer.getUrlTemplate());
+    String sourceUrl = resolveSourceUrl(layer.urlTemplate());
     ProcessBuilder pb =
         new ProcessBuilder(
             "pmtiles",

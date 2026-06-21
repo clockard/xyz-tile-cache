@@ -8,7 +8,7 @@ import java.io.File;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,7 +35,7 @@ class SecurityConfigTokenModeCustomRoleTest {
     registry.add(
         "xyz.layers",
         () -> {
-          Layer publicLayer = new Layer();
+          LayerProperties publicLayer = new LayerProperties();
           publicLayer.setName("publicL");
           publicLayer.setUrlTemplate("https://example.com/{z}/{x}/{y}.png");
           return List.of(publicLayer);

@@ -37,8 +37,7 @@ public class TileWriter {
         .values()
         .forEach(
             layer -> {
-              Path tileDir =
-                  Paths.get(configuration.getBaseTileDirectory(), layer.getEffectiveId());
+              Path tileDir = Paths.get(configuration.getBaseTileDirectory(), layer.effectiveId());
               try {
                 Files.createDirectories(tileDir);
                 try (var paths = Files.walk(tileDir)) {
@@ -47,12 +46,11 @@ public class TileWriter {
                       .forEach(
                           f ->
                               layerStore
-                                  .getRuntimeState(layer.getEffectiveId())
+                                  .getRuntimeState(layer.effectiveId())
                                   .addTileStats(f.toFile().length()));
                 }
               } catch (IOException e) {
-                LOGGER.error(
-                    "Failed to inventory tile directory for {}.", layer.getEffectiveId(), e);
+                LOGGER.error("Failed to inventory tile directory for {}.", layer.effectiveId(), e);
               }
             });
   }
@@ -77,7 +75,7 @@ public class TileWriter {
     try {
       Files.createDirectories(output.getParent());
       Files.write(output, data);
-      layerStore.getRuntimeState(tile.layer().getEffectiveId()).addTileStats(data.length);
+      layerStore.getRuntimeState(tile.layer().effectiveId()).addTileStats(data.length);
       LOGGER.debug("Wrote tile {} to {}.", tile, output);
     } catch (IOException e) {
       LOGGER.debug("Failed to write tile {} to {}.", tile, output, e);
@@ -121,9 +119,9 @@ public class TileWriter {
   protected Path toPath(final Tile tile) {
     return Paths.get(
         configuration.getBaseTileDirectory(),
-        tile.layer().getEffectiveId(),
+        tile.layer().effectiveId(),
         String.valueOf(tile.z()),
         String.valueOf(tile.x()),
-        tile.y() + "." + tile.layer().getTileFileExtension());
+        tile.y() + "." + tile.layer().tileFileExtension());
   }
 }

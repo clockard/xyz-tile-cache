@@ -86,7 +86,7 @@ public class ImportExportService {
     Path baseDir = Paths.get(configuration.getBaseTileDirectory()).toAbsolutePath().normalize();
     try (ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(out))) {
       for (Layer layer : layers) {
-        String layerId = layer.getEffectiveId();
+        String layerId = layer.effectiveId();
         Path layerDir = baseDir.resolve(layerId).normalize();
 
         ZipEntry meta = new ZipEntry(layerId + "/layer.json");
@@ -98,12 +98,12 @@ public class ImportExportService {
           continue;
         }
 
-        if (layer.getSourceType() == Layer.SourceType.VECTOR_PMTILES) {
+        if (layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) {
           addPmtilesLayer(zos, layerId, layerDir, bbox, minZoom, maxZoom, layer);
         } else if (bbox == null) {
           addAllRasterTiles(zos, layerId, layerDir);
         } else {
-          int effectiveMax = Math.min(layer.getMaxZoom(), bbox.getMaxZoom());
+          int effectiveMax = Math.min(layer.maxZoom(), bbox.getMaxZoom());
           if (maxZoom != null) {
             effectiveMax = Math.min(effectiveMax, maxZoom);
           }
@@ -149,7 +149,7 @@ public class ImportExportService {
         throw e.getCause();
       }
     } else {
-      int effectiveMax = Math.min(layer.getMaxZoom(), bbox.getMaxZoom());
+      int effectiveMax = Math.min(layer.maxZoom(), bbox.getMaxZoom());
       if (maxZoom != null) effectiveMax = Math.min(effectiveMax, maxZoom);
       int start = minZoom != null ? Math.max(0, minZoom) : 0;
 
@@ -453,15 +453,16 @@ public class ImportExportService {
   private void handleLayerJson(
       ZipInputStream zis, String layerId, List<String> added, List<String> skipped)
       throws IOException {
-    Layer layer = objectMapper.readValue(zis.readAllBytes(), Layer.class);
-    if (layer.getEffectiveId() == null
-        || layer.getEffectiveId().isBlank()
-        || !layerId.equals(layer.getEffectiveId())) {
-      layer.setId(layerId);
-      if (layer.getName() == null || layer.getName().isBlank()) {
-        layer.setName(layerId);
+    org.lockard.xyztilecache.config.LayerProperties props =
+        objectMapper.readValue(
+            zis.readAllBytes(), org.lockard.xyztilecache.config.LayerProperties.class);
+    if (props.getId() == null || props.getId().isBlank() || !layerId.equals(props.getId())) {
+      props.setId(layerId);
+      if (props.getName() == null || props.getName().isBlank()) {
+        props.setName(layerId);
       }
     }
+    Layer layer = props.toLayer();
     if (layerStore.getLayer(layerId).isPresent()) {
       skipped.add(layerId);
       return;

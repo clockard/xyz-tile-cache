@@ -125,9 +125,19 @@ public class XyzConfiguration {
     return layers;
   }
 
-  public void setLayers(List<Layer> layers) {
+  public void setLayers(List<LayerProperties> layers) {
     this.layers.clear();
-    layers.forEach(l -> this.layers.put(l.getEffectiveId(), l));
+    layers.forEach(
+        p -> {
+          Layer l = p.toLayer();
+          this.layers.put(l.effectiveId(), l);
+        });
+  }
+
+  /** Programmatic seeding path used by tests. Bypasses the {@link LayerProperties} shim. */
+  public void installLayers(List<Layer> layers) {
+    this.layers.clear();
+    layers.forEach(l -> this.layers.put(l.effectiveId(), l));
   }
 
   public List<BoundingBox> getBoundingBoxes() {

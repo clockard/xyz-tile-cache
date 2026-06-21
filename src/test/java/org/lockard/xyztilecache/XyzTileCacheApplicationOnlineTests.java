@@ -16,7 +16,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
-import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -53,7 +53,7 @@ class XyzTileCacheApplicationOnlineTests {
     registry.add(
         "xyz.layers",
         () -> {
-          final var layer = new Layer();
+          final var layer = new LayerProperties();
           layer.setName("test");
           layer.setUrlTemplate(wireMock.baseUrl() + "/{z}/{y}/{x}");
           return List.of(layer);

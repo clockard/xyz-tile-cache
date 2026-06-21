@@ -1,6 +1,6 @@
 package org.lockard.xyztilecache.cache;
 
-import com.google.common.cache.CacheLoader;
+import com.github.benmanes.caffeine.cache.CacheLoader;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -16,7 +16,12 @@ import java.util.concurrent.TimeUnit;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LayerRuntimeState;
+import org.lockard.xyztilecache.model.LocalLayer;
 import org.lockard.xyztilecache.model.Tile;
+import org.lockard.xyztilecache.model.VectorPmtilesLayer;
+import org.lockard.xyztilecache.model.WmtsKvpLayer;
+import org.lockard.xyztilecache.model.WmtsRestLayer;
+import org.lockard.xyztilecache.model.XyzLayer;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,7 +30,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnProperty(name = "xyz.offline", havingValue = "false", matchIfMissing = true)
-public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
+public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
   private static final Logger LOGGER = LoggerFactory.getLogger(OnlineCacheLoader.class);
 
   private final XyzConfiguration configuration;
@@ -63,11 +68,11 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
       LOGGER.debug("Failed to load tile {} from local file cache.", tile, e);
     }
 
-    if (tile.layer().getSourceType() == Layer.SourceType.LOCAL) {
+    if (tile.layer() instanceof LocalLayer) {
       throw new IOException("Tile %s not present for LOCAL layer.".formatted(tile));
     }
 
-    if (tile.layer().getSourceType() == Layer.SourceType.VECTOR_PMTILES) {
+    if (tile.layer() instanceof VectorPmtilesLayer) {
       throw new IOException(
           "VECTOR_PMTILES layers are not served through the raster tile cache: %s"
               .formatted(tile.layer()));
@@ -77,7 +82,7 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
       throw new IOException("Offline mode is enabled; tile %s not in local cache.".formatted(tile));
     }
 
-    LayerRuntimeState state = layerStore.getRuntimeState(tile.layer().getEffectiveId());
+    LayerRuntimeState state = layerStore.getRuntimeState(tile.layer().effectiveId());
     final var requestStrategy = state.requestStrategy();
     if (requestStrategy == Layer.RequestStrategy.PROCEED) {
       return loadTileOnline(tile, state);
@@ -89,7 +94,7 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
 
     // RETRY: one thread probes the source; concurrent callers wait on a latch and then re-read
     // the state so they get a clean PROCEED / BLOCK answer instead of a false "blocked".
-    String layerId = tile.layer().getEffectiveId();
+    String layerId = tile.layer().effectiveId();
     CountDownLatch ourLatch = new CountDownLatch(1);
     CountDownLatch existing = retryLatches.putIfAbsent(layerId, ourLatch);
     if (existing == null) {
@@ -140,59 +145,24 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
   }
 
   private String buildTileUrl(Tile tile) {
-    final var layer = tile.layer();
-    String url =
-        switch (layer.getSourceType()) {
-          case XYZ ->
-              layer
-                  .getUrlTemplate()
-                  .replace("{x}", String.valueOf(tile.x()))
-                  .replace("{y}", String.valueOf(tile.y()))
-                  .replace("{z}", String.valueOf(tile.z()));
+    Layer layer = tile.layer();
+    String timeStr = layer.doesUrlHaveTime() ? currentTimeString(layer.timeFormat()) : null;
+    return switch (layer) {
+      case XyzLayer xyz -> xyz.buildUrl(tile.z(), tile.x(), tile.y(), timeStr);
+      case WmtsRestLayer wmts -> wmts.buildUrl(tile.z(), tile.x(), tile.y(), timeStr);
+      case WmtsKvpLayer wmts -> wmts.buildUrl(tile.z(), tile.x(), tile.y(), timeStr);
+      case LocalLayer ignored ->
+          throw new IllegalStateException("LOCAL layers should not reach buildTileUrl: " + layer);
+      case VectorPmtilesLayer ignored ->
+          throw new IllegalStateException(
+              "VECTOR_PMTILES layers are not served through the raster tile cache: " + layer);
+    };
+  }
 
-          case WMTS_REST ->
-              layer
-                  .getUrlTemplate()
-                  .replace("{TileMatrix}", String.valueOf(tile.z()))
-                  .replace("{TileRow}", String.valueOf(tile.y()))
-                  .replace("{TileCol}", String.valueOf(tile.x()));
-
-          case WMTS_KVP ->
-              layer.getUrlTemplate()
-                  + "?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0"
-                  + "&LAYER="
-                  + layer.getWmtsLayerName()
-                  + "&STYLE="
-                  + layer.getWmtsStyle()
-                  + "&FORMAT="
-                  + layer.getWmtsFormat()
-                  + "&TILEMATRIXSET="
-                  + layer.getWmtsTileMatrixSet()
-                  + "&TILEMATRIX="
-                  + tile.z()
-                  + "&TILEROW="
-                  + tile.y()
-                  + "&TILECOL="
-                  + tile.x()
-                  + (layer.isWmtsTime() ? "&TIME={time}" : "");
-
-          case LOCAL ->
-              throw new IllegalStateException(
-                  "LOCAL layers should not reach buildTileUrl: " + layer);
-
-          case VECTOR_PMTILES ->
-              throw new IllegalStateException(
-                  "VECTOR_PMTILES layers are not served through the raster tile cache: " + layer);
-        };
-
-    if (tile.layer().doesUrlHaveTime()) {
-      final String timeStr =
-          java.time.Instant.ofEpochMilli(System.currentTimeMillis())
-              .atZone(java.time.ZoneOffset.UTC)
-              .format(java.time.format.DateTimeFormatter.ofPattern(layer.getTimeFormat()));
-      url = url.replace("{time}", timeStr);
-    }
-    return url;
+  private static String currentTimeString(String pattern) {
+    return java.time.Instant.ofEpochMilli(System.currentTimeMillis())
+        .atZone(java.time.ZoneOffset.UTC)
+        .format(java.time.format.DateTimeFormatter.ofPattern(pattern));
   }
 
   private byte[] getTileFromSource(Tile tile)
@@ -204,7 +174,7 @@ public class OnlineCacheLoader extends CacheLoader<Tile, byte[]> {
         HttpRequest.newBuilder(new URI(url))
             .GET()
             .timeout(Duration.of(configuration.getTileTimeoutSeconds(), ChronoUnit.SECONDS));
-    final var layerHeaders = layer.getHeaders();
+    final var layerHeaders = layer.headers();
     layerHeaders.forEach(requestBuilder::header);
     // User-Agent needed for some sources to respond properly
     requestBuilder.header(
