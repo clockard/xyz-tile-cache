@@ -10,7 +10,7 @@
     </parent>
     <groupId>org.lockard</groupId>
     <artifactId>xyz-tile-cache</artifactId>
-    <version>1.0.2</version>
+    <version>1.0.3-SNAPSHOT</version>
     <name>xyz-tile-cache</name>
     <properties>
         <java.version>25</java.version>
