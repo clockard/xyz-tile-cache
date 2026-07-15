@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.15</version>
+        <version>3.5.16</version>
     </parent>
     <groupId>org.lockard</groupId>
     <artifactId>xyz-tile-cache</artifactId>
@@ -14,7 +14,7 @@
     <name>xyz-tile-cache</name>
     <properties>
         <java.version>25</java.version>
-        <tomcat.version>10.1.55</tomcat.version>
+        <tomcat.version>10.1.57</tomcat.version>
         <docker.skip>false</docker.skip>
     </properties>
     <dependencies>
