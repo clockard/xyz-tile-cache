@@ -29,7 +29,8 @@ if [ -f "${CUSTOM_TRUST_P12}" ]; then
   # Configure JVM to use merged truststore
   export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS} \
 -Djavax.net.ssl.trustStore=${CUSTOM_TRUSTSTORE} \
--Djavax.net.ssl.trustStorePassword=changeit"
+-Djavax.net.ssl.trustStorePassword=changeit \
+-Djava.awt.headless=true"
 
   echo "Merged truststore configured."
 else
