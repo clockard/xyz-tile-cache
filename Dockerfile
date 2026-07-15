@@ -2,8 +2,9 @@ ARG JRE_IMAGE=alpine:3.24.1
 
 # ── Stage 1: build go-pmtiles CLI ─────────────────────────────────────────────
 # golang:1.26-alpine tracks the latest Go 1.26.x patch, ensuring stdlib CVE
-# fixes (CVE-2026-32280/32281/32283/33810 fixed in 1.26.2) are included.
-FROM golang:1.26.4-alpine AS builder
+# fixes (CVE-2026-32280/32281/32283/33810 fixed in 1.26.2; CVE-2026-39822
+# os.Root symlink traversal fixed in 1.26.5) are included.
+FROM golang:1.26.5-alpine AS builder
 ARG PMTILES_VERSION=1.30.3
 RUN apk add --no-cache git
 RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
@@ -28,7 +29,11 @@ RUN apk upgrade --no-cache
 # jpeg covers JPEG-compressed input TIFFs commonly used in remote sensing.
 RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg openjdk25-jre\
  && apk add --no-cache "libxml2>=2.13.9-r1" \
- && apk add --no-cache "openssl>=3.5.7-r0" "libcrypto3>=3.5.7-r0" "libssl3>=3.5.7-r0" "sqlite>=3.53.2"
+ && apk add --no-cache "openssl>=3.5.7-r0" "libcrypto3>=3.5.7-r0" "libssl3>=3.5.7-r0" "sqlite>=3.53.2" \
+ && apk add --no-cache "c-ares>=1.34.8-r0" \
+ && apk add --no-cache "libcurl>=8.21.0-r0" \
+ && apk add --no-cache "libexpat>=2.8.2-r0" \
+ && apk add --no-cache "p11-kit>=0.26.2-r0" "p11-kit-trust>=0.26.2-r0"
 COPY target/xyz-tile-cache-${VERSION}.jar /app/xyz-tile-cache.jar
 COPY --from=builder /usr/local/bin/pmtiles /usr/local/bin/pmtiles
 COPY entrypoint.sh /app/entrypoint.sh
