@@ -39,6 +39,7 @@ xyz:
   offline: false
   tileTimeoutSeconds: 5
   layerSyncSeconds: 10          # How often to check for layer changes from other instances (seconds)
+  preloadConcurrency: 4         # Parallel tile fetches per preload job
   uiEnabled: true               # Set to false to disable the web UI (all UI paths return 404)
   adminRole: admin              # Keycloak realm role required for write operations
   layers:
@@ -315,8 +316,7 @@ xyz:
       initZoom: "${XYZ_PROTOMAPS_INIT_ZOOM:0}"
 
 #  boundingBoxes:
-#    - preCache: true
-#      maxZoom: 5
+#    - maxZoom: 5
 #      north: 70
 #      south: -70
 #      east: 179

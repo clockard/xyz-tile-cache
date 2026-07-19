@@ -31,6 +31,8 @@ public class XyzConfiguration {
 
   private long tileCacheBytes = 256L * 1024 * 1024;
 
+  private int preloadConcurrency = 4;
+
   private boolean uiEnabled = true;
 
   private String adminRole = "admin";
@@ -103,6 +105,14 @@ public class XyzConfiguration {
 
   public void setTileCacheBytes(long tileCacheBytes) {
     this.tileCacheBytes = tileCacheBytes;
+  }
+
+  public int getPreloadConcurrency() {
+    return preloadConcurrency;
+  }
+
+  public void setPreloadConcurrency(int preloadConcurrency) {
+    this.preloadConcurrency = preloadConcurrency;
   }
 
   public boolean isUiEnabled() {

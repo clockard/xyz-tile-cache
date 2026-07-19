@@ -164,4 +164,33 @@ class LayerAclIntegrationTest {
         .andExpect(jsonPath("$[?(@.name=='carol-only')]").exists())
         .andExpect(jsonPath("$[?(@.name=='foresters-only')]").exists());
   }
+
+  // ── GET /stats ACL ────────────────────────────────────────────────────────
+
+  @Test
+  void stats_anonymous_listsOnlyPublicLayers(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(get("/stats"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.layers[?(@.name=='public-layer')]").exists())
+        .andExpect(jsonPath("$.layers[?(@.name=='carol-only')]").doesNotExist())
+        .andExpect(jsonPath("$.layers[?(@.name=='foresters-only')]").doesNotExist());
+  }
+
+  @Test
+  void stats_allowedUser_seesTheirLayer(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(get("/stats").with(userJwt("carol")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.layers[?(@.name=='public-layer')]").exists())
+        .andExpect(jsonPath("$.layers[?(@.name=='carol-only')]").exists())
+        .andExpect(jsonPath("$.layers[?(@.name=='foresters-only')]").doesNotExist());
+  }
+
+  @Test
+  void stats_admin_seesAllLayers(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(get("/stats").with(adminJwt()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.layers[?(@.name=='public-layer')]").exists())
+        .andExpect(jsonPath("$.layers[?(@.name=='carol-only')]").exists())
+        .andExpect(jsonPath("$.layers[?(@.name=='foresters-only')]").exists());
+  }
 }

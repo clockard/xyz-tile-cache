@@ -12,12 +12,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.lockard.xyztilecache.XyzUtil;
+import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
@@ -40,6 +41,7 @@ public class PreloadService {
   private final PreloadStore preloadStore;
   private final PmtilesDownloader pmtilesDownloader;
   private final MeterRegistry meterRegistry;
+  private final XyzConfiguration configuration;
 
   private final ExecutorService xyzExecutor = Executors.newVirtualThreadPerTaskExecutor();
   private final AtomicInteger inflightXyzPreloads = new AtomicInteger();
@@ -49,12 +51,14 @@ public class PreloadService {
       LoadingCache<Tile, byte[]> tileCache,
       PreloadStore preloadStore,
       PmtilesDownloader pmtilesDownloader,
-      MeterRegistry meterRegistry) {
+      MeterRegistry meterRegistry,
+      XyzConfiguration configuration) {
     this.layerStore = layerStore;
     this.tileCache = tileCache;
     this.preloadStore = preloadStore;
     this.pmtilesDownloader = pmtilesDownloader;
     this.meterRegistry = meterRegistry;
+    this.configuration = configuration;
   }
 
   @PostConstruct
@@ -198,27 +202,46 @@ public class PreloadService {
 
   private void runXyzPreload(Set<String> layers, BoundingBox bbox) {
     inflightXyzPreloads.incrementAndGet();
+    int concurrency = Math.max(1, configuration.getPreloadConcurrency());
+    Semaphore permits = new Semaphore(concurrency);
     try {
       // Iterate ranges lazily: materializing per-tile collections grows ~4^maxZoom and can
-      // exhaust the heap for large bboxes.
+      // exhaust the heap for large bboxes. The semaphore bounds in-flight fetches so a preload
+      // is parallel without hammering the source.
       List<XyzUtil.TileRange> ranges = XyzUtil.calculateBboxRanges(bbox);
       for (String layerName : layers) {
         Layer layer = layerStore.getLayers().get(layerName);
         if (layer == null || layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) continue;
+        String layerId = layer.effectiveId();
         for (XyzUtil.TileRange range : ranges) {
           for (int x = range.xMin(); x <= range.xMax(); x++) {
             for (int y = range.yMin(); y <= range.yMax(); y++) {
-              Tile tile = new Tile(layer.effectiveId(), x, y, range.zoom());
-              try {
-                tileCache.get(tile);
-              } catch (CompletionException e) {
-                LOGGER.error("Error pre-loading bounding box tile: {}.", tile, e.getCause());
-              }
+              Tile tile = new Tile(layerId, x, y, range.zoom());
+              permits.acquire();
+              xyzExecutor.submit(
+                  () -> {
+                    try {
+                      tileCache.get(tile);
+                    } catch (RuntimeException e) {
+                      LOGGER.error(
+                          "Error pre-loading bounding box tile: {}.",
+                          tile,
+                          e.getCause() != null ? e.getCause() : e);
+                    } finally {
+                      permits.release();
+                    }
+                  });
             }
           }
         }
       }
+      // Drain: once all permits are reacquirable, every submitted fetch has finished.
+      permits.acquire(concurrency);
+      permits.release(concurrency);
       LOGGER.info("Finished xyz preload for layers {}.", layers);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Preload interrupted", e);
     } finally {
       inflightXyzPreloads.decrementAndGet();
     }

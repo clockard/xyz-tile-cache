@@ -6,6 +6,7 @@ import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
+import org.lockard.xyztilecache.cache.StaleTileException;
 import org.lockard.xyztilecache.cache.UpstreamUnavailableException;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Tile;
@@ -43,6 +44,18 @@ public class RasterTileHandler implements TileSourceHandler {
       return Optional.of(new TileResult(data, 0, detectContentType(data)));
     } catch (CompletionException e) {
       Throwable cause = e.getCause();
+      if (cause instanceof StaleTileException stale) {
+        // Upstream is down but an expired disk tile exists; serve it without promoting the
+        // stale bytes into the in-memory cache so the next request retries the source.
+        LOGGER.debug(
+            "Serving stale tile {}/{}/{} for layer {} (upstream unavailable).",
+            z,
+            x,
+            y,
+            layer.effectiveId());
+        return Optional.of(
+            new TileResult(stale.staleData(), 0, detectContentType(stale.staleData())));
+      }
       if (cause instanceof UpstreamUnavailableException uu) {
         throw uu;
       }

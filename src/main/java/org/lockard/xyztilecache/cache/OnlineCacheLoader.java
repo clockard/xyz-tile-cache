@@ -76,10 +76,16 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
       throw new IOException("Layer %s is not configured.".formatted(tile.layerId()));
     }
 
+    byte[] staleBytes = null;
     try {
       final var fileBytes = offlineCacheLoader.load(tile);
       LOGGER.debug("Tile {} found in local file cache.", tile);
       return fileBytes;
+    } catch (TileExpiredException e) {
+      // Keep the expired bytes around: if the source turns out to be unavailable, serving stale
+      // beats answering 404/503 for a tile we actually have.
+      staleBytes = e.staleData();
+      LOGGER.debug("Tile {} on disk is expired; refreshing from source.", tile);
     } catch (Exception e) {
       LOGGER.debug("Failed to load tile {} from local file cache.", tile, e);
     }
@@ -102,11 +108,10 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
     LayerRuntimeState state = layerStore.getRuntimeState(layerId);
     final var requestStrategy = state.requestStrategy();
     if (requestStrategy == Layer.RequestStrategy.PROCEED) {
-      return loadTileOnline(tile, layer, state);
+      return loadOnlineOrStale(tile, layer, state, staleBytes);
     }
     if (requestStrategy == Layer.RequestStrategy.BLOCK) {
-      throw new UpstreamUnavailableException(
-          "Source for layer %s is temporarily blocked.".formatted(layerId));
+      throw blockedOrStale(layerId, staleBytes);
     }
 
     // RETRY: one thread probes the source; concurrent callers wait on a latch and then re-read
@@ -116,7 +121,7 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
     if (existing == null) {
       LOGGER.info("Retrying source for layer {}.", layerId);
       try {
-        return loadTileOnline(tile, layer, state);
+        return loadOnlineOrStale(tile, layer, state, staleBytes);
       } finally {
         retryLatches.remove(layerId);
         ourLatch.countDown();
@@ -130,10 +135,37 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
     }
     Layer.RequestStrategy after = state.requestStrategy();
     if (after == Layer.RequestStrategy.PROCEED) {
-      return loadTileOnline(tile, layer, state);
+      return loadOnlineOrStale(tile, layer, state, staleBytes);
     }
-    throw new UpstreamUnavailableException(
-        "Source for layer %s is temporarily blocked.".formatted(layerId));
+    throw blockedOrStale(layerId, staleBytes);
+  }
+
+  /**
+   * Fetches from the source; if the fetch fails (not an authoritative 404) and expired disk bytes
+   * exist, throws {@link StaleTileException} so the handler serves them without caching.
+   */
+  private byte[] loadOnlineOrStale(
+      final Tile tile, final Layer layer, final LayerRuntimeState state, final byte[] staleBytes)
+      throws InterruptedException, IOException, URISyntaxException {
+    try {
+      return loadTileOnline(tile, layer, state);
+    } catch (UpstreamTileNotFoundException e) {
+      // The source authoritatively has no tile; don't resurrect a stale copy.
+      throw e;
+    } catch (IOException | URISyntaxException e) {
+      if (staleBytes != null) {
+        LOGGER.debug("Upstream failed for {}; serving stale disk tile.", tile);
+        throw new StaleTileException(staleBytes, e);
+      }
+      throw e;
+    }
+  }
+
+  private IOException blockedOrStale(final String layerId, final byte[] staleBytes) {
+    UpstreamUnavailableException blocked =
+        new UpstreamUnavailableException(
+            "Source for layer %s is temporarily blocked.".formatted(layerId));
+    return staleBytes != null ? new StaleTileException(staleBytes, blocked) : blocked;
   }
 
   private byte[] loadTileOnline(final Tile tile, final Layer layer, final LayerRuntimeState state)

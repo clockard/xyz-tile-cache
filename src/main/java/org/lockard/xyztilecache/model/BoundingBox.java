@@ -2,21 +2,12 @@ package org.lockard.xyztilecache.model;
 
 public class BoundingBox {
 
-  private boolean preCache = false;
   private int maxZoom = 17;
 
   private double north;
   private double south;
   private double east;
   private double west;
-
-  public boolean isPreCache() {
-    return preCache;
-  }
-
-  public void setPreCache(boolean preCache) {
-    this.preCache = preCache;
-  }
 
   public int getMaxZoom() {
     return maxZoom;
@@ -61,9 +52,7 @@ public class BoundingBox {
   @Override
   public String toString() {
     return "BoundingBox{"
-        + "preCache="
-        + preCache
-        + ", maxZoom="
+        + "maxZoom="
         + maxZoom
         + ", north="
         + north

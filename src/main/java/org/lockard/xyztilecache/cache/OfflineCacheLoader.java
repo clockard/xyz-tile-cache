@@ -33,13 +33,19 @@ public class OfflineCacheLoader implements CacheLoader<Tile, byte[]> {
     final Layer layer = requireLayer(tile);
     final File file = toFile(tile);
     final int expirationMinutes = layer.tileExpirationMinutes();
-    if (expirationMinutes > 0 && file.exists()) {
+    // In offline mode there is no source to refresh from, so a stale tile beats a 404 and the
+    // expiration check is skipped entirely.
+    if (!configuration.isOffline() && expirationMinutes > 0 && file.exists()) {
       final long ageMs = System.currentTimeMillis() - file.lastModified();
       if (ageMs > expirationMinutes * 60_000L) {
         LOGGER.debug("Tile {} has expired ({} mins old), evicting.", tile, ageMs / 60_000);
-        throw new Exception("Tile expired");
+        throw new TileExpiredException(readBytes(file));
       }
     }
+    return readBytes(file);
+  }
+
+  private static byte[] readBytes(final File file) throws java.io.IOException {
     try (final var fis = new FileInputStream(file);
         final var bis = new BufferedInputStream(fis)) {
       return bis.readAllBytes();

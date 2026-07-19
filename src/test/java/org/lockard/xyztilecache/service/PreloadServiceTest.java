@@ -16,6 +16,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.lockard.xyztilecache.config.LayerProperties;
+import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
@@ -40,7 +41,12 @@ class PreloadServiceTest {
     pmtilesDownloader = mock(PmtilesDownloader.class);
     service =
         new PreloadService(
-            layerStore, tileCache, preloadStore, pmtilesDownloader, new SimpleMeterRegistry());
+            layerStore,
+            tileCache,
+            preloadStore,
+            pmtilesDownloader,
+            new SimpleMeterRegistry(),
+            new XyzConfiguration());
     service.registerMetrics();
   }
 
