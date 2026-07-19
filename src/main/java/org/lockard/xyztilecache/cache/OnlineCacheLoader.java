@@ -64,6 +64,7 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
     this.meterRegistry = meterRegistry;
     httpClient =
         HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
             .connectTimeout(Duration.of(configuration.getTileTimeoutSeconds(), ChronoUnit.SECONDS))
             .build();
   }
@@ -135,28 +136,29 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
     LOGGER.debug("Loading tile {} from an online source.", tile);
     final byte[] tileData;
     Timer.Sample sample = Timer.start(meterRegistry);
-    String outcome = "failure";
     try {
       tileData = getTileFromSource(tile);
-      if (tileData != null && tileData.length > 0) {
-        outcome = "success";
-      }
+    } catch (UpstreamTileNotFoundException e) {
+      // The source answered; a missing tile is not a source failure.
+      state.sourceSucceeded();
+      sample.stop(upstreamTimer(tile.layer().effectiveId(), "not_found"));
+      throw e;
     } catch (InterruptedException | IOException | URISyntaxException e) {
       state.sourceFailed();
-      sample.stop(upstreamTimer(tile.layer().effectiveId(), outcome));
+      sample.stop(upstreamTimer(tile.layer().effectiveId(), "failure"));
       throw e;
     }
 
-    sample.stop(upstreamTimer(tile.layer().effectiveId(), outcome));
-
     if (tileData != null && tileData.length > 0) {
       state.sourceSucceeded();
+      sample.stop(upstreamTimer(tile.layer().effectiveId(), "success"));
       tileWriter.storeTile(tile, tileData);
       return tileData;
-    } else {
-      state.sourceFailed();
-      throw new IOException("Failed to retrieve tile %s.".formatted(tile));
     }
+    // Empty body: the source answered but has no tile — also not a source failure.
+    state.sourceSucceeded();
+    sample.stop(upstreamTimer(tile.layer().effectiveId(), "not_found"));
+    throw new UpstreamTileNotFoundException("Empty tile body for %s.".formatted(tile));
   }
 
   private Timer upstreamTimer(String layerId, String outcome) {
@@ -205,6 +207,9 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36");
 
     var response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray());
+    if (response.statusCode() == 404) {
+      throw new UpstreamTileNotFoundException("Upstream returned HTTP 404 for tile " + tile);
+    }
     if (response.statusCode() < 200 || response.statusCode() >= 300) {
       throw new IOException(
           "Upstream returned HTTP " + response.statusCode() + " for tile " + tile);

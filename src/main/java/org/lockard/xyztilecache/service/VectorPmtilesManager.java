@@ -195,6 +195,7 @@ public class VectorPmtilesManager {
     if (resolvedUrl == null || resolvedUrl.isBlank()) return;
     HttpClient httpClient =
         HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
             .connectTimeout(Duration.of(xyzConfig.getTileTimeoutSeconds(), ChronoUnit.SECONDS))
             .build();
     RemotePmtilesReader reader =

@@ -32,6 +32,7 @@ class TileController {
   private static final Logger LOGGER = LoggerFactory.getLogger(TileController.class);
   private static final int COMPRESSION_GZIP = 2;
   private static final long IMMUTABLE_MAX_AGE_SECONDS = 31_536_000L;
+  private static final int MAX_SUPPORTED_ZOOM = 30;
 
   private final LayerStore layerStore;
   private final LayerAccessService layerAccessService;
@@ -96,6 +97,11 @@ class TileController {
   }
 
   private ResponseEntity<byte[]> serveTile(String layerName, int z, int x, int y) {
+    // Reject out-of-range coordinates before they reach the handlers: garbage requests must not
+    // generate upstream fetches (whose failures would feed the layer's circuit breaker).
+    if (z < 0 || z > MAX_SUPPORTED_ZOOM || x < 0 || y < 0 || x >= (1L << z) || y >= (1L << z)) {
+      return ResponseEntity.notFound().build();
+    }
     Layer layer = layerStore.getLayers().get(layerName);
     if (layer == null) {
       return ResponseEntity.badRequest()
