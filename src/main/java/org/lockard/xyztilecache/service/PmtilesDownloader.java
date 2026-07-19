@@ -165,7 +165,10 @@ public class PmtilesDownloader {
 
   protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path outputPath) {
     BoundingBox bbox = requireValidBoundingBox(preload.getBoundingBox());
-    int maxZoom = requireValidMaxZoom(preload.getMaxZoom());
+    // The preload's maxZoom reflects the whole (possibly mixed) job; the raster pass honors it
+    // as-is. The vector extract must not be asked for zoom levels beyond the vector layer's own
+    // maxZoom, so cap independently here rather than clamping the shared job zoom on the client.
+    int maxZoom = Math.min(requireValidMaxZoom(preload.getMaxZoom()), layer.maxZoom());
     String bboxArg =
         String.format(
             Locale.US,

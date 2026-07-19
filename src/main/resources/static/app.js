@@ -1353,12 +1353,14 @@ async function submitPreload() {
 
   const vectorKeys = selected.filter((k) => layerMap[k] && layerMap[k].sourceType === 'VECTOR_PMTILES');
   const xyzLayers = selected.filter((k) => !layerMap[k] || layerMap[k].sourceType !== 'VECTOR_PMTILES');
-  const includeVector = vectorKeys.length > 0;
   const vectorLayerId = vectorKeys.length > 0 ? vectorKeys[0] : null;
   const vectorMaxZoom = vectorLayerId && layerMap[vectorLayerId]
     ? (layerMap[vectorLayerId].maxZoom || VECTOR_MAX_ZOOM)
     : VECTOR_MAX_ZOOM;
-  const maxZoom = includeVector ? Math.min(maxZoomRaw, vectorMaxZoom) : maxZoomRaw;
+  // A vector-only job can honestly report the vector cap. When raster layers are also selected,
+  // send the raw slider so they preload to full zoom; the server caps the vector extract to the
+  // vector layer's own maxZoom independently.
+  const maxZoom = xyzLayers.length === 0 ? Math.min(maxZoomRaw, vectorMaxZoom) : maxZoomRaw;
   const allowedUsers = splitList(preloadAllowedUsers.value);
   const allowedGroups = splitList(preloadAllowedGroups.value);
 

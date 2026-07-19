@@ -104,6 +104,33 @@ class PmtilesDownloaderTest {
     assertThat(bboxArg).matches("--bbox=-?\\d+\\.\\d+,-?\\d+\\.\\d+,-?\\d+\\.\\d+,-?\\d+\\.\\d+");
   }
 
+  @Test
+  void buildProcess_capsMaxZoomToLayerMaxZoom() {
+    // A mixed raster+vector preload carries a single job maxZoom driven by the raster slider.
+    // The vector extract must not be asked past the vector layer's own maxZoom.
+    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    Layer l = layer("https://example.com/planet.pmtiles", 15);
+    Preload p = preload(-74.0, 40.5, -73.5, 41.0, 20); // slider set to 20 for the raster layers
+    PmtilesDownloader downloader =
+        new PmtilesDownloader(
+            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class));
+    ProcessBuilder pb = downloader.buildProcess(p, l, tempDir.resolve("test.pmtiles"));
+    assertThat(pb.command()).contains("--maxzoom=15");
+    assertThat(pb.command()).doesNotContain("--maxzoom=20");
+  }
+
+  @Test
+  void buildProcess_jobZoomBelowLayerMax_usesJobZoom() {
+    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    Layer l = layer("https://example.com/planet.pmtiles", 15);
+    Preload p = preload(-74.0, 40.5, -73.5, 41.0, 10);
+    PmtilesDownloader downloader =
+        new PmtilesDownloader(
+            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class));
+    ProcessBuilder pb = downloader.buildProcess(p, l, tempDir.resolve("test.pmtiles"));
+    assertThat(pb.command()).contains("--maxzoom=10");
+  }
+
   // ── outputFilename ────────────────────────────────────────────────────────
 
   @Test
