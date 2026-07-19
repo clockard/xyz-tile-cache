@@ -3,6 +3,8 @@ package org.lockard.xyztilecache;
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -63,11 +65,17 @@ public class XyzTileCacheApplication {
 
   @Bean
   static LoadingCache<Tile, byte[]> tileCache(
-      CacheLoader<Tile, byte[]> cacheLoader, XyzConfiguration configuration) {
-    return Caffeine.newBuilder()
-        .maximumWeight(configuration.getTileCacheBytes())
-        .<Tile, byte[]>weigher((k, v) -> v.length)
-        .build(cacheLoader);
+      CacheLoader<Tile, byte[]> cacheLoader,
+      XyzConfiguration configuration,
+      MeterRegistry meterRegistry) {
+    LoadingCache<Tile, byte[]> cache =
+        Caffeine.newBuilder()
+            .maximumWeight(configuration.getTileCacheBytes())
+            .<Tile, byte[]>weigher((k, v) -> v.length)
+            .recordStats()
+            .build(cacheLoader);
+    CaffeineCacheMetrics.monitor(meterRegistry, cache, "xyz_tile_cache");
+    return cache;
   }
 
   // ── Lifecycle / events ────────────────────────────────────────────────────

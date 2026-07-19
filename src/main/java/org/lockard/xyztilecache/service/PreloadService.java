@@ -1,6 +1,9 @@
 package org.lockard.xyztilecache.service;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 import java.awt.Point;
 import java.io.IOException;
 import java.time.Instant;
@@ -12,6 +15,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.lockard.xyztilecache.XyzUtil;
 import org.lockard.xyztilecache.model.BoundingBox;
@@ -29,22 +33,35 @@ public class PreloadService {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PreloadService.class);
 
+  static final String INFLIGHT_GAUGE = "xyz_preload_inflight";
+
   private final LayerStore layerStore;
   private final LoadingCache<Tile, byte[]> tileCache;
   private final PreloadStore preloadStore;
   private final PmtilesDownloader pmtilesDownloader;
+  private final MeterRegistry meterRegistry;
 
   private final ExecutorService xyzExecutor = Executors.newSingleThreadExecutor();
+  private final AtomicInteger inflightXyzPreloads = new AtomicInteger();
 
   public PreloadService(
       LayerStore layerStore,
       LoadingCache<Tile, byte[]> tileCache,
       PreloadStore preloadStore,
-      PmtilesDownloader pmtilesDownloader) {
+      PmtilesDownloader pmtilesDownloader,
+      MeterRegistry meterRegistry) {
     this.layerStore = layerStore;
     this.tileCache = tileCache;
     this.preloadStore = preloadStore;
     this.pmtilesDownloader = pmtilesDownloader;
+    this.meterRegistry = meterRegistry;
+  }
+
+  @PostConstruct
+  void registerMetrics() {
+    Gauge.builder(INFLIGHT_GAUGE, inflightXyzPreloads, AtomicInteger::get)
+        .description("Number of in-flight xyz preload jobs.")
+        .register(meterRegistry);
   }
 
   public Preload submit(
@@ -169,22 +186,27 @@ public class PreloadService {
   }
 
   private void runXyzPreload(Set<String> layers, BoundingBox bbox) {
-    List<Set<Point>> allPoints = XyzUtil.calculateAllBboxTiles(bbox);
-    for (String layerName : layers) {
-      Layer layer = layerStore.getLayers().get(layerName);
-      if (layer == null || layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) continue;
-      for (int z = 0; z < allPoints.size(); z++) {
-        for (Point p : allPoints.get(z)) {
-          Tile tile = new Tile(layer, p.x, p.y, z);
-          try {
-            tileCache.get(tile);
-          } catch (CompletionException e) {
-            LOGGER.error("Error pre-loading bounding box tile: {}.", tile, e.getCause());
+    inflightXyzPreloads.incrementAndGet();
+    try {
+      List<Set<Point>> allPoints = XyzUtil.calculateAllBboxTiles(bbox);
+      for (String layerName : layers) {
+        Layer layer = layerStore.getLayers().get(layerName);
+        if (layer == null || layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) continue;
+        for (int z = 0; z < allPoints.size(); z++) {
+          for (Point p : allPoints.get(z)) {
+            Tile tile = new Tile(layer, p.x, p.y, z);
+            try {
+              tileCache.get(tile);
+            } catch (CompletionException e) {
+              LOGGER.error("Error pre-loading bounding box tile: {}.", tile, e.getCause());
+            }
           }
         }
       }
+      LOGGER.info("Finished xyz preload for layers {}.", layers);
+    } finally {
+      inflightXyzPreloads.decrementAndGet();
     }
-    LOGGER.info("Finished xyz preload for layers {}.", layers);
   }
 
   private static String displayName(String requested, BoundingBox bbox, int maxZoom) {

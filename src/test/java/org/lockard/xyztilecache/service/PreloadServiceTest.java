@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +38,10 @@ class PreloadServiceTest {
     layerStore = mock(LayerStore.class);
     preloadStore = mock(PreloadStore.class);
     pmtilesDownloader = mock(PmtilesDownloader.class);
-    service = new PreloadService(layerStore, tileCache, preloadStore, pmtilesDownloader);
+    service =
+        new PreloadService(
+            layerStore, tileCache, preloadStore, pmtilesDownloader, new SimpleMeterRegistry());
+    service.registerMetrics();
   }
 
   private static BoundingBox bbox() {

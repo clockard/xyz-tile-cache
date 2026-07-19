@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -38,7 +39,8 @@ class OnlineCacheLoaderTest {
     layerStore.init();
 
     tileWriter = Mockito.mock(TileWriter.class);
-    loader = new OnlineCacheLoader(configuration, tileWriter, layerStore);
+    loader =
+        new OnlineCacheLoader(configuration, tileWriter, layerStore, new SimpleMeterRegistry());
   }
 
   @AfterEach

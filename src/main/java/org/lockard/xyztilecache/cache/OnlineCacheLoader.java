@@ -1,6 +1,10 @@
 package org.lockard.xyztilecache.cache;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tag;
+import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.Timer;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -33,6 +37,8 @@ import org.springframework.stereotype.Component;
 public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
   private static final Logger LOGGER = LoggerFactory.getLogger(OnlineCacheLoader.class);
 
+  static final String UPSTREAM_FETCH_TIMER = "xyz_upstream_fetch_seconds";
+
   private final XyzConfiguration configuration;
   private final LayerStore layerStore;
 
@@ -42,16 +48,20 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
 
   private final HttpClient httpClient;
 
+  private final MeterRegistry meterRegistry;
+
   private final ConcurrentMap<String, CountDownLatch> retryLatches = new ConcurrentHashMap<>();
 
   public OnlineCacheLoader(
       final XyzConfiguration configuration,
       final TileWriter tileWriter,
-      final LayerStore layerStore) {
+      final LayerStore layerStore,
+      final MeterRegistry meterRegistry) {
     this.configuration = configuration;
     this.layerStore = layerStore;
     offlineCacheLoader = new OfflineCacheLoader(configuration);
     this.tileWriter = tileWriter;
+    this.meterRegistry = meterRegistry;
     httpClient =
         HttpClient.newBuilder()
             .connectTimeout(Duration.of(configuration.getTileTimeoutSeconds(), ChronoUnit.SECONDS))
@@ -124,15 +134,20 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
       throws InterruptedException, IOException, URISyntaxException {
     LOGGER.debug("Loading tile {} from an online source.", tile);
     final byte[] tileData;
-    final var start = System.currentTimeMillis();
+    Timer.Sample sample = Timer.start(meterRegistry);
+    String outcome = "failure";
     try {
       tileData = getTileFromSource(tile);
+      if (tileData != null && tileData.length > 0) {
+        outcome = "success";
+      }
     } catch (InterruptedException | IOException | URISyntaxException e) {
       state.sourceFailed();
+      sample.stop(upstreamTimer(tile.layer().effectiveId(), outcome));
       throw e;
     }
 
-    LOGGER.debug("Tile retrieval time: {} ms", System.currentTimeMillis() - start);
+    sample.stop(upstreamTimer(tile.layer().effectiveId(), outcome));
 
     if (tileData != null && tileData.length > 0) {
       state.sourceSucceeded();
@@ -142,6 +157,14 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
       state.sourceFailed();
       throw new IOException("Failed to retrieve tile %s.".formatted(tile));
     }
+  }
+
+  private Timer upstreamTimer(String layerId, String outcome) {
+    return Timer.builder(UPSTREAM_FETCH_TIMER)
+        .description("Upstream tile-source HTTP fetch duration.")
+        .tags(Tags.of(Tag.of("layer", layerId), Tag.of("outcome", outcome)))
+        .publishPercentileHistogram()
+        .register(meterRegistry);
   }
 
   private String buildTileUrl(Tile tile) {

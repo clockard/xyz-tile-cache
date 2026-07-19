@@ -46,7 +46,10 @@ public class SecurityConfig {
                         "/style.css",
                         "/favicon.ico",
                         "/static/**",
-                        "/auth/config")
+                        "/auth/config",
+                        "/actuator/health/**",
+                        "/actuator/info",
+                        "/actuator/prometheus")
                     .permitAll()
                     .requestMatchers(HttpMethod.GET, "/**")
                     .permitAll()
