@@ -4,6 +4,7 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import java.awt.Point;
 import java.io.IOException;
 import java.time.Instant;
@@ -41,7 +42,7 @@ public class PreloadService {
   private final PmtilesDownloader pmtilesDownloader;
   private final MeterRegistry meterRegistry;
 
-  private final ExecutorService xyzExecutor = Executors.newSingleThreadExecutor();
+  private final ExecutorService xyzExecutor = Executors.newVirtualThreadPerTaskExecutor();
   private final AtomicInteger inflightXyzPreloads = new AtomicInteger();
 
   public PreloadService(
@@ -62,6 +63,11 @@ public class PreloadService {
     Gauge.builder(INFLIGHT_GAUGE, inflightXyzPreloads, AtomicInteger::get)
         .description("Number of in-flight xyz preload jobs.")
         .register(meterRegistry);
+  }
+
+  @PreDestroy
+  void shutdown() {
+    xyzExecutor.shutdown();
   }
 
   public Preload submit(

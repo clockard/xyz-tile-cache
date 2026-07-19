@@ -44,13 +44,7 @@ public class ExportService {
   private final Clock clock;
 
   private final ConcurrentHashMap<String, ExportJob> jobs = new ConcurrentHashMap<>();
-  private final ExecutorService executor =
-      Executors.newSingleThreadExecutor(
-          r -> {
-            Thread t = new Thread(r, "export-worker");
-            t.setDaemon(true);
-            return t;
-          });
+  private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
   @Autowired
   public ExportService(ImportExportService importExportService, XyzConfiguration configuration) {

@@ -10,8 +10,6 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
@@ -108,15 +106,13 @@ public class XyzTileCacheApplication {
       return;
     }
     LOGGER.info("Initializing bounding boxes...");
-    int taskCount = configuration.getBoundingBoxes().size() * layerStore.getLayers().size();
-    int poolSize = Math.max(1, Math.min(taskCount, Runtime.getRuntime().availableProcessors()));
-    ExecutorService pool = Executors.newFixedThreadPool(poolSize);
     for (BoundingBox bbox : configuration.getBoundingBoxes()) {
       for (String layer : layerStore.getLayers().keySet()) {
-        pool.submit(() -> preloadService.preloadXyzTiles(Collections.singleton(layer), bbox));
+        Thread.ofVirtual()
+            .name("bbox-init-" + layer)
+            .start(() -> preloadService.preloadXyzTiles(Collections.singleton(layer), bbox));
       }
     }
-    pool.shutdown();
   }
 
   // ── Per-layer init downloads ──────────────────────────────────────────────
@@ -128,19 +124,17 @@ public class XyzTileCacheApplication {
       return;
     }
     LOGGER.info("Starting init downloads for {} layer(s)...", initLayers.size());
-    ExecutorService pool =
-        Executors.newFixedThreadPool(Math.max(1, Math.min(initLayers.size(), 4)));
     for (Layer layer : initLayers) {
+      String layerId = layer.effectiveId();
       if (layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) {
-        pool.submit(() -> initVectorLayerDownload(layer));
+        Thread.ofVirtual().name("init-vec-" + layerId).start(() -> initVectorLayerDownload(layer));
       } else {
         BoundingBox world = worldBbox(layer.initZoom());
-        pool.submit(
-            () ->
-                preloadService.preloadXyzTiles(Collections.singleton(layer.effectiveId()), world));
+        Thread.ofVirtual()
+            .name("init-xyz-" + layerId)
+            .start(() -> preloadService.preloadXyzTiles(Collections.singleton(layerId), world));
       }
     }
-    pool.shutdown();
   }
 
   private void initVectorLayerDownload(Layer layer) {

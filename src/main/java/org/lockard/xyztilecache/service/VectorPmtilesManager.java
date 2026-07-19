@@ -45,13 +45,7 @@ public class VectorPmtilesManager {
       new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, VectorTileCache> caches = new ConcurrentHashMap<>();
 
-  private final ExecutorService cacheWriter =
-      Executors.newSingleThreadExecutor(
-          r -> {
-            Thread t = new Thread(r, "vector-tile-cache-writer");
-            t.setDaemon(true);
-            return t;
-          });
+  private final ExecutorService cacheWriter = Executors.newVirtualThreadPerTaskExecutor();
 
   public VectorPmtilesManager(LayerStore layerStore, XyzConfiguration xyzConfig) {
     this.layerStore = layerStore;

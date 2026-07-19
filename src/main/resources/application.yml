@@ -15,6 +15,9 @@ management:
       application: xyz-tile-cache
 
 spring:
+  threads:
+    virtual:
+      enabled: true             # Tomcat + @Async run on virtual threads (Java 21+)
   servlet:
     multipart:
       max-file-size: 2GB
