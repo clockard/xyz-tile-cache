@@ -1,0 +1,21 @@
+# Normalize all text to LF in the working tree and repo.
+# This project builds a Linux Docker image; CRLF in shell scripts breaks
+# the shebang at container start (exec ...: no such file or directory).
+* text=auto eol=lf
+
+# Scripts/config copied into the Linux image MUST be LF regardless of platform.
+*.sh text eol=lf
+entrypoint.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binary assets — never touch.
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pmtiles binary
+*.tif binary
+*.tiff binary
