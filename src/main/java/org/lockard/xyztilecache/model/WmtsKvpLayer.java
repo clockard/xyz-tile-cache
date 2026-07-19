@@ -27,6 +27,8 @@ public record WmtsKvpLayer(
     implements Layer {
 
   public WmtsKvpLayer {
+    // JSON API callers may omit maxZoom (primitive default 0), which would 404 every z>0 tile.
+    if (maxZoom <= 0) maxZoom = 22;
     if (wmtsTileMatrixSet == null || wmtsTileMatrixSet.isBlank()) wmtsTileMatrixSet = "EPSG:3857";
     if (wmtsStyle == null || wmtsStyle.isBlank()) wmtsStyle = "default";
     if (wmtsFormat == null || wmtsFormat.isBlank()) wmtsFormat = "image/png";

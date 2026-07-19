@@ -96,7 +96,7 @@ public class XyzTileCacheApplication {
     if (event.kind() == LayerChangedEvent.Kind.UPDATED_ACL) {
       return;
     }
-    tileCache.asMap().keySet().removeIf(t -> t.layer().effectiveId().equals(event.layerName()));
+    tileCache.asMap().keySet().removeIf(t -> t.layerId().equals(event.layerName()));
   }
 
   // ── Bounding-box preload ──────────────────────────────────────────────────

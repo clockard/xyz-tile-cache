@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.service.LayerAccessService;
+import org.lockard.xyztilecache.store.LayerAlreadyExistsException;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,8 +55,10 @@ class LayerController {
   ResponseEntity<?> add(@RequestBody Layer layer) {
     try {
       layerStore.addLayer(layer);
-    } catch (IllegalArgumentException e) {
+    } catch (LayerAlreadyExistsException e) {
       return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
+    } catch (IllegalArgumentException e) {
+      return ResponseEntity.badRequest().body(e.getMessage());
     } catch (IOException e) {
       LOGGER.error("Failed to persist layer '{}'.", layer.effectiveId(), e);
       return ResponseEntity.internalServerError().body("Failed to persist layer.");

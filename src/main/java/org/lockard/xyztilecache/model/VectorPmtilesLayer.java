@@ -18,6 +18,8 @@ public record VectorPmtilesLayer(
     implements Layer {
 
   public VectorPmtilesLayer {
+    // JSON API callers may omit maxZoom (primitive default 0), which would 404 every z>0 tile.
+    if (maxZoom <= 0) maxZoom = 15;
     allowedUsers = allowedUsers == null ? List.of() : List.copyOf(allowedUsers);
     allowedGroups = allowedGroups == null ? List.of() : List.copyOf(allowedGroups);
   }

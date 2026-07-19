@@ -59,7 +59,7 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
       final MeterRegistry meterRegistry) {
     this.configuration = configuration;
     this.layerStore = layerStore;
-    offlineCacheLoader = new OfflineCacheLoader(configuration);
+    offlineCacheLoader = new OfflineCacheLoader(configuration, layerStore);
     this.tileWriter = tileWriter;
     this.meterRegistry = meterRegistry;
     httpClient =
@@ -71,6 +71,11 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
 
   @Override
   public byte[] load(final Tile tile) throws InterruptedException, IOException, URISyntaxException {
+    final Layer layer = layerStore.getLayers().get(tile.layerId());
+    if (layer == null) {
+      throw new IOException("Layer %s is not configured.".formatted(tile.layerId()));
+    }
+
     try {
       final var fileBytes = offlineCacheLoader.load(tile);
       LOGGER.debug("Tile {} found in local file cache.", tile);
@@ -79,39 +84,39 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
       LOGGER.debug("Failed to load tile {} from local file cache.", tile, e);
     }
 
-    if (tile.layer() instanceof LocalLayer) {
+    if (layer instanceof LocalLayer) {
       throw new IOException("Tile %s not present for LOCAL layer.".formatted(tile));
     }
 
-    if (tile.layer() instanceof VectorPmtilesLayer) {
+    if (layer instanceof VectorPmtilesLayer) {
       throw new IOException(
           "VECTOR_PMTILES layers are not served through the raster tile cache: %s"
-              .formatted(tile.layer()));
+              .formatted(layer));
     }
 
     if (configuration.isOffline()) {
       throw new IOException("Offline mode is enabled; tile %s not in local cache.".formatted(tile));
     }
 
-    LayerRuntimeState state = layerStore.getRuntimeState(tile.layer().effectiveId());
+    String layerId = layer.effectiveId();
+    LayerRuntimeState state = layerStore.getRuntimeState(layerId);
     final var requestStrategy = state.requestStrategy();
     if (requestStrategy == Layer.RequestStrategy.PROCEED) {
-      return loadTileOnline(tile, state);
+      return loadTileOnline(tile, layer, state);
     }
     if (requestStrategy == Layer.RequestStrategy.BLOCK) {
       throw new UpstreamUnavailableException(
-          "Source for layer %s is temporarily blocked.".formatted(tile.layer()));
+          "Source for layer %s is temporarily blocked.".formatted(layerId));
     }
 
     // RETRY: one thread probes the source; concurrent callers wait on a latch and then re-read
     // the state so they get a clean PROCEED / BLOCK answer instead of a false "blocked".
-    String layerId = tile.layer().effectiveId();
     CountDownLatch ourLatch = new CountDownLatch(1);
     CountDownLatch existing = retryLatches.putIfAbsent(layerId, ourLatch);
     if (existing == null) {
-      LOGGER.info("Retrying source for layer {}.", tile.layer());
+      LOGGER.info("Retrying source for layer {}.", layerId);
       try {
-        return loadTileOnline(tile, state);
+        return loadTileOnline(tile, layer, state);
       } finally {
         retryLatches.remove(layerId);
         ourLatch.countDown();
@@ -125,39 +130,39 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
     }
     Layer.RequestStrategy after = state.requestStrategy();
     if (after == Layer.RequestStrategy.PROCEED) {
-      return loadTileOnline(tile, state);
+      return loadTileOnline(tile, layer, state);
     }
     throw new UpstreamUnavailableException(
-        "Source for layer %s is temporarily blocked.".formatted(tile.layer()));
+        "Source for layer %s is temporarily blocked.".formatted(layerId));
   }
 
-  private byte[] loadTileOnline(final Tile tile, final LayerRuntimeState state)
+  private byte[] loadTileOnline(final Tile tile, final Layer layer, final LayerRuntimeState state)
       throws InterruptedException, IOException, URISyntaxException {
     LOGGER.debug("Loading tile {} from an online source.", tile);
     final byte[] tileData;
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
-      tileData = getTileFromSource(tile);
+      tileData = getTileFromSource(tile, layer);
     } catch (UpstreamTileNotFoundException e) {
       // The source answered; a missing tile is not a source failure.
       state.sourceSucceeded();
-      sample.stop(upstreamTimer(tile.layer().effectiveId(), "not_found"));
+      sample.stop(upstreamTimer(layer.effectiveId(), "not_found"));
       throw e;
     } catch (InterruptedException | IOException | URISyntaxException e) {
       state.sourceFailed();
-      sample.stop(upstreamTimer(tile.layer().effectiveId(), "failure"));
+      sample.stop(upstreamTimer(layer.effectiveId(), "failure"));
       throw e;
     }
 
     if (tileData != null && tileData.length > 0) {
       state.sourceSucceeded();
-      sample.stop(upstreamTimer(tile.layer().effectiveId(), "success"));
+      sample.stop(upstreamTimer(layer.effectiveId(), "success"));
       tileWriter.storeTile(tile, tileData);
       return tileData;
     }
     // Empty body: the source answered but has no tile — also not a source failure.
     state.sourceSucceeded();
-    sample.stop(upstreamTimer(tile.layer().effectiveId(), "not_found"));
+    sample.stop(upstreamTimer(layer.effectiveId(), "not_found"));
     throw new UpstreamTileNotFoundException("Empty tile body for %s.".formatted(tile));
   }
 
@@ -169,8 +174,7 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
         .register(meterRegistry);
   }
 
-  private String buildTileUrl(Tile tile) {
-    Layer layer = tile.layer();
+  private String buildTileUrl(Tile tile, Layer layer) {
     String timeStr = layer.doesUrlHaveTime() ? currentTimeString(layer.timeFormat()) : null;
     return switch (layer) {
       case XyzLayer xyz -> xyz.buildUrl(tile.z(), tile.x(), tile.y(), timeStr);
@@ -190,10 +194,9 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
         .format(java.time.format.DateTimeFormatter.ofPattern(pattern));
   }
 
-  private byte[] getTileFromSource(Tile tile)
+  private byte[] getTileFromSource(Tile tile, Layer layer)
       throws InterruptedException, IOException, URISyntaxException {
-    final var layer = tile.layer();
-    final var url = buildTileUrl(tile);
+    final var url = buildTileUrl(tile, layer);
     LOGGER.debug("Tile url for {}: {}", tile, url);
     final var requestBuilder =
         HttpRequest.newBuilder(new URI(url))

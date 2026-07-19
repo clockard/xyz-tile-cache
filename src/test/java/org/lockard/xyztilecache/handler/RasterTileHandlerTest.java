@@ -134,7 +134,7 @@ class RasterTileHandlerTest {
     LoadingCache<Tile, byte[]> cache = mock(LoadingCache.class);
     byte[] jpegBytes = {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0x00};
     Layer layer = testLayer();
-    when(cache.get(new Tile(layer, 1, 2, 3))).thenReturn(jpegBytes);
+    when(cache.get(new Tile("test", 1, 2, 3))).thenReturn(jpegBytes);
 
     RasterTileHandler handler = new RasterTileHandler(cache);
     Optional<TileResult> result = handler.getTile(layer, 3, 1, 2);
@@ -150,7 +150,7 @@ class RasterTileHandlerTest {
     LoadingCache<Tile, byte[]> cache = mock(LoadingCache.class);
     Layer layer = testLayer();
     RuntimeException cause = new RuntimeException("upstream 404");
-    when(cache.get(new Tile(layer, 1, 2, 3))).thenThrow(new CompletionException(cause));
+    when(cache.get(new Tile("test", 1, 2, 3))).thenThrow(new CompletionException(cause));
 
     RasterTileHandler handler = new RasterTileHandler(cache);
 

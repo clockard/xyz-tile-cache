@@ -96,6 +96,30 @@ class XyzTileCacheApplicationLayerManagementTests {
   }
 
   @Test
+  void addLayerWithoutMaxZoom_defaultsTo22(@Autowired MockMvc mvc) throws Exception {
+    // The JSON API binds Layer records directly; an omitted maxZoom must not stick at the
+    // primitive default 0 (which would 404 every z>0 tile request).
+    mvc.perform(
+            MockMvcRequestBuilders.post("/layers")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"no-max-zoom\",\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
+        .andExpect(MockMvcResultMatchers.status().isCreated())
+        .andExpect(MockMvcResultMatchers.jsonPath("$.maxZoom").value(22));
+  }
+
+  @Test
+  void addLayerWithoutUrlTemplate_returns400(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.post("/layers")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"no-url\"}"))
+        .andExpect(MockMvcResultMatchers.status().isBadRequest());
+  }
+
+  @Test
   void addDuplicateLayer_returns409(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post("/layers")

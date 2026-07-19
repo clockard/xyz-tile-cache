@@ -22,6 +22,8 @@ public record XyzLayer(
     implements Layer {
 
   public XyzLayer {
+    // JSON API callers may omit maxZoom (primitive default 0), which would 404 every z>0 tile.
+    if (maxZoom <= 0) maxZoom = 22;
     if (timeFormat == null || timeFormat.isBlank()) timeFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
     allowedUsers = allowedUsers == null ? List.of() : List.copyOf(allowedUsers);
     allowedGroups = allowedGroups == null ? List.of() : List.copyOf(allowedGroups);

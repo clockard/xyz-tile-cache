@@ -3,30 +3,43 @@ package org.lockard.xyztilecache.cache;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.model.XyzLayer;
+import org.lockard.xyztilecache.store.LayerStore;
 
 class OfflineCacheLoaderTest {
 
   @TempDir File tempDir;
 
   private XyzConfiguration configuration;
+  private LayerStore layerStore;
   private OfflineCacheLoader loader;
 
   @BeforeEach
-  void setUp() {
+  void setUp() throws Exception {
     configuration = new XyzConfiguration();
     configuration.setBaseTileDirectory(tempDir.getAbsolutePath());
     configuration.installLayers(List.of(layer(0)));
-    loader = new OfflineCacheLoader(configuration);
+    layerStore = new LayerStore(configuration, new ObjectMapper(), event -> {});
+    layerStore.init();
+    loader = new OfflineCacheLoader(configuration, layerStore);
+  }
+
+  @AfterEach
+  void tearDown() throws Exception {
+    if (layerStore != null) {
+      layerStore.close();
+    }
   }
 
   private static XyzLayer layer(int expirationMinutes) {
@@ -34,9 +47,15 @@ class OfflineCacheLoaderTest {
         "test", "test", null, null, 22, 0, expirationMinutes, List.of(), List.of(), Map.of(), null);
   }
 
+  /** Installs the "test" layer with the given expiration and returns its 3/1/2 tile key. */
+  private Tile tile(int expirationMinutes) {
+    layerStore.getLayers().put("test", layer(expirationMinutes));
+    return new Tile("test", 1, 2, 3);
+  }
+
   @Test
   void toFile_constructsCorrectPath() {
-    Tile tile = new Tile(layer(0), 1, 2, 3);
+    Tile tile = tile(0);
     File file = loader.toFile(tile);
     assertThat(file.getAbsolutePath())
         .endsWith(
@@ -52,7 +71,7 @@ class OfflineCacheLoaderTest {
 
   @Test
   void load_returnsBytesFromExistingFile() throws Exception {
-    Tile tile = new Tile(layer(0), 1, 2, 3);
+    Tile tile = tile(0);
     File file = loader.toFile(tile);
     file.getParentFile().mkdirs();
     byte[] expected = {1, 2, 3};
@@ -63,7 +82,7 @@ class OfflineCacheLoaderTest {
 
   @Test
   void load_throwsWhenTileIsExpired() throws Exception {
-    Tile tile = new Tile(layer(1), 1, 2, 3);
+    Tile tile = tile(1);
     File file = loader.toFile(tile);
     file.getParentFile().mkdirs();
     Files.write(file.toPath(), new byte[] {1});
@@ -75,7 +94,7 @@ class OfflineCacheLoaderTest {
 
   @Test
   void load_doesNotExpireWhenWithinExpirationWindow() throws Exception {
-    Tile tile = new Tile(layer(60), 1, 2, 3);
+    Tile tile = tile(60);
     File file = loader.toFile(tile);
     file.getParentFile().mkdirs();
     byte[] expected = {4, 5, 6};
@@ -86,13 +105,13 @@ class OfflineCacheLoaderTest {
 
   @Test
   void load_throwsWhenFileMissingAndExpirationConfigured() {
-    Tile tile = new Tile(layer(60), 1, 2, 3);
+    Tile tile = tile(60);
     assertThatThrownBy(() -> loader.load(tile)).isInstanceOf(java.io.FileNotFoundException.class);
   }
 
   @Test
   void load_skipsExpirationCheckWhenExpirationIsZero() throws Exception {
-    Tile tile = new Tile(layer(0), 1, 2, 3);
+    Tile tile = tile(0);
     File file = loader.toFile(tile);
     file.getParentFile().mkdirs();
     byte[] expected = {7, 8, 9};

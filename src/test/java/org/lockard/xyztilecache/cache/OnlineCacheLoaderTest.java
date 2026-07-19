@@ -33,7 +33,7 @@ class OnlineCacheLoaderTest {
     configuration = new XyzConfiguration();
     configuration.setBaseTileDirectory(tempDir.getAbsolutePath());
     configuration.setTileTimeoutSeconds(1);
-    configuration.installLayers(List.of());
+    configuration.installLayers(List.of(localLayer()));
 
     layerStore = new LayerStore(configuration, new ObjectMapper(), event -> {});
     layerStore.init();
@@ -56,7 +56,7 @@ class OnlineCacheLoaderTest {
 
   @Test
   void load_returnsBytesFromDiskForLocalLayer() throws Exception {
-    Tile tile = new Tile(localLayer(), 1, 2, 3);
+    Tile tile = new Tile("local-layer", 1, 2, 3);
     File file =
         new File(
             tempDir,
@@ -70,7 +70,7 @@ class OnlineCacheLoaderTest {
 
   @Test
   void load_throwsWithoutHttpFetchWhenLocalLayerMissesTile() {
-    Tile tile = new Tile(localLayer(), 1, 2, 99);
+    Tile tile = new Tile("local-layer", 1, 2, 99);
     assertThatThrownBy(() -> loader.load(tile))
         .isInstanceOf(IOException.class)
         .hasMessageContaining("LOCAL");

@@ -108,6 +108,30 @@ class XyzTileCacheApplicationOnlineTests {
   }
 
   @Test
+  void aclOnlyLayerUpdateKeepsInMemoryTileCache(@Autowired final MockMvc mvc) throws Exception {
+    wireMock.stubFor(WireMock.get("/5/1/1").willReturn(ok().withBody(new byte[] {5, 1, 1})));
+    mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/test/5/1/1.png"))
+        .andExpect(MockMvcResultMatchers.status().isOk());
+
+    // Non-source update (same urlTemplate/sourceType) → UPDATED_ACL; cached entries must survive
+    // because the cache key is the layer id, not the Layer record.
+    mvc.perform(
+            MockMvcRequestBuilders.put("/layers/test")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"test\",\"urlTemplate\":\""
+                        + wireMock.baseUrl()
+                        + "/{z}/{y}/{x}\",\"attribution\":\"updated\"}"))
+        .andExpect(MockMvcResultMatchers.status().isOk());
+
+    mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/test/5/1/1.png"))
+        .andExpect(MockMvcResultMatchers.status().isOk())
+        .andExpect(MockMvcResultMatchers.content().bytes(new byte[] {5, 1, 1}));
+    wireMock.verify(1, getRequestedFor(urlPathEqualTo("/5/1/1")));
+  }
+
+  @Test
   void tilesZXYEndpointDelegatesToZYX(@Autowired final MockMvc mvc) throws Exception {
     wireMock.stubFor(WireMock.get("/1/0/0").willReturn(ok().withBody(new byte[] {1})));
     mvc.perform(MockMvcRequestBuilders.get("/tilesZXY/test/1/0/0.png"))

@@ -69,7 +69,7 @@ public class LayerStore extends JsonFileStore<Layer> {
     withLockedReloadAndWrite(
         () -> {
           if (this.layers.containsKey(id)) {
-            throw new IllegalArgumentException("Layer '" + id + "' already exists.");
+            throw new LayerAlreadyExistsException("Layer '" + id + "' already exists.");
           }
           this.layers.put(id, layer);
         });

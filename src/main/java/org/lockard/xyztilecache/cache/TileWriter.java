@@ -57,6 +57,11 @@ public class TileWriter {
 
   @Async
   void storeTile(final Tile tile, final byte[] data) {
+    var layer = layerStore.getLayers().get(tile.layerId());
+    if (layer == null) {
+      LOGGER.debug("Layer {} no longer configured; not persisting tile {}.", tile.layerId(), tile);
+      return;
+    }
     try {
       long freeBytes =
           Files.getFileStore(Paths.get(configuration.getBaseTileDirectory())).getUsableSpace();
@@ -75,7 +80,7 @@ public class TileWriter {
     try {
       Files.createDirectories(output.getParent());
       Files.write(output, data);
-      layerStore.getRuntimeState(tile.layer().effectiveId()).addTileStats(data.length);
+      layerStore.getRuntimeState(tile.layerId()).addTileStats(data.length);
       LOGGER.debug("Wrote tile {} to {}.", tile, output);
     } catch (IOException e) {
       LOGGER.debug("Failed to write tile {} to {}.", tile, output, e);
@@ -117,11 +122,13 @@ public class TileWriter {
   }
 
   protected Path toPath(final Tile tile) {
+    var layer = layerStore.getLayers().get(tile.layerId());
+    String ext = layer != null ? layer.tileFileExtension() : "png";
     return Paths.get(
         configuration.getBaseTileDirectory(),
-        tile.layer().effectiveId(),
+        tile.layerId(),
         String.valueOf(tile.z()),
         String.valueOf(tile.x()),
-        tile.y() + "." + tile.layer().tileFileExtension());
+        tile.y() + "." + ext);
   }
 }

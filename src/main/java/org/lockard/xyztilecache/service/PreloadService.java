@@ -208,7 +208,7 @@ public class PreloadService {
         for (XyzUtil.TileRange range : ranges) {
           for (int x = range.xMin(); x <= range.xMax(); x++) {
             for (int y = range.yMin(); y <= range.yMax(); y++) {
-              Tile tile = new Tile(layer, x, y, range.zoom());
+              Tile tile = new Tile(layer.effectiveId(), x, y, range.zoom());
               try {
                 tileCache.get(tile);
               } catch (CompletionException e) {

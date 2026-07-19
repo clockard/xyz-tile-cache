@@ -39,7 +39,7 @@ public class RasterTileHandler implements TileSourceHandler {
   @Override
   public Optional<TileResult> getTile(Layer layer, int z, int x, int y) throws IOException {
     try {
-      byte[] data = tileCache.get(new Tile(layer, x, y, z));
+      byte[] data = tileCache.get(new Tile(layer.effectiveId(), x, y, z));
       return Optional.of(new TileResult(data, 0, detectContentType(data)));
     } catch (CompletionException e) {
       Throwable cause = e.getCause();

@@ -61,14 +61,14 @@ class TileWriterTest {
   @Test
   void toPath_constructsLayerZXYPath() {
     TileWriter writer = new TileWriter(configuration, layerStore);
-    Tile tile = new Tile(layer, 1, 2, 3);
+    Tile tile = new Tile("test", 1, 2, 3);
     assertThat(writer.toPath(tile)).isEqualTo(tempDir.resolve(Path.of("test", "3", "1", "2.png")));
   }
 
   @Test
   void storeTile_writesBytesToDisk() throws IOException {
     TileWriter writer = new TileWriter(configuration, layerStore);
-    Tile tile = new Tile(layer, 1, 2, 3);
+    Tile tile = new Tile("test", 1, 2, 3);
     byte[] data = {10, 20, 30};
 
     writer.storeTile(tile, data);
@@ -80,7 +80,7 @@ class TileWriterTest {
   @Test
   void storeTile_updatesLayerStats() {
     TileWriter writer = new TileWriter(configuration, layerStore);
-    Tile tile = new Tile(layer, 1, 2, 3);
+    Tile tile = new Tile("test", 1, 2, 3);
     byte[] data = {10, 20, 30};
 
     writer.storeTile(tile, data);
@@ -95,7 +95,7 @@ class TileWriterTest {
     Path dir = tempDir.resolve(Path.of("test", "3", "1"));
     Files.createDirectories(dir);
     TileWriter writer = new TileWriter(configuration, layerStore);
-    Tile tile = new Tile(layer, 1, 2, 3);
+    Tile tile = new Tile("test", 1, 2, 3);
     byte[] data = {7, 8, 9};
 
     writer.storeTile(tile, data);
@@ -124,7 +124,7 @@ class TileWriterTest {
     // Setting minFreeDiskBytes to Long.MAX_VALUE guarantees the threshold is never met
     configuration.setMinFreeDiskBytes(Long.MAX_VALUE);
     TileWriter writer = new TileWriter(configuration, layerStore);
-    Tile tile = new Tile(layer, 1, 2, 3);
+    Tile tile = new Tile("test", 1, 2, 3);
 
     writer.storeTile(tile, new byte[] {1, 2, 3});
 
