@@ -5,7 +5,6 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import java.awt.Point;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -96,6 +95,12 @@ public class PreloadService {
             .findFirst()
             .orElse(null);
 
+    Set<String> rasterLayers =
+        validLayers.stream()
+            .filter(
+                l -> layerStore.getLayers().get(l).sourceType() != Layer.SourceType.VECTOR_PMTILES)
+            .collect(Collectors.toSet());
+
     if (vectorLayer != null) {
       if (vectorLayer.urlTemplate() == null || vectorLayer.urlTemplate().isBlank()) {
         throw new IllegalArgumentException(
@@ -106,6 +111,10 @@ public class PreloadService {
       if (pmtilesDownloader.isDownloadInProgress()) {
         throw new IllegalStateException("A vector download is already in progress");
       }
+      // Fail fast on input the pmtiles extract would reject; validating here (before the preload
+      // is persisted) keeps a doomed download from ever showing up as RUNNING.
+      PmtilesDownloader.requireValidBoundingBox(boundingBox);
+      PmtilesDownloader.requireValidMaxZoom(maxZoom);
     }
 
     Preload preload = new Preload();
@@ -122,9 +131,9 @@ public class PreloadService {
 
     preloadStore.addPreload(preload);
 
-    if (!validLayers.isEmpty()) {
+    if (!rasterLayers.isEmpty()) {
       boundingBox.setMaxZoom(maxZoom);
-      submitXyz(preload, validLayers, boundingBox);
+      submitXyz(preload, rasterLayers, boundingBox, vectorLayer == null);
     }
     if (vectorLayer != null) {
       try {
@@ -145,33 +154,29 @@ public class PreloadService {
     runXyzPreload(validLayers, bbox);
   }
 
-  private void submitXyz(Set<String> layers, BoundingBox bbox) {
-    xyzExecutor.submit(() -> runXyzPreload(layers, bbox));
+  private void submitXyz(
+      Preload preload, Set<String> layers, BoundingBox bbox, boolean ownsLifecycle) {
+    xyzExecutor.submit(() -> runXyzPreload(preload, layers, bbox, ownsLifecycle));
   }
 
-  private void submitXyz(Preload preload, Set<String> layers, BoundingBox bbox) {
-    xyzExecutor.submit(() -> runXyzPreload(preload, layers, bbox));
-  }
-
-  private void runXyzPreload(Preload preload, Set<String> layers, BoundingBox bbox) {
-    updateRasterStatus(preload, Preload.Status.RUNNING, null);
+  /**
+   * When a PMTiles download runs in parallel it owns the preload's status lifecycle; the raster
+   * pass then only records failures.
+   */
+  private void runXyzPreload(
+      Preload preload, Set<String> layers, BoundingBox bbox, boolean ownsLifecycle) {
+    if (ownsLifecycle) {
+      updateRasterStatus(preload, Preload.Status.RUNNING, null);
+    }
     try {
       runXyzPreload(layers, bbox);
-      // Leave PENDING/RUNNING if a parallel PMTiles download owns the lifecycle.
-      if (preload != null && hasOnlyRasterLayers(layers)) {
+      if (ownsLifecycle) {
         updateRasterStatus(preload, Preload.Status.DONE, null);
       }
     } catch (RuntimeException e) {
       updateRasterStatus(preload, Preload.Status.FAILED, e.getMessage());
       throw e;
     }
-  }
-
-  private boolean hasOnlyRasterLayers(Set<String> layers) {
-    return layers.stream()
-        .map(layerStore.getLayers()::get)
-        .filter(java.util.Objects::nonNull)
-        .noneMatch(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES);
   }
 
   private void updateRasterStatus(Preload preload, Preload.Status status, String errorMessage) {
@@ -194,17 +199,21 @@ public class PreloadService {
   private void runXyzPreload(Set<String> layers, BoundingBox bbox) {
     inflightXyzPreloads.incrementAndGet();
     try {
-      List<Set<Point>> allPoints = XyzUtil.calculateAllBboxTiles(bbox);
+      // Iterate ranges lazily: materializing per-tile collections grows ~4^maxZoom and can
+      // exhaust the heap for large bboxes.
+      List<XyzUtil.TileRange> ranges = XyzUtil.calculateBboxRanges(bbox);
       for (String layerName : layers) {
         Layer layer = layerStore.getLayers().get(layerName);
         if (layer == null || layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) continue;
-        for (int z = 0; z < allPoints.size(); z++) {
-          for (Point p : allPoints.get(z)) {
-            Tile tile = new Tile(layer, p.x, p.y, z);
-            try {
-              tileCache.get(tile);
-            } catch (CompletionException e) {
-              LOGGER.error("Error pre-loading bounding box tile: {}.", tile, e.getCause());
+        for (XyzUtil.TileRange range : ranges) {
+          for (int x = range.xMin(); x <= range.xMax(); x++) {
+            for (int y = range.yMin(); y <= range.yMax(); y++) {
+              Tile tile = new Tile(layer, x, y, range.zoom());
+              try {
+                tileCache.get(tile);
+              } catch (CompletionException e) {
+                LOGGER.error("Error pre-loading bounding box tile: {}.", tile, e.getCause());
+              }
             }
           }
         }

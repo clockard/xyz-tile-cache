@@ -91,7 +91,7 @@ public class PreloadController {
       }
       return ResponseEntity.status(HttpStatus.ACCEPTED).body(toInfo(preload));
     } catch (IllegalArgumentException e) {
-      return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(e.getMessage());
+      return ResponseEntity.badRequest().body(e.getMessage());
     } catch (IllegalStateException e) {
       return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
     } catch (IOException e) {

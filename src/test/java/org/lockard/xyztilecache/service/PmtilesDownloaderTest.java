@@ -269,6 +269,27 @@ class PmtilesDownloaderTest {
     first.get();
   }
 
+  @Test
+  void startDownload_runtimeException_marksPreloadFailedAndReleasesFlag() throws Exception {
+    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    Layer l = layer("https://example.com/tiles.pmtiles", 5);
+    Preload p = preload(-1, -1, 1, 1, 5);
+
+    PmtilesDownloader downloader =
+        new PmtilesDownloader(
+            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+          @Override
+          protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
+            throw new IllegalArgumentException("boundingBox is out of range");
+          }
+        };
+
+    downloader.startDownload(p, l).get();
+    assertThat(p.getStatus()).isEqualTo(Preload.Status.FAILED);
+    assertThat(p.getErrorMessage()).contains("out of range");
+    assertThat(downloader.isDownloadInProgress()).isFalse();
+  }
+
   // ── requireValidBoundingBox ───────────────────────────────────────────────
 
   @Test

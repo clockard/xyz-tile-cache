@@ -102,6 +102,33 @@ class PreloadServiceTest {
         .hasMessageContaining("already in progress");
   }
 
+  @Test
+  void submit_vectorLayer_invalidBbox_throwsWithoutPersisting() {
+    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
+    BoundingBox bad = bbox();
+    bad.setWest(10);
+    bad.setEast(-10);
+    assertThatThrownBy(() -> service.submit("t", bad, 5, Set.of("vec"), null, null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("range");
+    verifyNoInteractions(preloadStore);
+  }
+
+  @Test
+  void submit_vectorOnly_skipsRasterPreloadPass() throws Exception {
+    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
+
+    Preload result = service.submit("t", bbox(), 5, Set.of("vec"), null, null);
+
+    assertThat(result).isNotNull();
+    // No raster layers → no xyz preload job is submitted, so the tile cache is never touched
+    // and the status lifecycle is owned entirely by the PMTiles download.
+    verifyNoInteractions(tileCache);
+    assertThat(result.getStatus()).isEqualTo(Preload.Status.PENDING);
+  }
+
   // ── no-op paths ────────────────────────────────────────────────────────────
 
   @Test

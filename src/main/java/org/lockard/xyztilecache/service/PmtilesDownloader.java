@@ -54,6 +54,10 @@ public class PmtilesDownloader {
         () -> {
           try {
             doDownload(preload, layer);
+          } catch (RuntimeException e) {
+            // Safety net: an unexpected error must never leave the preload stuck RUNNING.
+            LOGGER.error("PMTiles download failed for preload '{}'", preload.getId(), e);
+            markFailed(preload, e.getMessage());
           } finally {
             downloadInProgress.set(false);
           }
