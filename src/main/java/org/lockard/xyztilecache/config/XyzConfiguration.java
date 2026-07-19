@@ -17,6 +17,8 @@ public class XyzConfiguration {
 
   private long minFreeDiskBytes = 1_073_741_824L; // 1 GB default
 
+  private long maxImportBytes = 10_737_418_240L; // 10 GiB cap on decompressed import size
+
   private boolean offline = false;
 
   private int tileTimeoutSeconds = 1;
@@ -65,6 +67,14 @@ public class XyzConfiguration {
 
   public void setMinFreeDiskBytes(long minFreeDiskBytes) {
     this.minFreeDiskBytes = minFreeDiskBytes;
+  }
+
+  public long getMaxImportBytes() {
+    return maxImportBytes;
+  }
+
+  public void setMaxImportBytes(long maxImportBytes) {
+    this.maxImportBytes = maxImportBytes;
   }
 
   public int getLayerSyncSeconds() {

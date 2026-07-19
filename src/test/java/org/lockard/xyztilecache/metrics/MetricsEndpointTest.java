@@ -1,6 +1,7 @@
 package org.lockard.xyztilecache.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -16,10 +17,12 @@ import org.springframework.boot.test.autoconfigure.actuate.observability.AutoCon
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -47,11 +50,26 @@ class MetricsEndpointTest {
         });
   }
 
+  static RequestPostProcessor adminJwt() {
+    return jwt()
+        .jwt(j -> j.subject("alice").claim("preferred_username", "alice"))
+        .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"));
+  }
+
   @Test
-  void prometheusEndpoint_isPublicAndExposesTileCacheMetrics() throws Exception {
+  void prometheusEndpoint_anonymous_isUnauthorized() throws Exception {
+    // Metrics carry per-layer identifiers; they must not be readable without the admin role.
+    mockMvc.perform(get("/actuator/prometheus")).andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void prometheusEndpoint_admin_exposesTileCacheMetrics() throws Exception {
     MvcResult result =
         mockMvc
-            .perform(get("/actuator/prometheus").accept(MediaType.valueOf("text/plain")))
+            .perform(
+                get("/actuator/prometheus")
+                    .with(adminJwt())
+                    .accept(MediaType.valueOf("text/plain")))
             .andExpect(status().isOk())
             .andExpect(content().contentTypeCompatibleWith("text/plain"))
             .andReturn();
@@ -70,6 +88,11 @@ class MetricsEndpointTest {
 
     // In-flight preload gauge
     assertThat(body).contains("xyz_preload_inflight");
+  }
+
+  @Test
+  void healthEndpoint_isPublic() throws Exception {
+    mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
   }
 
   @Test

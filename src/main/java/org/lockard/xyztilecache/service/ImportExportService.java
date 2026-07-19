@@ -10,7 +10,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -44,7 +43,7 @@ import org.springframework.stereotype.Service;
 public class ImportExportService {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ImportExportService.class);
-  private static final Pattern SAFE_LAYER_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
+  private static final Pattern SAFE_LAYER_ID = LayerStore.SAFE_LAYER_ID;
   private static final Pattern TILE_TAIL =
       Pattern.compile("\\d+/\\d+/\\d+\\.(png|jpg|jpeg|webp|gif)");
   private static final Pattern SAFE_PMTILES_NAME =
@@ -360,6 +359,41 @@ public class ImportExportService {
   }
 
   /**
+   * Streams one zip entry to disk with two guardrails against a malicious or oversized archive: the
+   * total decompressed bytes across all entries are capped by {@code budget} (decremented in
+   * place), and writing stops if free disk space drops below {@code minFreeDiskBytes}. On any abort
+   * the partially written target is deleted so a rejected import leaves no half-file behind.
+   */
+  private void copyEntry(InputStream in, Path target, Path baseDir, long[] budget)
+      throws IOException {
+    long freeBytes = Files.getFileStore(baseDir).getUsableSpace();
+    if (freeBytes < configuration.getMinFreeDiskBytes()) {
+      throw new IOException("Insufficient free disk space to import; aborting.");
+    }
+    byte[] buffer = new byte[8192];
+    try (OutputStream out = Files.newOutputStream(target)) {
+      int read;
+      while ((read = in.read(buffer)) != -1) {
+        if (read > budget[0]) {
+          throw new IOException(
+              "Import exceeds maximum decompressed size of "
+                  + configuration.getMaxImportBytes()
+                  + " bytes.");
+        }
+        budget[0] -= read;
+        out.write(buffer, 0, read);
+      }
+    } catch (IOException e) {
+      try {
+        Files.deleteIfExists(target);
+      } catch (IOException suppressed) {
+        e.addSuppressed(suppressed);
+      }
+      throw e;
+    }
+  }
+
+  /**
    * Ingests a zip in the same shape produced by {@link #streamExport}. For each top-level layer
    * directory: {@code layer.json} is registered with the {@link LayerStore} only if no layer with
    * that id exists; raster tile files ({@code .png}) and pmtiles files ({@code .pmtiles}) overwrite
@@ -374,6 +408,7 @@ public class ImportExportService {
     long tilesWritten = 0L;
     long pmtilesImported = 0L;
     Map<String, Boolean> layerAccess = new HashMap<>();
+    long[] budget = {configuration.getMaxImportBytes()};
 
     try (ZipInputStream zis = new ZipInputStream(in)) {
       ZipEntry entry;
@@ -412,11 +447,11 @@ public class ImportExportService {
           handleLayerJson(zis, layerId, added, skipped);
         } else if (TILE_TAIL.matcher(tail).matches()) {
           Files.createDirectories(target.getParent());
-          Files.copy(zis, target, StandardCopyOption.REPLACE_EXISTING);
+          copyEntry(zis, target, baseDir, budget);
           tilesWritten++;
         } else if (CACHED_TILE_TAIL.matcher(tail).matches()) {
           Files.createDirectories(target.getParent());
-          Files.copy(zis, target, StandardCopyOption.REPLACE_EXISTING);
+          copyEntry(zis, target, baseDir, budget);
           tilesWritten++;
         } else if (tail.endsWith(".pmtiles")) {
           if (!SAFE_PMTILES_NAME.matcher(tail).matches()) {
@@ -433,7 +468,7 @@ public class ImportExportService {
             LOGGER.warn("Skipping PMTiles entry {} because it already exists", name);
             continue;
           }
-          Files.copy(zis, pmtilesTarget, StandardCopyOption.REPLACE_EXISTING);
+          copyEntry(zis, pmtilesTarget, baseDir, budget);
           vectorPmtilesManager.notifyFileAvailable(pmtilesTarget);
           pmtilesImported++;
         }

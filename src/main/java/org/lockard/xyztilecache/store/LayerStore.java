@@ -26,6 +26,14 @@ public class LayerStore extends JsonFileStore<Layer> {
   private static final String LAYERS_FILE = "layers.json";
   private static final String LOCK_FILE = "layers.lock";
 
+  /**
+   * Allowed layer-id charset. Constrained so an id is always a safe single path segment — it is
+   * used directly as the on-disk subdirectory under {@code baseTileDirectory}, so anything
+   * containing {@code /}, {@code \}, or {@code ..} could traverse outside the cache root.
+   */
+  public static final java.util.regex.Pattern SAFE_LAYER_ID =
+      java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
+
   private final XyzConfiguration configuration;
   private final ApplicationEventPublisher eventPublisher;
 
@@ -169,6 +177,11 @@ public class LayerStore extends JsonFileStore<Layer> {
   private static void validateLayer(Layer layer) {
     if (layer.effectiveId() == null || layer.effectiveId().isBlank()) {
       throw new IllegalArgumentException("Layer id must not be blank.");
+    }
+    if (!SAFE_LAYER_ID.matcher(layer.effectiveId()).matches()) {
+      throw new IllegalArgumentException(
+          "Layer id must be 1-64 chars of letters, digits, '.', '-' or '_' "
+              + "(starting with a letter or digit).");
     }
     if (layer.sourceType() != Layer.SourceType.LOCAL
         && layer.sourceType() != Layer.SourceType.VECTOR_PMTILES

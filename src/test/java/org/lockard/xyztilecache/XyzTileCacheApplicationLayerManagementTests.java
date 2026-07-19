@@ -120,6 +120,19 @@ class XyzTileCacheApplicationLayerManagementTests {
   }
 
   @Test
+  void addLayerWithTraversalId_returns400(@Autowired MockMvc mvc) throws Exception {
+    // The id becomes an on-disk subdirectory; a traversal id must be rejected, not sanitized.
+    mvc.perform(
+            MockMvcRequestBuilders.post("/layers")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"id\":\"../../etc/evil\",\"name\":\"evil\","
+                        + "\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
+        .andExpect(MockMvcResultMatchers.status().isBadRequest());
+  }
+
+  @Test
   void addDuplicateLayer_returns409(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(
             MockMvcRequestBuilders.post("/layers")
