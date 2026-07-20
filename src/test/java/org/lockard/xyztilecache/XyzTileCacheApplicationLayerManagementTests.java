@@ -9,7 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
-import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -50,7 +50,7 @@ class XyzTileCacheApplicationLayerManagementTests {
     registry.add(
         "xyz.layers",
         () -> {
-          Layer layer = new Layer();
+          LayerProperties layer = new LayerProperties();
           layer.setName("existing");
           layer.setUrlTemplate(wireMock.baseUrl() + "/{z}/{y}/{x}");
           return List.of(layer);
@@ -93,6 +93,43 @@ class XyzTileCacheApplicationLayerManagementTests {
     mvc.perform(MockMvcRequestBuilders.get("/layers"))
         .andExpect(MockMvcResultMatchers.status().isOk())
         .andExpect(MockMvcResultMatchers.jsonPath("$[?(@.name=='added')]").exists());
+  }
+
+  @Test
+  void addLayerWithoutMaxZoom_defaultsTo22(@Autowired MockMvc mvc) throws Exception {
+    // The JSON API binds Layer records directly; an omitted maxZoom must not stick at the
+    // primitive default 0 (which would 404 every z>0 tile request).
+    mvc.perform(
+            MockMvcRequestBuilders.post("/layers")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"no-max-zoom\",\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
+        .andExpect(MockMvcResultMatchers.status().isCreated())
+        .andExpect(MockMvcResultMatchers.jsonPath("$.maxZoom").value(22));
+  }
+
+  @Test
+  void addLayerWithoutUrlTemplate_returns400(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(
+            MockMvcRequestBuilders.post("/layers")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"no-url\"}"))
+        .andExpect(MockMvcResultMatchers.status().isBadRequest());
+  }
+
+  @Test
+  void addLayerWithTraversalId_returns400(@Autowired MockMvc mvc) throws Exception {
+    // The id becomes an on-disk subdirectory; a traversal id must be rejected, not sanitized.
+    mvc.perform(
+            MockMvcRequestBuilders.post("/layers")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"id\":\"../../etc/evil\",\"name\":\"evil\","
+                        + "\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
+        .andExpect(MockMvcResultMatchers.status().isBadRequest());
   }
 
   @Test

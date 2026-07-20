@@ -20,6 +20,12 @@ public class TestRangeResponseTransformer implements ResponseTransformerV2 {
   }
 
   @Override
+  public boolean applyGlobally() {
+    // Only act on stubs that opt in via .withTransformers("range").
+    return false;
+  }
+
+  @Override
   public Response transform(Response response, ServeEvent serveEvent) {
     String rangeHeader = serveEvent.getRequest().getHeader("Range");
     if (rangeHeader == null || !rangeHeader.startsWith("bytes=")) {

@@ -6,7 +6,7 @@ import java.io.File;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -49,7 +49,7 @@ class GeoTiffEndToEndTest {
     registry.add(
         "xyz.layers",
         () -> {
-          Layer existing = new Layer();
+          LayerProperties existing = new LayerProperties();
           existing.setName("already-exists");
           existing.setUrlTemplate("http://example.com/{z}/{y}/{x}");
           return List.of(existing);

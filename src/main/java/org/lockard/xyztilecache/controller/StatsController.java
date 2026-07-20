@@ -9,12 +9,15 @@ import java.util.List;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.StatsResponse;
+import org.lockard.xyztilecache.service.LayerAccessService;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -26,26 +29,37 @@ class StatsController {
 
   private final XyzConfiguration configuration;
   private final LayerStore layerStore;
+  private final LayerAccessService layerAccessService;
 
-  StatsController(XyzConfiguration configuration, LayerStore layerStore) {
+  StatsController(
+      XyzConfiguration configuration,
+      LayerStore layerStore,
+      LayerAccessService layerAccessService) {
     this.configuration = configuration;
     this.layerStore = layerStore;
+    this.layerAccessService = layerAccessService;
   }
 
   @GetMapping("/stats")
   ResponseEntity<StatsResponse> get() {
-    Collection<Layer> layers = layerStore.getLayers().values();
+    // Same per-layer read ACL as /layers: don't leak ACL'd layer ids to callers who can't
+    // read them.
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    Collection<Layer> layers =
+        layerStore.getLayers().values().stream()
+            .filter(l -> layerAccessService.canRead(l, auth))
+            .toList();
     List<StatsResponse.LayerStats> layerStats =
         layers.stream()
             .map(
                 l ->
                     new StatsResponse.LayerStats(
-                        l.getEffectiveId(),
-                        layerStore.getRuntimeState(l.getEffectiveId()).getTilesServed()))
+                        l.effectiveId(),
+                        layerStore.getRuntimeState(l.effectiveId()).getTilesServed()))
             .toList();
     long totalServed =
         layers.stream()
-            .mapToLong(l -> layerStore.getRuntimeState(l.getEffectiveId()).getTilesServed())
+            .mapToLong(l -> layerStore.getRuntimeState(l.effectiveId()).getTilesServed())
             .sum();
 
     long diskFreeBytes = 0;

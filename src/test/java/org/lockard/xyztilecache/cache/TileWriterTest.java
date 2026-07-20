@@ -16,6 +16,7 @@ import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LayerChangedEvent;
 import org.lockard.xyztilecache.model.LayerRuntimeState;
 import org.lockard.xyztilecache.model.Tile;
+import org.lockard.xyztilecache.model.XyzLayer;
 import org.lockard.xyztilecache.store.LayerStore;
 
 class TileWriterTest {
@@ -28,12 +29,23 @@ class TileWriterTest {
 
   @BeforeEach
   void setUp() throws Exception {
-    layer = new Layer();
-    layer.setName("test");
+    layer =
+        new XyzLayer(
+            "test",
+            "test",
+            "https://example.com/{z}/{x}/{y}.png",
+            null,
+            22,
+            0,
+            0,
+            List.of(),
+            List.of(),
+            java.util.Map.of(),
+            null);
 
     configuration = new XyzConfiguration();
     configuration.setBaseTileDirectory(tempDir.toString());
-    configuration.setLayers(List.of(layer));
+    configuration.installLayers(List.of(layer));
 
     layerStore = new LayerStore(configuration, new ObjectMapper(), event -> {});
     layerStore.init();
@@ -49,14 +61,14 @@ class TileWriterTest {
   @Test
   void toPath_constructsLayerZXYPath() {
     TileWriter writer = new TileWriter(configuration, layerStore);
-    Tile tile = new Tile(layer, 1, 2, 3);
+    Tile tile = new Tile("test", 1, 2, 3);
     assertThat(writer.toPath(tile)).isEqualTo(tempDir.resolve(Path.of("test", "3", "1", "2.png")));
   }
 
   @Test
   void storeTile_writesBytesToDisk() throws IOException {
     TileWriter writer = new TileWriter(configuration, layerStore);
-    Tile tile = new Tile(layer, 1, 2, 3);
+    Tile tile = new Tile("test", 1, 2, 3);
     byte[] data = {10, 20, 30};
 
     writer.storeTile(tile, data);
@@ -68,12 +80,12 @@ class TileWriterTest {
   @Test
   void storeTile_updatesLayerStats() {
     TileWriter writer = new TileWriter(configuration, layerStore);
-    Tile tile = new Tile(layer, 1, 2, 3);
+    Tile tile = new Tile("test", 1, 2, 3);
     byte[] data = {10, 20, 30};
 
     writer.storeTile(tile, data);
 
-    LayerRuntimeState state = layerStore.getRuntimeState(layer.getEffectiveId());
+    LayerRuntimeState state = layerStore.getRuntimeState(layer.effectiveId());
     assertThat(state.getCachedTiles()).isEqualTo(1);
     assertThat(state.getCachedTilesSize()).isEqualTo(data.length);
   }
@@ -83,7 +95,7 @@ class TileWriterTest {
     Path dir = tempDir.resolve(Path.of("test", "3", "1"));
     Files.createDirectories(dir);
     TileWriter writer = new TileWriter(configuration, layerStore);
-    Tile tile = new Tile(layer, 1, 2, 3);
+    Tile tile = new Tile("test", 1, 2, 3);
     byte[] data = {7, 8, 9};
 
     writer.storeTile(tile, data);
@@ -102,7 +114,7 @@ class TileWriterTest {
     TileWriter writer = new TileWriter(configuration, layerStore);
     writer.inventoryExistingTiles();
 
-    LayerRuntimeState state = layerStore.getRuntimeState(layer.getEffectiveId());
+    LayerRuntimeState state = layerStore.getRuntimeState(layer.effectiveId());
     assertThat(state.getCachedTiles()).isEqualTo(1);
     assertThat(state.getCachedTilesSize()).isEqualTo(existing.length);
   }
@@ -112,7 +124,7 @@ class TileWriterTest {
     // Setting minFreeDiskBytes to Long.MAX_VALUE guarantees the threshold is never met
     configuration.setMinFreeDiskBytes(Long.MAX_VALUE);
     TileWriter writer = new TileWriter(configuration, layerStore);
-    Tile tile = new Tile(layer, 1, 2, 3);
+    Tile tile = new Tile("test", 1, 2, 3);
 
     writer.storeTile(tile, new byte[] {1, 2, 3});
 
@@ -120,27 +132,61 @@ class TileWriterTest {
   }
 
   @Test
-  void onLayerChanged_deletesDirectoryWhenLayerNoLongerConfigured() throws IOException {
+  void onLayerChanged_removed_deletesDirectory() throws IOException {
     Path layerDir = tempDir.resolve("ghost");
     Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
     Files.createDirectories(tileFile.getParent());
     Files.write(tileFile, new byte[] {1, 2, 3});
 
     TileWriter writer = new TileWriter(configuration, layerStore);
-    writer.onLayerChanged(new LayerChangedEvent("ghost"));
+    writer.onLayerChanged(new LayerChangedEvent("ghost", LayerChangedEvent.Kind.REMOVED));
 
     assertThat(layerDir).doesNotExist();
   }
 
   @Test
-  void onLayerChanged_keepsDirectoryWhenLayerStillConfigured() throws IOException {
+  void onLayerChanged_updatedSource_deletesDirectoryAndResetsStats() throws IOException {
+    Path layerDir = tempDir.resolve("test");
+    Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
+    Files.createDirectories(tileFile.getParent());
+    Files.write(tileFile, new byte[] {1, 2, 3});
+    LayerRuntimeState state = layerStore.getRuntimeState("test");
+    state.addTileStats(3);
+
+    TileWriter writer = new TileWriter(configuration, layerStore);
+    writer.onLayerChanged(new LayerChangedEvent("test", LayerChangedEvent.Kind.UPDATED_SOURCE));
+
+    assertThat(layerDir).doesNotExist();
+    assertThat(state.getCachedTiles()).isZero();
+    assertThat(state.getCachedTilesSize()).isZero();
+  }
+
+  @Test
+  void onLayerChanged_updatedAcl_keepsDirectoryAndStats() throws IOException {
+    Path layerDir = tempDir.resolve("test");
+    Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
+    Files.createDirectories(tileFile.getParent());
+    Files.write(tileFile, new byte[] {1, 2, 3});
+    LayerRuntimeState state = layerStore.getRuntimeState("test");
+    state.addTileStats(3);
+
+    TileWriter writer = new TileWriter(configuration, layerStore);
+    writer.onLayerChanged(new LayerChangedEvent("test", LayerChangedEvent.Kind.UPDATED_ACL));
+
+    assertThat(tileFile).exists();
+    assertThat(state.getCachedTiles()).isEqualTo(1);
+    assertThat(state.getCachedTilesSize()).isEqualTo(3);
+  }
+
+  @Test
+  void onLayerChanged_added_keepsDirectory() throws IOException {
     Path layerDir = tempDir.resolve("test");
     Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
     Files.createDirectories(tileFile.getParent());
     Files.write(tileFile, new byte[] {1, 2, 3});
 
     TileWriter writer = new TileWriter(configuration, layerStore);
-    writer.onLayerChanged(new LayerChangedEvent("test"));
+    writer.onLayerChanged(new LayerChangedEvent("test", LayerChangedEvent.Kind.ADDED));
 
     assertThat(tileFile).exists();
   }

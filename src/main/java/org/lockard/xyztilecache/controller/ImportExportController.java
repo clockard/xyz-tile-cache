@@ -114,7 +114,7 @@ class ImportExportController {
               if (!job.getOwnerName().equals(auth.getName())) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).<ExportJobStatus>build();
               }
-              return ResponseEntity.ok(new ExportJobStatus(job));
+              return ResponseEntity.ok(exportService.statusFor(job));
             })
         .orElse(ResponseEntity.notFound().build());
   }

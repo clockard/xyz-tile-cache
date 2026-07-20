@@ -10,21 +10,37 @@ import org.lockard.xyztilecache.model.BoundingBox;
 public class XyzUtil {
   private XyzUtil() {}
 
-  public static List<Set<Point>> calculateAllBboxTiles(BoundingBox bbox) {
-    List<Set<Point>> allBboxTiles = new ArrayList<>();
-    for (int i = 0; i <= bbox.getMaxZoom(); i++) {
-      allBboxTiles.add(XyzUtil.calculateXyTilesForBBox(bbox, i));
+  /**
+   * Inclusive tile-coordinate bounds of a bounding box at one zoom level. Tile counts grow ~4^zoom,
+   * so callers iterate the ranges lazily instead of materializing per-tile collections.
+   */
+  public record TileRange(int zoom, int xMin, int xMax, int yMin, int yMax) {
+    public long count() {
+      return (long) (xMax - xMin + 1) * (yMax - yMin + 1);
     }
-    return allBboxTiles;
   }
 
-  public static Set<Point> calculateXyTilesForBBox(BoundingBox bbox, int zoom) {
-    Set<Point> points = new HashSet<>();
+  /** One {@link TileRange} per zoom level from 0 through {@code bbox.getMaxZoom()} inclusive. */
+  public static List<TileRange> calculateBboxRanges(BoundingBox bbox) {
+    List<TileRange> ranges = new ArrayList<>();
+    for (int i = 0; i <= bbox.getMaxZoom(); i++) {
+      ranges.add(calculateTileRange(bbox, i));
+    }
+    return ranges;
+  }
+
+  public static TileRange calculateTileRange(BoundingBox bbox, int zoom) {
     Point upperLeft = getTileNumber(bbox.getNorth(), bbox.getWest(), zoom);
     Point lowerLeft = getTileNumber(bbox.getSouth(), bbox.getWest(), zoom);
     Point upperRight = getTileNumber(bbox.getNorth(), bbox.getEast(), zoom);
-    for (int i = upperLeft.x; i <= upperRight.x; i++) {
-      for (int n = upperLeft.y; n <= lowerLeft.y; n++) {
+    return new TileRange(zoom, upperLeft.x, upperRight.x, upperLeft.y, lowerLeft.y);
+  }
+
+  public static Set<Point> calculateXyTilesForBBox(BoundingBox bbox, int zoom) {
+    TileRange range = calculateTileRange(bbox, zoom);
+    Set<Point> points = new HashSet<>();
+    for (int i = range.xMin(); i <= range.xMax(); i++) {
+      for (int n = range.yMin(); n <= range.yMax(); n++) {
         points.add(new Point(i, n));
       }
     }

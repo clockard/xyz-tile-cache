@@ -1,14 +1,34 @@
 package org.lockard.xyztilecache.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import java.util.ArrayList;
-import java.util.HashMap;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.util.List;
 import java.util.Map;
 
-public class Layer {
+/**
+ * Polymorphic layer model. Each source type is a concrete record with only the fields it actually
+ * uses. Wire format (JSON / layers.json) stays flat: the {@code sourceType} property discriminates
+ * which record to deserialize into.
+ */
+@JsonTypeInfo(
+    use = JsonTypeInfo.Id.NAME,
+    include = JsonTypeInfo.As.EXISTING_PROPERTY,
+    property = "sourceType",
+    visible = true,
+    defaultImpl = XyzLayer.class)
+@JsonSubTypes({
+  @JsonSubTypes.Type(value = XyzLayer.class, name = "XYZ"),
+  @JsonSubTypes.Type(value = WmtsRestLayer.class, name = "WMTS_REST"),
+  @JsonSubTypes.Type(value = WmtsKvpLayer.class, name = "WMTS_KVP"),
+  @JsonSubTypes.Type(value = LocalLayer.class, name = "LOCAL"),
+  @JsonSubTypes.Type(value = VectorPmtilesLayer.class, name = "VECTOR_PMTILES"),
+})
+public sealed interface Layer
+    permits XyzLayer, WmtsRestLayer, WmtsKvpLayer, LocalLayer, VectorPmtilesLayer {
 
-  public enum SourceType {
+  enum SourceType {
     XYZ,
     WMTS_REST,
     WMTS_KVP,
@@ -16,197 +36,141 @@ public class Layer {
     VECTOR_PMTILES
   }
 
-  private SourceType sourceType = SourceType.XYZ;
-
-  // WMTS-specific (used when sourceType = WMTS_KVP)
-  private String wmtsLayerName;
-  private String wmtsTileMatrixSet = "EPSG:3857";
-  private String wmtsStyle = "default";
-  private String wmtsFormat = "image/png";
-
-  private boolean wmtsTime = false;
-
-  private int tileExpirationMinutes = 0; // 0 = never expire
-
-  private int maxZoom = 22;
-
-  private int initZoom = 0;
-
-  private String timeFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
-
-  private String attribution;
-
-  private String id;
-
-  private String name;
-
-  private String urlTemplate;
-
-  private Map<String, String> headers = new HashMap<>();
-
-  private List<String> allowedUsers = new ArrayList<>();
-
-  private List<String> allowedGroups = new ArrayList<>();
-
-  public String getId() {
-    return id;
-  }
-
-  public void setId(String id) {
-    this.id = id;
-  }
-
-  public String getName() {
-    return name;
-  }
-
-  public void setName(String name) {
-    this.name = name;
-  }
-
-  /** Returns the identifier used in URLs and as map key. Falls back to name for backward compat. */
-  @JsonIgnore
-  public String getEffectiveId() {
-    return (id != null && !id.isBlank()) ? id : name;
-  }
-
-  public String getUrlTemplate() {
-    return urlTemplate;
-  }
-
-  public void setUrlTemplate(String urlTemplate) {
-    this.urlTemplate = urlTemplate;
-  }
-
-  public SourceType getSourceType() {
-    return sourceType;
-  }
-
-  public void setSourceType(SourceType sourceType) {
-    this.sourceType = sourceType;
-  }
-
-  public String getWmtsFormat() {
-    return wmtsFormat;
-  }
-
-  public void setWmtsFormat(String wmtsFormat) {
-    this.wmtsFormat = wmtsFormat;
-  }
-
-  public String getWmtsStyle() {
-    return wmtsStyle;
-  }
-
-  public void setWmtsStyle(String wmtsStyle) {
-    this.wmtsStyle = wmtsStyle;
-  }
-
-  public String getWmtsTileMatrixSet() {
-    return wmtsTileMatrixSet;
-  }
-
-  public void setWmtsTileMatrixSet(String wmtsTileMatrixSet) {
-    this.wmtsTileMatrixSet = wmtsTileMatrixSet;
-  }
-
-  public String getWmtsLayerName() {
-    return wmtsLayerName;
-  }
-
-  public void setWmtsLayerName(String wmtsLayerName) {
-    this.wmtsLayerName = wmtsLayerName;
-  }
-
-  public int getTileExpirationMinutes() {
-    return tileExpirationMinutes;
-  }
-
-  public void setTileExpirationMinutes(int tileExpirationMinutes) {
-    this.tileExpirationMinutes = tileExpirationMinutes;
-  }
-
-  public int getMaxZoom() {
-    return maxZoom;
-  }
-
-  public void setMaxZoom(int maxZoom) {
-    this.maxZoom = maxZoom;
-  }
-
-  public int getInitZoom() {
-    return initZoom;
-  }
-
-  public void setInitZoom(int initZoom) {
-    this.initZoom = initZoom;
-  }
-
-  public String getTimeFormat() {
-    return timeFormat;
-  }
-
-  public void setTimeFormat(String timeFormat) {
-    this.timeFormat = timeFormat;
-  }
-
-  public boolean isWmtsTime() {
-    return wmtsTime;
-  }
-
-  public void setWmtsTime(boolean wmtsTime) {
-    this.wmtsTime = wmtsTime;
-  }
-
-  public boolean doesUrlHaveTime() {
-    return (urlTemplate != null && urlTemplate.contains("{time}")) || wmtsTime;
-  }
-
-  public String getAttribution() {
-    return attribution;
-  }
-
-  public void setAttribution(String attribution) {
-    this.attribution = attribution;
-  }
-
-  public Map<String, String> getHeaders() {
-    return headers;
-  }
-
-  public void setHeaders(Map<String, String> headers) {
-    this.headers = headers;
-  }
-
-  public List<String> getAllowedUsers() {
-    return allowedUsers;
-  }
-
-  public void setAllowedUsers(List<String> allowedUsers) {
-    this.allowedUsers = allowedUsers == null ? new ArrayList<>() : allowedUsers;
-  }
-
-  public List<String> getAllowedGroups() {
-    return allowedGroups;
-  }
-
-  public void setAllowedGroups(List<String> allowedGroups) {
-    this.allowedGroups = allowedGroups == null ? new ArrayList<>() : allowedGroups;
-  }
-
-  @JsonIgnore
-  public boolean isPublic() {
-    return allowedUsers.isEmpty() && allowedGroups.isEmpty();
-  }
-
-  public enum RequestStrategy {
+  enum RequestStrategy {
     PROCEED,
     RETRY,
     BLOCK
   }
 
-  @Override
-  public String toString() {
-    return getEffectiveId();
+  // ── Common fields (all records expose these) ────────────────────────────────
+
+  String id();
+
+  String name();
+
+  String attribution();
+
+  int maxZoom();
+
+  int initZoom();
+
+  int tileExpirationMinutes();
+
+  List<String> allowedUsers();
+
+  List<String> allowedGroups();
+
+  @JsonProperty("urlTemplate")
+  String urlTemplate();
+
+  @JsonProperty("sourceType")
+  SourceType sourceType();
+
+  /** Returns a copy of this layer with the given id. Used when a path id overrides a body id. */
+  Layer withId(String newId);
+
+  // ── Derived / per-type behavior ─────────────────────────────────────────────
+
+  /** File-system extension (without dot) for tiles stored under this layer's directory. */
+  @JsonIgnore
+  String tileFileExtension();
+
+  /** Falls back to {@link #name()} when id is blank, matching legacy YAML configs. */
+  @JsonIgnore
+  default String effectiveId() {
+    return (id() != null && !id().isBlank()) ? id() : name();
+  }
+
+  @JsonIgnore
+  default boolean isPublic() {
+    return allowedUsers().isEmpty() && allowedGroups().isEmpty();
+  }
+
+  /** True if the source URL needs a time substitution at request time. */
+  @JsonIgnore
+  default boolean doesUrlHaveTime() {
+    return urlTemplate() != null && urlTemplate().contains("{time}");
+  }
+
+  /** Optional HTTP headers to attach to upstream requests. Empty for layers that don't fetch. */
+  default Map<String, String> headers() {
+    return Map.of();
+  }
+
+  /** Format string for the {@code {time}} substitution. */
+  default String timeFormat() {
+    return "yyyy-MM-dd'T'HH:mm:ss'Z'";
+  }
+
+  // ── Legacy getter aliases (kept for source-compat with pre-refactor callers) ─
+
+  @JsonIgnore
+  default String getId() {
+    return id();
+  }
+
+  @JsonIgnore
+  default String getName() {
+    return name();
+  }
+
+  @JsonIgnore
+  default String getAttribution() {
+    return attribution();
+  }
+
+  @JsonIgnore
+  default int getMaxZoom() {
+    return maxZoom();
+  }
+
+  @JsonIgnore
+  default int getInitZoom() {
+    return initZoom();
+  }
+
+  @JsonIgnore
+  default int getTileExpirationMinutes() {
+    return tileExpirationMinutes();
+  }
+
+  @JsonIgnore
+  default List<String> getAllowedUsers() {
+    return allowedUsers();
+  }
+
+  @JsonIgnore
+  default List<String> getAllowedGroups() {
+    return allowedGroups();
+  }
+
+  @JsonIgnore
+  default String getUrlTemplate() {
+    return urlTemplate();
+  }
+
+  @JsonIgnore
+  default SourceType getSourceType() {
+    return sourceType();
+  }
+
+  @JsonIgnore
+  default String getEffectiveId() {
+    return effectiveId();
+  }
+
+  @JsonIgnore
+  default String getTileFileExtension() {
+    return tileFileExtension();
+  }
+
+  @JsonIgnore
+  default Map<String, String> getHeaders() {
+    return headers();
+  }
+
+  @JsonIgnore
+  default String getTimeFormat() {
+    return timeFormat();
   }
 }

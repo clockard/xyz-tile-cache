@@ -1,15 +1,15 @@
 package org.lockard.xyztilecache;
 
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.CacheLoader;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
@@ -62,8 +62,18 @@ public class XyzTileCacheApplication {
   }
 
   @Bean
-  static LoadingCache<Tile, byte[]> tileCache(CacheLoader<Tile, byte[]> cacheLoader) {
-    return CacheBuilder.newBuilder().maximumSize(500).build(cacheLoader);
+  static LoadingCache<Tile, byte[]> tileCache(
+      CacheLoader<Tile, byte[]> cacheLoader,
+      XyzConfiguration configuration,
+      MeterRegistry meterRegistry) {
+    LoadingCache<Tile, byte[]> cache =
+        Caffeine.newBuilder()
+            .maximumWeight(configuration.getTileCacheBytes())
+            .<Tile, byte[]>weigher((k, v) -> v.length)
+            .recordStats()
+            .build(cacheLoader);
+    CaffeineCacheMetrics.monitor(meterRegistry, cache, "xyz_tile_cache");
+    return cache;
   }
 
   // ── Lifecycle / events ────────────────────────────────────────────────────
@@ -83,7 +93,10 @@ public class XyzTileCacheApplication {
 
   @EventListener
   void onLayerChanged(LayerChangedEvent event) {
-    tileCache.asMap().keySet().removeIf(t -> t.layer().getEffectiveId().equals(event.layerName()));
+    if (event.kind() == LayerChangedEvent.Kind.UPDATED_ACL) {
+      return;
+    }
+    tileCache.asMap().keySet().removeIf(t -> t.layerId().equals(event.layerName()));
   }
 
   // ── Bounding-box preload ──────────────────────────────────────────────────
@@ -93,58 +106,53 @@ public class XyzTileCacheApplication {
       return;
     }
     LOGGER.info("Initializing bounding boxes...");
-    int taskCount = configuration.getBoundingBoxes().size() * layerStore.getLayers().size();
-    int poolSize = Math.max(1, Math.min(taskCount, Runtime.getRuntime().availableProcessors()));
-    ExecutorService pool = Executors.newFixedThreadPool(poolSize);
     for (BoundingBox bbox : configuration.getBoundingBoxes()) {
       for (String layer : layerStore.getLayers().keySet()) {
-        pool.submit(() -> preloadService.preloadXyzTiles(Collections.singleton(layer), bbox));
+        Thread.ofVirtual()
+            .name("bbox-init-" + layer)
+            .start(() -> preloadService.preloadXyzTiles(Collections.singleton(layer), bbox));
       }
     }
-    pool.shutdown();
   }
 
   // ── Per-layer init downloads ──────────────────────────────────────────────
 
   void initializeLayerDownloads() {
     List<Layer> initLayers =
-        layerStore.getLayers().values().stream().filter(l -> l.getInitZoom() > 0).toList();
+        layerStore.getLayers().values().stream().filter(l -> l.initZoom() > 0).toList();
     if (initLayers.isEmpty()) {
       return;
     }
     LOGGER.info("Starting init downloads for {} layer(s)...", initLayers.size());
-    ExecutorService pool =
-        Executors.newFixedThreadPool(Math.max(1, Math.min(initLayers.size(), 4)));
     for (Layer layer : initLayers) {
-      if (layer.getSourceType() == Layer.SourceType.VECTOR_PMTILES) {
-        pool.submit(() -> initVectorLayerDownload(layer));
+      String layerId = layer.effectiveId();
+      if (layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) {
+        Thread.ofVirtual().name("init-vec-" + layerId).start(() -> initVectorLayerDownload(layer));
       } else {
-        BoundingBox world = worldBbox(layer.getInitZoom());
-        pool.submit(
-            () ->
-                preloadService.preloadXyzTiles(
-                    Collections.singleton(layer.getEffectiveId()), world));
+        BoundingBox world = worldBbox(layer.initZoom());
+        Thread.ofVirtual()
+            .name("init-xyz-" + layerId)
+            .start(() -> preloadService.preloadXyzTiles(Collections.singleton(layerId), world));
       }
     }
-    pool.shutdown();
   }
 
   private void initVectorLayerDownload(Layer layer) {
-    String url = layer.getUrlTemplate();
+    String url = layer.urlTemplate();
     if (url == null || url.isBlank()) {
       LOGGER.warn(
           "Layer '{}' has initZoom > 0 but no urlTemplate; skipping init download",
-          layer.getEffectiveId());
+          layer.effectiveId());
       return;
     }
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
       LOGGER.info(
           "Layer '{}' has local urlTemplate; skipping init download (file already present)",
-          layer.getEffectiveId());
+          layer.effectiveId());
       return;
     }
-    int zoom = layer.getInitZoom();
-    String layerId = layer.getEffectiveId();
+    int zoom = layer.initZoom();
+    String layerId = layer.effectiveId();
     String preloadName = "init-world-" + layerId + "-z" + zoom;
     Path outputPath =
         Path.of(configuration.getBaseTileDirectory(), layerId)

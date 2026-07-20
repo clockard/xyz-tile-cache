@@ -17,11 +17,23 @@ public class XyzConfiguration {
 
   private long minFreeDiskBytes = 1_073_741_824L; // 1 GB default
 
+  private long maxImportBytes = 10_737_418_240L; // 10 GiB cap on decompressed import size
+
   private boolean offline = false;
 
   private int tileTimeoutSeconds = 1;
 
   private int layerSyncSeconds = 10;
+
+  private int exportRetentionMinutes = 60;
+
+  private int exportSweepSeconds = 300;
+
+  private int defaultCacheMaxAgeSeconds = 86_400;
+
+  private long tileCacheBytes = 256L * 1024 * 1024;
+
+  private int preloadConcurrency = 4;
 
   private boolean uiEnabled = true;
 
@@ -57,12 +69,60 @@ public class XyzConfiguration {
     this.minFreeDiskBytes = minFreeDiskBytes;
   }
 
+  public long getMaxImportBytes() {
+    return maxImportBytes;
+  }
+
+  public void setMaxImportBytes(long maxImportBytes) {
+    this.maxImportBytes = maxImportBytes;
+  }
+
   public int getLayerSyncSeconds() {
     return layerSyncSeconds;
   }
 
   public void setLayerSyncSeconds(int layerSyncSeconds) {
     this.layerSyncSeconds = layerSyncSeconds;
+  }
+
+  public int getExportRetentionMinutes() {
+    return exportRetentionMinutes;
+  }
+
+  public void setExportRetentionMinutes(int exportRetentionMinutes) {
+    this.exportRetentionMinutes = exportRetentionMinutes;
+  }
+
+  public int getExportSweepSeconds() {
+    return exportSweepSeconds;
+  }
+
+  public void setExportSweepSeconds(int exportSweepSeconds) {
+    this.exportSweepSeconds = exportSweepSeconds;
+  }
+
+  public int getDefaultCacheMaxAgeSeconds() {
+    return defaultCacheMaxAgeSeconds;
+  }
+
+  public void setDefaultCacheMaxAgeSeconds(int defaultCacheMaxAgeSeconds) {
+    this.defaultCacheMaxAgeSeconds = defaultCacheMaxAgeSeconds;
+  }
+
+  public long getTileCacheBytes() {
+    return tileCacheBytes;
+  }
+
+  public void setTileCacheBytes(long tileCacheBytes) {
+    this.tileCacheBytes = tileCacheBytes;
+  }
+
+  public int getPreloadConcurrency() {
+    return preloadConcurrency;
+  }
+
+  public void setPreloadConcurrency(int preloadConcurrency) {
+    this.preloadConcurrency = preloadConcurrency;
   }
 
   public boolean isUiEnabled() {
@@ -85,9 +145,19 @@ public class XyzConfiguration {
     return layers;
   }
 
-  public void setLayers(List<Layer> layers) {
+  public void setLayers(List<LayerProperties> layers) {
     this.layers.clear();
-    layers.forEach(l -> this.layers.put(l.getEffectiveId(), l));
+    layers.forEach(
+        p -> {
+          Layer l = p.toLayer();
+          this.layers.put(l.effectiveId(), l);
+        });
+  }
+
+  /** Programmatic seeding path used by tests. Bypasses the {@link LayerProperties} shim. */
+  public void installLayers(List<Layer> layers) {
+    this.layers.clear();
+    layers.forEach(l -> this.layers.put(l.effectiveId(), l));
   }
 
   public List<BoundingBox> getBoundingBoxes() {

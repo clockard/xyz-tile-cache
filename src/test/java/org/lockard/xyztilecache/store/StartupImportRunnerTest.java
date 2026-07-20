@@ -16,6 +16,7 @@ import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Layer;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,7 +40,7 @@ class StartupImportRunnerTest {
     registry.add(
         "xyz.layers",
         () -> {
-          Layer pub = new Layer();
+          LayerProperties pub = new LayerProperties();
           pub.setName("startup-public");
           pub.setUrlTemplate("https://example.com/pub/{z}/{y}/{x}");
           pub.setMaxZoom(5);
@@ -79,7 +80,7 @@ class StartupImportRunnerTest {
 
   @Test
   void runStartupImports_newZip_importsLayerAndTiles() throws Exception {
-    Layer layer = new Layer();
+    LayerProperties layer = new LayerProperties();
     layer.setName("startup-new-a");
     layer.setUrlTemplate("https://example.com/a/{z}/{y}/{x}");
     layer.setMaxZoom(4);
@@ -103,7 +104,7 @@ class StartupImportRunnerTest {
 
   @Test
   void runStartupImports_alreadyTracked_skipsFile() throws Exception {
-    Layer layer = new Layer();
+    LayerProperties layer = new LayerProperties();
     layer.setName("startup-skip-b");
     layer.setUrlTemplate("https://example.com/b/{z}/{y}/{x}");
     layer.setMaxZoom(4);
@@ -119,12 +120,12 @@ class StartupImportRunnerTest {
 
   @Test
   void runStartupImports_multipleZips_onlyNewOnesProcessed() throws Exception {
-    Layer layerC = new Layer();
+    LayerProperties layerC = new LayerProperties();
     layerC.setName("startup-multi-c");
     layerC.setUrlTemplate("https://example.com/c/{z}/{y}/{x}");
     layerC.setMaxZoom(4);
 
-    Layer layerD = new Layer();
+    LayerProperties layerD = new LayerProperties();
     layerD.setName("startup-multi-d");
     layerD.setUrlTemplate("https://example.com/d/{z}/{y}/{x}");
     layerD.setMaxZoom(4);
@@ -159,7 +160,7 @@ class StartupImportRunnerTest {
 
   @Test
   void runStartupImports_trackingFileUpdatedAfterEachZip() throws Exception {
-    Layer layerE = new Layer();
+    LayerProperties layerE = new LayerProperties();
     layerE.setName("startup-tracking-e");
     layerE.setUrlTemplate("https://example.com/e/{z}/{y}/{x}");
     layerE.setMaxZoom(4);
@@ -177,7 +178,7 @@ class StartupImportRunnerTest {
 
   @Test
   void runStartupImports_zipWithPmtilesInLayerDir_importsCorrectly() throws Exception {
-    Layer layer = new Layer();
+    LayerProperties layer = new LayerProperties();
     layer.setName("startup-vector-layer");
     layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
     layer.setUrlTemplate(tileDir.getAbsolutePath() + "/startup-vector-layer/basemap.pmtiles");

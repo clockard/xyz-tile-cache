@@ -16,7 +16,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
-import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -53,10 +53,14 @@ class XyzTileCacheApplicationOnlineTests {
     registry.add(
         "xyz.layers",
         () -> {
-          final var layer = new Layer();
+          final var layer = new LayerProperties();
           layer.setName("test");
           layer.setUrlTemplate(wireMock.baseUrl() + "/{z}/{y}/{x}");
-          return List.of(layer);
+          final var expiring = new LayerProperties();
+          expiring.setName("exp");
+          expiring.setUrlTemplate(wireMock.baseUrl() + "/{z}/{y}/{x}");
+          expiring.setTileExpirationMinutes(1);
+          return List.of(layer, expiring);
         });
   }
 
@@ -108,6 +112,54 @@ class XyzTileCacheApplicationOnlineTests {
   }
 
   @Test
+  void expiredDiskTileServedStaleWhenUpstreamFails(@Autowired final MockMvc mvc) throws Exception {
+    // An expired disk tile + failing upstream → serve the stale bytes instead of erroring.
+    Path tilePath = tileDir.toPath().resolve(Path.of("exp", "7", "0", "0.png"));
+    Files.createDirectories(tilePath.getParent());
+    Files.write(tilePath, new byte[] {42, 42, 42});
+    if (!tilePath.toFile().setLastModified(System.currentTimeMillis() - 10 * 60_000L)) {
+      throw new IllegalStateException("Unable to age the tile file");
+    }
+    wireMock.stubFor(
+        WireMock.get("/7/0/0")
+            .willReturn(com.github.tomakehurst.wiremock.client.WireMock.serverError()));
+
+    // First request: refresh attempt fails with 500 → stale bytes served.
+    mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/exp/7/0/0.png"))
+        .andExpect(MockMvcResultMatchers.status().isOk())
+        .andExpect(MockMvcResultMatchers.content().bytes(new byte[] {42, 42, 42}));
+
+    // Second request: breaker is open (or retry fails again) → still the stale bytes, not 503.
+    mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/exp/7/0/0.png"))
+        .andExpect(MockMvcResultMatchers.status().isOk())
+        .andExpect(MockMvcResultMatchers.content().bytes(new byte[] {42, 42, 42}));
+  }
+
+  @Test
+  void aclOnlyLayerUpdateKeepsInMemoryTileCache(@Autowired final MockMvc mvc) throws Exception {
+    wireMock.stubFor(WireMock.get("/5/1/1").willReturn(ok().withBody(new byte[] {5, 1, 1})));
+    mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/test/5/1/1.png"))
+        .andExpect(MockMvcResultMatchers.status().isOk());
+
+    // Non-source update (same urlTemplate/sourceType) → UPDATED_ACL; cached entries must survive
+    // because the cache key is the layer id, not the Layer record.
+    mvc.perform(
+            MockMvcRequestBuilders.put("/layers/test")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"test\",\"urlTemplate\":\""
+                        + wireMock.baseUrl()
+                        + "/{z}/{y}/{x}\",\"attribution\":\"updated\"}"))
+        .andExpect(MockMvcResultMatchers.status().isOk());
+
+    mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/test/5/1/1.png"))
+        .andExpect(MockMvcResultMatchers.status().isOk())
+        .andExpect(MockMvcResultMatchers.content().bytes(new byte[] {5, 1, 1}));
+    wireMock.verify(1, getRequestedFor(urlPathEqualTo("/5/1/1")));
+  }
+
+  @Test
   void tilesZXYEndpointDelegatesToZYX(@Autowired final MockMvc mvc) throws Exception {
     wireMock.stubFor(WireMock.get("/1/0/0").willReturn(ok().withBody(new byte[] {1})));
     mvc.perform(MockMvcRequestBuilders.get("/tilesZXY/test/1/0/0.png"))
@@ -120,7 +172,7 @@ class XyzTileCacheApplicationOnlineTests {
         .andExpect(MockMvcResultMatchers.status().isOk())
         .andExpect(
             MockMvcResultMatchers.content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-        .andExpect(MockMvcResultMatchers.jsonPath("$[0].name").value("test"));
+        .andExpect(MockMvcResultMatchers.jsonPath("$[?(@.name=='test')]").exists());
   }
 
   @Test
@@ -128,7 +180,7 @@ class XyzTileCacheApplicationOnlineTests {
     String body =
         "{\"layers\":[\"test\"],"
             + "\"boundingBox\":{\"north\":1,\"south\":-1,\"east\":1,\"west\":-1,"
-            + "\"maxZoom\":0,\"preCache\":false}}";
+            + "\"maxZoom\":0}}";
     mvc.perform(
             MockMvcRequestBuilders.post("/preload")
                 .with(adminJwt())
@@ -142,7 +194,7 @@ class XyzTileCacheApplicationOnlineTests {
     String body =
         "{\"layers\":[\"nonexistent\"],"
             + "\"boundingBox\":{\"north\":1,\"south\":-1,\"east\":1,\"west\":-1,"
-            + "\"maxZoom\":0,\"preCache\":false}}";
+            + "\"maxZoom\":0}}";
     mvc.perform(
             MockMvcRequestBuilders.post("/preload")
                 .with(adminJwt())

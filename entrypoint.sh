@@ -1,7 +1,5 @@
 #!/bin/sh
 TILES_DIR="${XYZ_BASETILEDIRECTORY:-/tmp/tiles}"
-VECTOR_DIR="$TILES_DIR/vector"
-mkdir -p "$VECTOR_DIR"
 
 CUSTOM_TRUSTSTORE="/tmp/custom-cacerts"
 DEFAULT_CACERTS="${JAVA_HOME}/lib/security/cacerts"

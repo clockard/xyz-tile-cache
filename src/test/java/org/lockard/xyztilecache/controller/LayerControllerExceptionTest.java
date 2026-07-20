@@ -60,6 +60,34 @@ class LayerControllerExceptionTest {
   }
 
   @Test
+  void addLayer_storeThrowsAlreadyExists_returns409(@Autowired MockMvc mvc) throws Exception {
+    doThrow(new org.lockard.xyztilecache.store.LayerAlreadyExistsException("Layer exists"))
+        .when(layerStore)
+        .addLayer(any(Layer.class));
+
+    mvc.perform(
+            post("/layers")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"dupe\",\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
+        .andExpect(status().isConflict());
+  }
+
+  @Test
+  void addLayer_storeThrowsIllegalArgument_returns400(@Autowired MockMvc mvc) throws Exception {
+    doThrow(new IllegalArgumentException("Layer urlTemplate must not be blank."))
+        .when(layerStore)
+        .addLayer(any(Layer.class));
+
+    mvc.perform(
+            post("/layers")
+                .with(adminJwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"bad\",\"urlTemplate\":\"https://t.co/{z}/{x}/{y}.png\"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void updateLayer_storeThrowsIOException_returns500(@Autowired MockMvc mvc) throws Exception {
     doThrow(new IOException("disk full"))
         .when(layerStore)

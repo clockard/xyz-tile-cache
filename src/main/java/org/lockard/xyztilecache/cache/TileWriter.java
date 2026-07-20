@@ -37,8 +37,7 @@ public class TileWriter {
         .values()
         .forEach(
             layer -> {
-              Path tileDir =
-                  Paths.get(configuration.getBaseTileDirectory(), layer.getEffectiveId());
+              Path tileDir = Paths.get(configuration.getBaseTileDirectory(), layer.effectiveId());
               try {
                 Files.createDirectories(tileDir);
                 try (var paths = Files.walk(tileDir)) {
@@ -47,18 +46,22 @@ public class TileWriter {
                       .forEach(
                           f ->
                               layerStore
-                                  .getRuntimeState(layer.getEffectiveId())
+                                  .getRuntimeState(layer.effectiveId())
                                   .addTileStats(f.toFile().length()));
                 }
               } catch (IOException e) {
-                LOGGER.error(
-                    "Failed to inventory tile directory for {}.", layer.getEffectiveId(), e);
+                LOGGER.error("Failed to inventory tile directory for {}.", layer.effectiveId(), e);
               }
             });
   }
 
   @Async
   void storeTile(final Tile tile, final byte[] data) {
+    var layer = layerStore.getLayers().get(tile.layerId());
+    if (layer == null) {
+      LOGGER.debug("Layer {} no longer configured; not persisting tile {}.", tile.layerId(), tile);
+      return;
+    }
     try {
       long freeBytes =
           Files.getFileStore(Paths.get(configuration.getBaseTileDirectory())).getUsableSpace();
@@ -77,45 +80,55 @@ public class TileWriter {
     try {
       Files.createDirectories(output.getParent());
       Files.write(output, data);
-      layerStore.getRuntimeState(tile.layer().getEffectiveId()).addTileStats(data.length);
+      layerStore.getRuntimeState(tile.layerId()).addTileStats(data.length);
       LOGGER.debug("Wrote tile {} to {}.", tile, output);
     } catch (IOException e) {
       LOGGER.debug("Failed to write tile {} to {}.", tile, output, e);
     }
   }
 
-  /** Removes the on-disk tile directory for a layer that has been deleted from the config. */
+  /**
+   * Removes the on-disk tile directory for a layer that has been removed from the config or whose
+   * source has changed (which makes previously-cached tiles stale).
+   */
   @EventListener
   void onLayerChanged(LayerChangedEvent event) {
-    if (layerStore.getLayers().containsKey(event.layerName())) {
+    if (event.kind() != LayerChangedEvent.Kind.REMOVED
+        && event.kind() != LayerChangedEvent.Kind.UPDATED_SOURCE) {
       return;
     }
     Path layerDir = Paths.get(configuration.getBaseTileDirectory(), event.layerName());
-    if (!Files.exists(layerDir)) {
-      return;
+    if (Files.exists(layerDir)) {
+      try (var paths = Files.walk(layerDir)) {
+        paths
+            .sorted(Comparator.reverseOrder())
+            .forEach(
+                p -> {
+                  try {
+                    Files.delete(p);
+                  } catch (IOException e) {
+                    LOGGER.warn("Failed to delete {}", p, e);
+                  }
+                });
+      } catch (IOException e) {
+        LOGGER.warn("Failed to delete layer tile dir for {}", event.layerName(), e);
+      }
     }
-    try (var paths = Files.walk(layerDir)) {
-      paths
-          .sorted(Comparator.reverseOrder())
-          .forEach(
-              p -> {
-                try {
-                  Files.delete(p);
-                } catch (IOException e) {
-                  LOGGER.warn("Failed to delete {}", p, e);
-                }
-              });
-    } catch (IOException e) {
-      LOGGER.warn("Failed to delete layer tile dir for {}", event.layerName(), e);
+    if (event.kind() == LayerChangedEvent.Kind.UPDATED_SOURCE) {
+      var state = layerStore.getRuntimeState(event.layerName());
+      state.setCachedTiles(0);
+      state.setCachedTilesSize(0);
     }
   }
 
   protected Path toPath(final Tile tile) {
+    var layer = layerStore.getLayers().get(tile.layerId());
+    String ext = layer != null ? layer.tileFileExtension() : "png";
     return Paths.get(
         configuration.getBaseTileDirectory(),
-        tile.layer().getEffectiveId(),
+        tile.layerId(),
         String.valueOf(tile.z()),
         String.valueOf(tile.x()),
-        tile.y() + ".png");
+        tile.y() + "." + ext);
   }
 }

@@ -15,7 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
-import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -43,16 +43,16 @@ class LayerAclIntegrationTest {
     registry.add(
         "xyz.layers",
         () -> {
-          Layer publicLayer = new Layer();
+          LayerProperties publicLayer = new LayerProperties();
           publicLayer.setName("public-layer");
           publicLayer.setUrlTemplate(wireMock.baseUrl() + "/pub/{z}/{y}/{x}");
 
-          Layer userOnly = new Layer();
+          LayerProperties userOnly = new LayerProperties();
           userOnly.setName("carol-only");
           userOnly.setUrlTemplate(wireMock.baseUrl() + "/carol/{z}/{y}/{x}");
           userOnly.setAllowedUsers(List.of("carol"));
 
-          Layer groupOnly = new Layer();
+          LayerProperties groupOnly = new LayerProperties();
           groupOnly.setName("foresters-only");
           groupOnly.setUrlTemplate(wireMock.baseUrl() + "/forest/{z}/{y}/{x}");
           groupOnly.setAllowedGroups(List.of("team-foresters"));
@@ -163,5 +163,34 @@ class LayerAclIntegrationTest {
         .andExpect(jsonPath("$[?(@.name=='public-layer')]").exists())
         .andExpect(jsonPath("$[?(@.name=='carol-only')]").exists())
         .andExpect(jsonPath("$[?(@.name=='foresters-only')]").exists());
+  }
+
+  // ── GET /stats ACL ────────────────────────────────────────────────────────
+
+  @Test
+  void stats_anonymous_listsOnlyPublicLayers(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(get("/stats"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.layers[?(@.name=='public-layer')]").exists())
+        .andExpect(jsonPath("$.layers[?(@.name=='carol-only')]").doesNotExist())
+        .andExpect(jsonPath("$.layers[?(@.name=='foresters-only')]").doesNotExist());
+  }
+
+  @Test
+  void stats_allowedUser_seesTheirLayer(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(get("/stats").with(userJwt("carol")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.layers[?(@.name=='public-layer')]").exists())
+        .andExpect(jsonPath("$.layers[?(@.name=='carol-only')]").exists())
+        .andExpect(jsonPath("$.layers[?(@.name=='foresters-only')]").doesNotExist());
+  }
+
+  @Test
+  void stats_admin_seesAllLayers(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(get("/stats").with(adminJwt()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.layers[?(@.name=='public-layer')]").exists())
+        .andExpect(jsonPath("$.layers[?(@.name=='carol-only')]").exists())
+        .andExpect(jsonPath("$.layers[?(@.name=='foresters-only')]").exists());
   }
 }

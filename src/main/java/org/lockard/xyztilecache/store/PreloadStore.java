@@ -41,20 +41,47 @@ public class PreloadStore extends JsonFileStore<Preload> {
     }
     withLockedReloadAndWrite(
         () -> {
-          if (preloads.stream().anyMatch(p -> preload.getId().equals(p.getId()))) {
-            throw new IllegalArgumentException("Preload '" + preload.getId() + "' already exists.");
+          synchronized (preloads) {
+            if (preloads.stream().anyMatch(p -> preload.getId().equals(p.getId()))) {
+              throw new IllegalArgumentException(
+                  "Preload '" + preload.getId() + "' already exists.");
+            }
+            preloads.add(preload);
           }
-          preloads.add(preload);
         });
     logger.info("Added preload '{}'.", preload.getId());
+  }
+
+  public void update(Preload preload) throws IOException {
+    if (preload.getId() == null || preload.getId().isBlank()) {
+      throw new IllegalArgumentException("Preload id must not be blank.");
+    }
+    withLockedReloadAndWrite(
+        () -> {
+          synchronized (preloads) {
+            int idx = -1;
+            for (int i = 0; i < preloads.size(); i++) {
+              if (preload.getId().equals(preloads.get(i).getId())) {
+                idx = i;
+                break;
+              }
+            }
+            if (idx < 0) {
+              throw new NoSuchElementException("Preload '" + preload.getId() + "' not found.");
+            }
+            preloads.set(idx, preload);
+          }
+        });
   }
 
   public void removePreload(String id) throws IOException {
     withLockedReloadAndWrite(
         () -> {
-          boolean removed = preloads.removeIf(p -> id.equals(p.getId()));
-          if (!removed) {
-            throw new NoSuchElementException("Preload '" + id + "' not found.");
+          synchronized (preloads) {
+            boolean removed = preloads.removeIf(p -> id.equals(p.getId()));
+            if (!removed) {
+              throw new NoSuchElementException("Preload '" + id + "' not found.");
+            }
           }
         });
     logger.info("Removed preload '{}'.", id);

@@ -62,16 +62,16 @@ class PreloadControllerExceptionTest {
   }
 
   @Test
-  void create_submitThrowsIllegalArgument_returns503(@Autowired MockMvc mvc) throws Exception {
+  void create_submitThrowsIllegalArgument_returns400(@Autowired MockMvc mvc) throws Exception {
     when(preloadService.submit(any(), any(), anyInt(), any(), any(), any()))
-        .thenThrow(new IllegalArgumentException("source unavailable"));
+        .thenThrow(new IllegalArgumentException("boundingBox is out of range"));
 
     mvc.perform(
             post("/preloads")
                 .with(adminJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(validRequest()))
-        .andExpect(status().isServiceUnavailable());
+        .andExpect(status().isBadRequest());
   }
 
   @Test

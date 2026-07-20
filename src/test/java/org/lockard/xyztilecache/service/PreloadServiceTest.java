@@ -9,11 +9,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.google.common.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.LoadingCache;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.lockard.xyztilecache.config.LayerProperties;
+import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
@@ -36,7 +39,15 @@ class PreloadServiceTest {
     layerStore = mock(LayerStore.class);
     preloadStore = mock(PreloadStore.class);
     pmtilesDownloader = mock(PmtilesDownloader.class);
-    service = new PreloadService(layerStore, tileCache, preloadStore, pmtilesDownloader);
+    service =
+        new PreloadService(
+            layerStore,
+            tileCache,
+            preloadStore,
+            pmtilesDownloader,
+            new SimpleMeterRegistry(),
+            new XyzConfiguration());
+    service.registerMetrics();
   }
 
   private static BoundingBox bbox() {
@@ -50,21 +61,21 @@ class PreloadServiceTest {
   }
 
   private static Layer xyzLayer(String id) {
-    Layer l = new Layer();
+    LayerProperties l = new LayerProperties();
     l.setId(id);
     l.setName(id);
     l.setSourceType(Layer.SourceType.XYZ);
     l.setUrlTemplate("http://example.com/{z}/{x}/{y}.png");
-    return l;
+    return l.toLayer();
   }
 
   private static Layer vectorLayer(String id, String url) {
-    Layer l = new Layer();
+    LayerProperties l = new LayerProperties();
     l.setId(id);
     l.setName(id);
     l.setSourceType(Layer.SourceType.VECTOR_PMTILES);
     l.setUrlTemplate(url);
-    return l;
+    return l.toLayer();
   }
 
   // ── vector layer validation ────────────────────────────────────────────────
@@ -95,6 +106,33 @@ class PreloadServiceTest {
     assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of("vec"), null, null))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("already in progress");
+  }
+
+  @Test
+  void submit_vectorLayer_invalidBbox_throwsWithoutPersisting() {
+    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
+    BoundingBox bad = bbox();
+    bad.setWest(10);
+    bad.setEast(-10);
+    assertThatThrownBy(() -> service.submit("t", bad, 5, Set.of("vec"), null, null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("range");
+    verifyNoInteractions(preloadStore);
+  }
+
+  @Test
+  void submit_vectorOnly_skipsRasterPreloadPass() throws Exception {
+    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
+
+    Preload result = service.submit("t", bbox(), 5, Set.of("vec"), null, null);
+
+    assertThat(result).isNotNull();
+    // No raster layers → no xyz preload job is submitted, so the tile cache is never touched
+    // and the status lifecycle is owned entirely by the PMTiles download.
+    verifyNoInteractions(tileCache);
+    assertThat(result.getStatus()).isEqualTo(Preload.Status.PENDING);
   }
 
   // ── no-op paths ────────────────────────────────────────────────────────────

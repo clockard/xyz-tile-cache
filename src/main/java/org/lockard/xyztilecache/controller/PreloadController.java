@@ -91,7 +91,7 @@ public class PreloadController {
       }
       return ResponseEntity.status(HttpStatus.ACCEPTED).body(toInfo(preload));
     } catch (IllegalArgumentException e) {
-      return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(e.getMessage());
+      return ResponseEntity.badRequest().body(e.getMessage());
     } catch (IllegalStateException e) {
       return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
     } catch (IOException e) {
@@ -118,7 +118,7 @@ public class PreloadController {
         p.getLayers().stream()
             .map(layerStore.getLayers()::get)
             .filter(Objects::nonNull)
-            .filter(l -> l.getSourceType() == Layer.SourceType.VECTOR_PMTILES)
+            .filter(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES)
             .findFirst()
             .orElse(null);
 
@@ -128,9 +128,7 @@ public class PreloadController {
     if (pmtilesFilename != null) {
       Path path =
           Path.of(
-              xyzConfiguration.getBaseTileDirectory(),
-              vectorLayer.getEffectiveId(),
-              pmtilesFilename);
+              xyzConfiguration.getBaseTileDirectory(), vectorLayer.effectiveId(), pmtilesFilename);
       if (Files.exists(path)) {
         try {
           sizeBytes = Files.size(path);
@@ -149,6 +147,8 @@ public class PreloadController {
         p.getCreatedAt(),
         sizeBytes,
         p.getAllowedUsers(),
-        p.getAllowedGroups());
+        p.getAllowedGroups(),
+        p.getStatus(),
+        p.getErrorMessage());
   }
 }

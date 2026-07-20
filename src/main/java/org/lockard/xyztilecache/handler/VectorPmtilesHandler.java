@@ -24,6 +24,6 @@ public class VectorPmtilesHandler implements TileSourceHandler {
 
   @Override
   public Optional<TileResult> getTile(Layer layer, int z, int x, int y) throws IOException {
-    return manager.getTile(layer.getEffectiveId(), z, x, y);
+    return manager.getTile(layer.effectiveId(), z, x, y);
   }
 }

@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.google.common.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.Test;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Tile;
@@ -133,9 +133,8 @@ class RasterTileHandlerTest {
     @SuppressWarnings("unchecked")
     LoadingCache<Tile, byte[]> cache = mock(LoadingCache.class);
     byte[] jpegBytes = {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0x00};
-    Layer layer = new Layer();
-    layer.setId("test");
-    when(cache.get(new Tile(layer, 1, 2, 3))).thenReturn(jpegBytes);
+    Layer layer = testLayer();
+    when(cache.get(new Tile("test", 1, 2, 3))).thenReturn(jpegBytes);
 
     RasterTileHandler handler = new RasterTileHandler(cache);
     Optional<TileResult> result = handler.getTile(layer, 3, 1, 2);
@@ -149,15 +148,29 @@ class RasterTileHandlerTest {
   void getTile_cacheMiss_throwsTileNotFoundWithCause() throws Exception {
     @SuppressWarnings("unchecked")
     LoadingCache<Tile, byte[]> cache = mock(LoadingCache.class);
-    Layer layer = new Layer();
-    layer.setId("test");
+    Layer layer = testLayer();
     RuntimeException cause = new RuntimeException("upstream 404");
-    when(cache.get(new Tile(layer, 1, 2, 3))).thenThrow(new ExecutionException(cause));
+    when(cache.get(new Tile("test", 1, 2, 3))).thenThrow(new CompletionException(cause));
 
     RasterTileHandler handler = new RasterTileHandler(cache);
 
     assertThatThrownBy(() -> handler.getTile(layer, 3, 1, 2))
         .isInstanceOf(TileNotFoundException.class)
         .hasCause(cause);
+  }
+
+  private static Layer testLayer() {
+    return new org.lockard.xyztilecache.model.XyzLayer(
+        "test",
+        "test",
+        "http://example.com/{z}/{x}/{y}.png",
+        null,
+        22,
+        0,
+        0,
+        java.util.List.of(),
+        java.util.List.of(),
+        java.util.Map.of(),
+        null);
   }
 }
