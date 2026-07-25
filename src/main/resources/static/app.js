@@ -1940,6 +1940,10 @@ function showExportModal() {
 function hideExportModal() {
   exportOverlay.classList.add('hidden');
   cancelExportDrawInteraction();
+  // Clear the drawn box from the map and reset the pending selection so the
+  // export bbox doesn't linger after the dialog closes.
+  pendingExportBbox = null;
+  drawSource.clear();
 }
 
 function buildExportLayerCheckboxes() {

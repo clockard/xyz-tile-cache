@@ -14,18 +14,50 @@ body {
   flex-direction: column;
 }
 
+/* ── Design tokens ─────────────────────────────────────────────────────────── */
+
+:root {
+  --bg-bar: #0f172a;
+  --surface: #1e293b;
+  --surface-hover: #334155;
+  --border: #334155;
+  --border-strong: #475569;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-disabled: #93b4e8;
+  --text: #f1f5f9;
+  --text-muted: #cbd5e1;
+  --text-dim: #94a3b8;
+  --radius: 6px;
+  --shadow-bar: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --focus-ring: 0 0 0 2px rgba(59, 130, 246, 0.55);
+}
+
 /* ── Toolbar ───────────────────────────────────────────────────────────────── */
 
 #toolbar {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
   padding: 0 0.875rem;
   height: 48px;
-  background: #1a1a2e;
-  color: #fff;
+  background: var(--bg-bar);
+  color: var(--text);
   flex-shrink: 0;
   z-index: 100;
+  box-shadow: var(--shadow-bar);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.brand svg {
+  color: var(--accent);
+  flex-shrink: 0;
 }
 
 .title {
@@ -34,7 +66,14 @@ body {
   white-space: nowrap;
   letter-spacing: 0.02em;
   flex-shrink: 0;
-  margin-right: 0.125rem;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border-strong);
+  margin: 0 0.4rem;
+  flex-shrink: 0;
 }
 
 .layer-selector {
@@ -71,7 +110,7 @@ body {
   display: inline-block;
   margin-left: 0.4rem;
   padding: 1px 7px;
-  background: #4a6fa5;
+  background: var(--accent);
   color: #fff;
   border-radius: 9px;
   font-size: 0.66rem;
@@ -85,59 +124,78 @@ body {
 
 #toolbar label {
   font-size: 0.78rem;
-  color: #aaa;
+  color: var(--text-dim);
   white-space: nowrap;
 }
 
 #layer-select {
-  background: #2a2a4e;
-  color: #fff;
-  border: 1px solid #444;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   font-size: 0.82rem;
   cursor: pointer;
   max-width: 200px;
 }
 
-#layer-select:focus {
-  outline: 2px solid #4a6fa5;
-  outline-offset: 1px;
+#layer-select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent);
 }
 
 #toolbar button {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  background: #2a2a4e;
-  color: #fff;
-  border: 1px solid #444;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
   padding: 5px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   font-size: 0.82rem;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
   flex-shrink: 0;
 }
 
 #toolbar button:hover {
-  background: #3a3a6e;
-  border-color: #666;
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+#toolbar button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 #toolbar button.active {
-  background: #4a6fa5;
-  border-color: #6a9fd5;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* Login is the primary call to action — filled accent (ids beat the ghost rules). */
+#toolbar #login-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+#toolbar #login-btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 #offline-toggle-btn .icon-offline {
   display: none;
 }
 
-#offline-toggle-btn.active {
-  background: #8b2020;
-  border-color: #c0392b;
+#toolbar #offline-toggle-btn.active {
+  background: #b91c1c;
+  border-color: #b91c1c;
   color: #fff;
 }
 
@@ -339,15 +397,16 @@ body {
   font-size: 0.76rem;
   border-radius: 3px;
   cursor: pointer;
-  border: 1px solid #4a6fa5;
-  background: #4a6fa5;
+  border: 1px solid var(--accent);
+  background: var(--accent);
   color: #fff;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
   display: inline-block;
 }
 
 .export-download-btn:hover {
-  background: #3a5f95;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .export-error {
@@ -517,22 +576,6 @@ body {
   line-height: 1.4;
 }
 
-#submit-geotiff {
-  background: #4a6fa5;
-  color: #fff;
-  border-color: #4a6fa5;
-}
-
-#submit-geotiff:hover {
-  background: #3a5f95;
-}
-
-#submit-geotiff:disabled {
-  background: #8a9bbf;
-  border-color: #8a9bbf;
-  cursor: not-allowed;
-}
-
 .form-row {
   margin-bottom: 0.875rem;
 }
@@ -559,7 +602,7 @@ body {
 #zoom-slider {
   width: 100%;
   margin-top: 2px;
-  accent-color: #4a6fa5;
+  accent-color: var(--accent);
 }
 
 #admin-key-input {
@@ -632,9 +675,9 @@ body {
 }
 
 #admin-key-input:focus {
-  outline: 2px solid #4a6fa5;
-  outline-offset: 1px;
-  border-color: #4a6fa5;
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent);
 }
 
 .modal-buttons {
@@ -646,31 +689,39 @@ body {
 
 .modal-buttons button {
   padding: 6px 18px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   font-size: 0.83rem;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
-#submit-preload {
-  background: #4a6fa5;
+/* Every modal's primary action (the non-.secondary button) shares one accent style. */
+.modal-buttons button:not(.secondary) {
+  background: var(--accent);
   color: #fff;
-  border-color: #4a6fa5;
+  border-color: var(--accent);
 }
 
-#submit-preload:hover {
-  background: #3a5f95;
+.modal-buttons button:not(.secondary):hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.modal-buttons button:not(.secondary):disabled {
+  background: var(--accent-disabled);
+  border-color: var(--accent-disabled);
+  cursor: not-allowed;
 }
 
 .secondary {
   background: #fff;
-  color: #555;
-  border-color: #ccc;
+  color: #475569;
+  border-color: #cbd5e1;
 }
 
 .secondary:hover {
-  background: #f0f0f0;
+  background: #f1f5f9;
 }
 
 /* ── Attribution ───────────────────────────────────────────────────────────── */
@@ -710,7 +761,7 @@ body {
 
 .download-item.selected {
   background: #e8f0fb;
-  border-left: 3px solid #4a6fa5;
+  border-left: 3px solid var(--accent);
   padding-left: calc(0.875rem - 3px);
 }
 
@@ -919,9 +970,9 @@ body {
 
 .lm-form-scroll select:focus,
 .lm-form-scroll input:focus {
-  outline: 2px solid #4a6fa5;
-  outline-offset: 1px;
-  border-color: #4a6fa5;
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent);
 }
 
 .form-row-half {
@@ -962,18 +1013,3 @@ body {
   margin-bottom: 0;
 }
 
-#lm-save-btn {
-  background: #4a6fa5;
-  color: #fff;
-  border-color: #4a6fa5;
-}
-
-#lm-save-btn:hover {
-  background: #3a5f95;
-}
-
-#lm-save-btn:disabled {
-  background: #8a9bbf;
-  border-color: #8a9bbf;
-  cursor: not-allowed;
-}
