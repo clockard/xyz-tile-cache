@@ -150,6 +150,10 @@ class ImportExportController {
     response.setContentType("application/zip");
     response.setHeader(
         HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + job.getFilename() + "\"");
+    // Declare the length so the response is fixed-length rather than chunked; chunked attachment
+    // bodies are prone to being reset by intermediary proxies/AV scanners, and a known length also
+    // gives clients a real download progress bar.
+    response.setContentLengthLong(Files.size(tempFile));
     try {
       Files.copy(tempFile, response.getOutputStream());
     } finally {

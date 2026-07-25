@@ -1,8 +1,10 @@
-# XYZ Tile Cache
+<h1>
+  <img src="map-logo.png" alt="XYZ Tile Cache logo" width="100" align="middle">&nbsp; XYZ Tile Cache
+</h1>
 
 A caching proxy for map tiles. It sits between your map client and any tile source, serving cached tiles from local disk on subsequent requests and switching to a fully offline mode when no network is available.
 
-Capabilities:
+## Capabilities:
 
 - Raster tile sources — XYZ (standard slippy map), WMTS-REST, and WMTS-KVP.
 - Time-aware sources — weather radar, daily satellite imagery (URL `{time}` substitution or WMTS `TIME` dimension).
@@ -300,7 +302,7 @@ Layer changes are persisted immediately to `{baseTileDirectory}/layers.json` and
 The current preload model is a first-class entity with its own ACL.
 Legacy `POST /preload` is still accepted for back-compat but does not persist a record.
 
-For larger ares use protomaps vector layer. If the area is too large (too many tiles) it's likely the raster tile source will start blocking your requests.
+For larger areas use a protomaps vector layer. If the area is too large (too many tiles) it's likely the raster tile source will start blocking your requests.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
@@ -444,6 +446,43 @@ The counters are in-memory and reset on restart. With multiple instances behind 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/auth/config` | none | Returns `{mode, issuerUri, clientId}` (jwt) or `{mode: "token"}` so the UI knows which login flow to use. |
+
+## Using it as a WMTS server
+
+Every readable layer is also published as an **OGC WMTS 1.0.0** service, so desktop GIS (QGIS, ArcGIS) and web map libraries can consume the cache directly — no XYZ-specific configuration required.
+
+### Capabilities endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/wmts/1.0.0/WMTSCapabilities.xml` | RESTful capabilities document. |
+| `GET` | `/wmts?service=WMTS&request=GetCapabilities` | KVP capabilities entrypoint (same document). |
+
+Only **GetCapabilities** is implemented. Tiles are served through the RESTful `ResourceURL` template advertised inside the document — there is no KVP `GetTile`. Every compliant WMTS client reads that template automatically, so pointing the client at the capabilities URL is all that is needed.
+
+### What the document declares
+
+- **TileMatrixSet** — the standard `GoogleMapsCompatible` well-known scale set: EPSG:3857 (Web Mercator), 256×256 tiles, zoom levels 0–22.
+- Each layer links to that matrix set. A layer whose `maxZoom` is below 22 also advertises `TileMatrixSetLimits`, so clients stop requesting tiles past the layer's real max zoom.
+- **Layer identifier** = the layer `id`. **Style** = `default`. **Format** follows the layer (`image/png`, `image/jpeg`, `image/webp`, or `application/vnd.mapbox-vector-tile` for `VECTOR_PMTILES`).
+- **Tile `ResourceURL` template** points back at this service's own tile endpoint:
+
+  ```
+  {baseUrl}/tilesZXY/{layerId}/{TileMatrix}/{TileCol}/{TileRow}.{ext}
+  ```
+
+  i.e. `{TileMatrix}` = `z`, `{TileCol}` = `x`, `{TileRow}` = `y`.
+
+> **Base URL:** the document builds absolute URLs from the incoming request's host and port. Front the service with the same public hostname the client uses (or a reverse proxy that preserves the `Host` / `X-Forwarded-*` headers) so the advertised links resolve for the client.
+
+### Access control
+
+The capabilities document lists only the layers the caller may read. Public layers (empty `allowedUsers` and `allowedGroups`) appear anonymously; private layers appear only when the request carries a valid token.
+
+To consume a private layer, send `Authorization: Bearer <token>` on **both** the capabilities request and the tile requests:
+
+- **token mode** — the static `xyz.auth.adminToken`.
+- **jwt mode** — a JWT holding the admin role, or a user listed in the layer's ACL.
 
 ## Security
 
