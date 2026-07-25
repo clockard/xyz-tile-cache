@@ -26,6 +26,14 @@ public class LayerStore extends JsonFileStore<Layer> {
   private static final String LAYERS_FILE = "layers.json";
   private static final String LOCK_FILE = "layers.lock";
 
+  /**
+   * Allowed layer-id charset. Constrained so an id is always a safe single path segment — it is
+   * used directly as the on-disk subdirectory under {@code baseTileDirectory}, so anything
+   * containing {@code /}, {@code \}, or {@code ..} could traverse outside the cache root.
+   */
+  public static final java.util.regex.Pattern SAFE_LAYER_ID =
+      java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
+
   private final XyzConfiguration configuration;
   private final ApplicationEventPublisher eventPublisher;
 
@@ -65,30 +73,36 @@ public class LayerStore extends JsonFileStore<Layer> {
 
   public void addLayer(Layer layer) throws IOException {
     validateLayer(layer);
-    String id = layer.getEffectiveId();
+    String id = layer.effectiveId();
     withLockedReloadAndWrite(
         () -> {
           if (this.layers.containsKey(id)) {
-            throw new IllegalArgumentException("Layer '" + id + "' already exists.");
+            throw new LayerAlreadyExistsException("Layer '" + id + "' already exists.");
           }
           this.layers.put(id, layer);
         });
     logger.info("Added layer '{}'.", id);
-    eventPublisher.publishEvent(new LayerChangedEvent(id));
+    eventPublisher.publishEvent(new LayerChangedEvent(id, LayerChangedEvent.Kind.ADDED));
   }
 
   public void updateLayer(String id, Layer layer) throws IOException {
-    validateLayer(layer);
+    Layer reidentified = layer.withId(id);
+    validateLayer(reidentified);
+    LayerChangedEvent.Kind[] kindHolder = new LayerChangedEvent.Kind[1];
     withLockedReloadAndWrite(
         () -> {
-          if (!this.layers.containsKey(id)) {
+          Layer existing = this.layers.get(id);
+          if (existing == null) {
             throw new NoSuchElementException("Layer '" + id + "' not found.");
           }
-          layer.setId(id);
-          this.layers.put(id, layer);
+          this.layers.put(id, reidentified);
+          kindHolder[0] =
+              sameSource(existing, reidentified)
+                  ? LayerChangedEvent.Kind.UPDATED_ACL
+                  : LayerChangedEvent.Kind.UPDATED_SOURCE;
         });
     logger.info("Updated layer '{}'.", id);
-    eventPublisher.publishEvent(new LayerChangedEvent(id));
+    eventPublisher.publishEvent(new LayerChangedEvent(id, kindHolder[0]));
   }
 
   public void removeLayer(String id) throws IOException {
@@ -100,7 +114,7 @@ public class LayerStore extends JsonFileStore<Layer> {
           this.runtimeStates.remove(id);
         });
     logger.info("Removed layer '{}'.", id);
-    eventPublisher.publishEvent(new LayerChangedEvent(id));
+    eventPublisher.publishEvent(new LayerChangedEvent(id, LayerChangedEvent.Kind.REMOVED));
   }
 
   // ── JsonFileStore hooks ───────────────────────────────────────────────────
@@ -128,7 +142,7 @@ public class LayerStore extends JsonFileStore<Layer> {
   @Override
   protected void applyLoaded(List<Layer> loaded) {
     this.layers.clear();
-    loaded.forEach(l -> this.layers.put(l.getEffectiveId(), l));
+    loaded.forEach(l -> this.layers.put(l.effectiveId(), l));
     this.runtimeStates.keySet().retainAll(this.layers.keySet());
   }
 
@@ -140,12 +154,16 @@ public class LayerStore extends JsonFileStore<Layer> {
   @Override
   protected void onReloaded(List<Layer> previousSnapshot) {
     Map<String, Layer> before = new HashMap<>();
-    previousSnapshot.forEach(l -> before.put(l.getEffectiveId(), l));
+    previousSnapshot.forEach(l -> before.put(l.effectiveId(), l));
     before.forEach(
         (name, old) -> {
           Layer updated = this.layers.get(name);
-          if (updated == null || !sameSource(old, updated)) {
-            eventPublisher.publishEvent(new LayerChangedEvent(name));
+          if (updated == null) {
+            eventPublisher.publishEvent(
+                new LayerChangedEvent(name, LayerChangedEvent.Kind.REMOVED));
+          } else if (!sameSource(old, updated)) {
+            eventPublisher.publishEvent(
+                new LayerChangedEvent(name, LayerChangedEvent.Kind.UPDATED_SOURCE));
           }
         });
   }
@@ -153,17 +171,21 @@ public class LayerStore extends JsonFileStore<Layer> {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   private static boolean sameSource(Layer a, Layer b) {
-    return Objects.equals(a.getUrlTemplate(), b.getUrlTemplate())
-        && a.getSourceType() == b.getSourceType();
+    return Objects.equals(a.urlTemplate(), b.urlTemplate()) && a.sourceType() == b.sourceType();
   }
 
   private static void validateLayer(Layer layer) {
-    if (layer.getEffectiveId() == null || layer.getEffectiveId().isBlank()) {
+    if (layer.effectiveId() == null || layer.effectiveId().isBlank()) {
       throw new IllegalArgumentException("Layer id must not be blank.");
     }
-    if (layer.getSourceType() != Layer.SourceType.LOCAL
-        && layer.getSourceType() != Layer.SourceType.VECTOR_PMTILES
-        && (layer.getUrlTemplate() == null || layer.getUrlTemplate().isBlank())) {
+    if (!SAFE_LAYER_ID.matcher(layer.effectiveId()).matches()) {
+      throw new IllegalArgumentException(
+          "Layer id must be 1-64 chars of letters, digits, '.', '-' or '_' "
+              + "(starting with a letter or digit).");
+    }
+    if (layer.sourceType() != Layer.SourceType.LOCAL
+        && layer.sourceType() != Layer.SourceType.VECTOR_PMTILES
+        && (layer.urlTemplate() == null || layer.urlTemplate().isBlank())) {
       throw new IllegalArgumentException("Layer urlTemplate must not be blank.");
     }
   }

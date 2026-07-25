@@ -13,4 +13,6 @@ public record PreloadInfo(
     Instant createdAt,
     Long sizeBytes,
     List<String> allowedUsers,
-    List<String> allowedGroups) {}
+    List<String> allowedGroups,
+    Preload.Status status,
+    String errorMessage) {}

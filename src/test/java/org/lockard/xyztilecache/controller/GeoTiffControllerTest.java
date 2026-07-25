@@ -15,7 +15,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.service.GeoTiffTiler;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,7 +45,7 @@ class GeoTiffControllerTest {
     registry.add(
         "xyz.layers",
         () -> {
-          Layer existing = new Layer();
+          LayerProperties existing = new LayerProperties();
           existing.setName("existing");
           existing.setUrlTemplate("https://example.com/{z}/{x}/{y}.png");
           return List.of(existing);

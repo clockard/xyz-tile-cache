@@ -87,7 +87,7 @@ class XyzUtilTest {
   }
 
   @Test
-  void calculateAllBboxTiles_oneSetPerZoomLevel() {
+  void calculateBboxRanges_oneRangePerZoomLevel() {
     BoundingBox bbox = new BoundingBox();
     bbox.setNorth(1.0);
     bbox.setSouth(-1.0);
@@ -95,10 +95,32 @@ class XyzUtilTest {
     bbox.setWest(-1.0);
     bbox.setMaxZoom(3);
 
-    List<Set<Point>> result = XyzUtil.calculateAllBboxTiles(bbox);
+    List<XyzUtil.TileRange> result = XyzUtil.calculateBboxRanges(bbox);
 
-    // maxZoom=3 → zoom levels 0,1,2,3 → 4 sets
+    // maxZoom=3 → zoom levels 0,1,2,3 → 4 ranges
     assertThat(result).hasSize(4);
-    assertThat(result).allSatisfy(set -> assertThat(set).isNotEmpty());
+    assertThat(result).allSatisfy(range -> assertThat(range.count()).isPositive());
+  }
+
+  @Test
+  void calculateTileRange_matchesMaterializedTileSet() {
+    BoundingBox bbox = new BoundingBox();
+    bbox.setNorth(41.0);
+    bbox.setSouth(40.0);
+    bbox.setEast(-73.0);
+    bbox.setWest(-74.5);
+
+    for (int zoom = 0; zoom <= 8; zoom++) {
+      XyzUtil.TileRange range = XyzUtil.calculateTileRange(bbox, zoom);
+      Set<Point> expected = XyzUtil.calculateXyTilesForBBox(bbox, zoom);
+      Set<Point> fromRange = new java.util.HashSet<>();
+      for (int x = range.xMin(); x <= range.xMax(); x++) {
+        for (int y = range.yMin(); y <= range.yMax(); y++) {
+          fromRange.add(new Point(x, y));
+        }
+      }
+      assertThat(fromRange).isEqualTo(expected);
+      assertThat(range.count()).isEqualTo(expected.size());
+    }
   }
 }

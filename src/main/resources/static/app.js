@@ -517,10 +517,17 @@ function scheduleRefresh() {
   }, delay);
 }
 
+function decodeBase64Url(segment) {
+  // atob yields a binary string; decode the bytes as UTF-8 so non-ASCII usernames survive.
+  const binary = atob(segment.replace(/-/g, '+').replace(/_/g, '/'));
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 function decodeUser(accessToken) {
   if (!accessToken) return null;
   try {
-    const payload = JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    const payload = JSON.parse(decodeBase64Url(accessToken.split('.')[1]));
     const roles = (payload.realm_access && payload.realm_access.roles) || [];
     const groups = payload.groups || [];
     return {
@@ -651,7 +658,47 @@ function setMapTileLayer(newLayer) {
 }
 
 function updateAttribution(html) {
-  if (attributionEl) attributionEl.innerHTML = html || '';
+  if (!attributionEl) return;
+  attributionEl.replaceChildren(sanitizeAttribution(html || ''));
+}
+
+// Attributions are admin-set but rendered in every viewer's session, so treat the value as
+// untrusted markup. Parse it inertly and keep only text, <br>, and http(s) <a> links; anything
+// else (scripts, event handlers, javascript: hrefs) is dropped, its text content preserved.
+function sanitizeAttribution(html) {
+  const out = document.createDocumentFragment();
+  const parsed = new DOMParser().parseFromString(String(html), 'text/html');
+  const appendChildren = (source, target) => {
+    source.childNodes.forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        target.appendChild(document.createTextNode(node.textContent));
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = node.tagName.toLowerCase();
+      if (tag === 'br') {
+        target.appendChild(document.createElement('br'));
+        return;
+      }
+      if (tag === 'a') {
+        const href = node.getAttribute('href') || '';
+        const safe = /^https?:\/\//i.test(href);
+        const anchor = safe ? document.createElement('a') : document.createDocumentFragment();
+        if (safe) {
+          anchor.href = href;
+          anchor.target = '_blank';
+          anchor.rel = 'noopener noreferrer';
+        }
+        appendChildren(node, anchor);
+        target.appendChild(anchor);
+        return;
+      }
+      // Unknown element: drop the tag, keep its (recursively sanitized) contents.
+      appendChildren(node, target);
+    });
+  };
+  appendChildren(parsed.body, out);
+  return out;
 }
 
 function showDownloadBbox(bounds) {
@@ -1353,12 +1400,14 @@ async function submitPreload() {
 
   const vectorKeys = selected.filter((k) => layerMap[k] && layerMap[k].sourceType === 'VECTOR_PMTILES');
   const xyzLayers = selected.filter((k) => !layerMap[k] || layerMap[k].sourceType !== 'VECTOR_PMTILES');
-  const includeVector = vectorKeys.length > 0;
   const vectorLayerId = vectorKeys.length > 0 ? vectorKeys[0] : null;
   const vectorMaxZoom = vectorLayerId && layerMap[vectorLayerId]
     ? (layerMap[vectorLayerId].maxZoom || VECTOR_MAX_ZOOM)
     : VECTOR_MAX_ZOOM;
-  const maxZoom = includeVector ? Math.min(maxZoomRaw, vectorMaxZoom) : maxZoomRaw;
+  // A vector-only job can honestly report the vector cap. When raster layers are also selected,
+  // send the raw slider so they preload to full zoom; the server caps the vector extract to the
+  // vector layer's own maxZoom independently.
+  const maxZoom = xyzLayers.length === 0 ? Math.min(maxZoomRaw, vectorMaxZoom) : maxZoomRaw;
   const allowedUsers = splitList(preloadAllowedUsers.value);
   const allowedGroups = splitList(preloadAllowedGroups.value);
 

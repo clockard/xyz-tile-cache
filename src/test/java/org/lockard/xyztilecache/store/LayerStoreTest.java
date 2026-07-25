@@ -12,6 +12,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Layer;
 
@@ -27,7 +28,7 @@ class LayerStoreTest {
   void setUp() {
     configuration = new XyzConfiguration();
     configuration.setBaseTileDirectory(tempDir.toString());
-    configuration.setLayers(List.of(layer("base")));
+    configuration.setLayers(List.of(layerProperties("base")));
   }
 
   @AfterEach
@@ -38,7 +39,14 @@ class LayerStoreTest {
   }
 
   private Layer layer(String name) {
-    Layer l = new Layer();
+    LayerProperties l = new LayerProperties();
+    l.setName(name);
+    l.setUrlTemplate("https://example.com/{z}/{x}/{y}.png");
+    return l.toLayer();
+  }
+
+  private LayerProperties layerProperties(String name) {
+    LayerProperties l = new LayerProperties();
     l.setName(name);
     l.setUrlTemplate("https://example.com/{z}/{x}/{y}.png");
     return l;
@@ -99,18 +107,19 @@ class LayerStoreTest {
   @Test
   void addLayer_throwsForBlankName() throws Exception {
     storeAndInit();
-    Layer bad = new Layer();
+    LayerProperties bad = new LayerProperties();
     bad.setName("");
     bad.setUrlTemplate("https://example.com/{z}/{x}/{y}.png");
-    assertThatThrownBy(() -> layerStore.addLayer(bad)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> layerStore.addLayer(bad.toLayer()))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void updateLayer_replacesInStoreAndJson() throws Exception {
     storeAndInit();
-    Layer updated = layer("base");
+    LayerProperties updated = layerProperties("base");
     updated.setMaxZoom(10);
-    layerStore.updateLayer("base", updated);
+    layerStore.updateLayer("base", updated.toLayer());
 
     assertThat(layerStore.getLayers().get("base").getMaxZoom()).isEqualTo(10);
     assertThat(tempDir.resolve("layers.json")).content().contains("base");
@@ -186,18 +195,20 @@ class LayerStoreTest {
   @Test
   void addLayer_throwsForBlankUrlTemplate() throws Exception {
     storeAndInit();
-    Layer bad = new Layer();
+    LayerProperties bad = new LayerProperties();
     bad.setName("valid-name");
     bad.setUrlTemplate("");
-    assertThatThrownBy(() -> layerStore.addLayer(bad)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> layerStore.addLayer(bad.toLayer()))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void addLayer_throwsForNullUrlTemplate() throws Exception {
     storeAndInit();
-    Layer bad = new Layer();
+    LayerProperties bad = new LayerProperties();
     bad.setName("valid-name");
-    assertThatThrownBy(() -> layerStore.addLayer(bad)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> layerStore.addLayer(bad.toLayer()))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
@@ -211,12 +222,12 @@ class LayerStoreTest {
   @Test
   void addLayer_acceptsLocalSourceWithoutUrlTemplate() throws Exception {
     storeAndInit();
-    Layer local = new Layer();
+    LayerProperties local = new LayerProperties();
     local.setName("local-orthophoto");
     local.setSourceType(Layer.SourceType.LOCAL);
-    layerStore.addLayer(local);
+    layerStore.addLayer(local.toLayer());
     assertThat(layerStore.getLayers()).containsKey("local-orthophoto");
-    assertThat(layerStore.getLayers().get("local-orthophoto").getSourceType())
+    assertThat(layerStore.getLayers().get("local-orthophoto").sourceType())
         .isEqualTo(Layer.SourceType.LOCAL);
   }
 

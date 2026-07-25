@@ -9,6 +9,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.model.Layer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -43,21 +44,21 @@ class VectorPmtilesLayerControllerTest {
     registry.add(
         "xyz.layers",
         () -> {
-          Layer vectorLayer = new Layer();
+          LayerProperties vectorLayer = new LayerProperties();
           vectorLayer.setId("vector-test");
           vectorLayer.setName("Vector Test");
           vectorLayer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
           vectorLayer.setUrlTemplate(Paths.get(fixture.getPath()).toString());
           vectorLayer.setMaxZoom(14);
 
-          Layer gzipLayer = new Layer();
+          LayerProperties gzipLayer = new LayerProperties();
           gzipLayer.setId("vector-gzip");
           gzipLayer.setName("Vector Gzip");
           gzipLayer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
           gzipLayer.setUrlTemplate(Paths.get(gzipFixture.getPath()).toString());
           gzipLayer.setMaxZoom(14);
 
-          Layer privateLayer = new Layer();
+          LayerProperties privateLayer = new LayerProperties();
           privateLayer.setId("vector-private");
           privateLayer.setName("Vector Private");
           privateLayer.setSourceType(Layer.SourceType.VECTOR_PMTILES);

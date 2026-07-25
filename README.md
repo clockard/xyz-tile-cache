@@ -19,27 +19,38 @@ Capabilities:
 flowchart TD
     Client([Map Client]) -->|"GET /tilesZYX/#123;layer#125;/#123;z#125;/#123;y#125;/#123;x#125;.png"| App
 
-    App --> ACL{Per-layer ACL}
+    App --> Bounds{Coords in range?}
+    Bounds -->|no| NotFound([404 Not Found])
+    Bounds -->|yes| ACL{Per-layer ACL}
     ACL -->|deny| Forbidden([401 / 403])
-    ACL -->|allow| MemCache{In-memory cache\n500 tiles}
+    ACL -->|allow| MemCache{In-memory cache\nsize-bounded by bytes}
 
     MemCache -->|hit| Response([Return tile])
     MemCache -->|miss| DiskCache{Disk cache}
 
-    DiskCache -->|hit| Response
+    DiskCache -->|hit, fresh| Response
     DiskCache -->|miss / offline=false| CB{Circuit breaker}
-    DiskCache -->|miss / offline=true| NotFound([404 Not Found])
+    DiskCache -->|miss / offline=true| NotFound
 
-    CB -->|BLOCK — source recently failed| NotFound
+    CB -->|BLOCK — source recently failed| Unavailable([503 Service Unavailable])
     CB -->|PROCEED or RETRY| Fetch[HTTP fetch\nfrom tile source]
 
     Fetch -->|success| AsyncWrite[Async write\nto disk]
     AsyncWrite --> Response
-    Fetch -->|failure| SourceFailed[Mark source failed\nstart backoff]
-    SourceFailed --> NotFound
+    Fetch -->|404 / empty body| NotFound
+    Fetch -->|error / timeout| SourceFailed[Mark source failed\nstart backoff]
+    SourceFailed -->|stale disk tile exists| Response
+    SourceFailed -->|otherwise| Unavailable
 ```
 
-On a cache miss the loader first checks disk, then the circuit breaker state, then makes an outbound HTTP request. Successful tiles are written to disk asynchronously so the response is not delayed. A failed source is blocked with exponential backoff (100 ms → 60 s) to avoid hammering unavailable upstream servers.
+On a cache miss the loader first checks disk, then the circuit breaker state, then makes an outbound HTTP request. Successful tiles are written to disk asynchronously so the response is not delayed.
+
+Key behaviours:
+
+- **In-memory cache** — a size-bounded [Caffeine](https://github.com/ben-manes/caffeine) cache keyed by layer id + coordinates (default budget `xyz.tileCacheBytes`, 256 MiB), so layer edits never orphan cached tiles.
+- **Circuit breaker** — a source that returns errors or times out is blocked with exponential backoff (100 ms → 60 s) to avoid hammering unavailable upstreams; while blocked the layer answers `503`. An upstream `404` or empty body is *not* a failure (it is normal for tiles outside a source's coverage), so it never trips the breaker.
+- **Stale-if-error** — when a disk tile has expired (`tileExpirationMinutes`) but the upstream refresh fails or the breaker is open, the stale tile is served rather than an error. In offline mode the expiry check is skipped entirely.
+- **Coordinate validation** — `z`, `x`, `y` outside the valid range for the zoom level return `404` before any upstream request is made.
 
 ## Configuration
 
@@ -64,7 +75,13 @@ xyz:
   minFreeDiskBytes: 1073741824     # stop caching new tiles when free disk drops below this (default 1 GB)
   offline: false                   # true = serve from disk only, never make outbound requests
   tileTimeoutSeconds: 5            # per-request timeout for outbound tile fetches
+  tileCacheBytes: 268435456        # in-memory tile cache budget in bytes (default 256 MiB)
+  defaultCacheMaxAgeSeconds: 86400 # Cache-Control max-age for tiles with no tileExpirationMinutes
+  preloadConcurrency: 4            # parallel tile fetches per preload job
   layerSyncSeconds: 10             # how often to re-read layers.json so multiple instances stay in sync
+  exportRetentionMinutes: 60       # how long a finished export stays downloadable before it is swept
+  exportSweepSeconds: 300          # how often the export sweeper runs
+  maxImportBytes: 10737418240      # cap on total decompressed bytes accepted by POST /import (default 10 GiB)
   uiEnabled: true                  # set to false to disable the web UI (UI paths return 404)
   adminRole: admin                 # Keycloak realm role required for write operations
   importDirectory: "/app/imports"  # directory scanned for zip files to auto-import on startup
@@ -72,7 +89,11 @@ xyz:
 
 `importDirectory` is scanned once at startup. Any `*.zip` file not yet listed in `{importDirectory}/.imported` is ingested as the admin user, then recorded in `.imported` so it is not re-processed on the next start. If the directory does not exist, startup imports are skipped. Set the property to an empty string to disable startup imports entirely.
 
-`minFreeDiskBytes` replaces the older `maxTileStorage` byte cap. The proxy keeps writing tiles until the underlying filesystem has less than this many bytes free, then stops accepting new tiles. Existing tiles are still served.
+`minFreeDiskBytes` is a floor on free disk space. The proxy keeps writing tiles until the underlying filesystem has less than this many bytes free, then stops accepting new tiles; existing tiles are still served. The same floor guards `POST /import`.
+
+`tileCacheBytes` bounds the in-memory (hot) tile cache by total tile bytes rather than a fixed tile count — larger tiles therefore evict sooner. It is independent of the on-disk cache, which is bounded only by `minFreeDiskBytes`.
+
+`defaultCacheMaxAgeSeconds` sets the `Cache-Control: max-age` on tile responses for layers that do not define `tileExpirationMinutes`. Layers with `tileExpirationMinutes > 0` advertise that value instead; immutable local/vector tiles advertise a one-year immutable max-age.
 
 `layerSyncSeconds` is used when more than one instance of the proxy shares the same `baseTileDirectory` (e.g. behind a load balancer with a shared volume). All layer mutations are persisted to `{baseTileDirectory}/layers.json`; each instance polls the file at this interval and reconciles its in-memory layer map.
 
@@ -108,11 +129,11 @@ Layers are the tile sources the proxy knows about. Each layer needs an `id` (use
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `id` | — | Stable identifier used in tile URLs and on disk. |
+| `id` | — | Stable identifier used in tile URLs and as the on-disk subdirectory. Must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}` (letters/digits/`.`/`-`/`_`, starting with a letter or digit). |
 | `name` | — | Display name shown in the UI. |
-| `sourceType` | `XYZ` | One of `XYZ`, `WMTS_REST`, `WMTS_KVP`, `LOCAL`. |
+| `sourceType` | `XYZ` | One of `XYZ`, `WMTS_REST`, `WMTS_KVP`, `LOCAL`, `VECTOR_PMTILES`. |
 | `urlTemplate` | — | Source URL pattern (omit for `LOCAL`). |
-| `maxZoom` | `22` | Tile requests above this zoom return 404. |
+| `maxZoom` | `22` (`15` for `VECTOR_PMTILES`) | Tile requests above this zoom return 404. Applied whether the layer comes from YAML or `POST /layers`. |
 | `attribution` | — | Free-form string included in `GET /layers` responses. |
 | `headers` | `{}` | Map of HTTP headers added to outbound tile fetches (e.g. `Referer`, `User-Agent`). |
 | `tileExpirationMinutes` | `0` | Cached tiles older than this are refetched. `0` = never expire. |
@@ -228,20 +249,19 @@ Override the remote source URL per environment with the `PMTILES_SOURCE_URL` env
 Define one or more bounding boxes to fill the disk cache automatically at startup.
 The proxy fetches every tile for all configured layers across zoom 0 → `maxZoom`.
 
-[WARNING] These should only be done for small areas. For larger ares use vector preloading.
+> **Warning:** Only do this for small areas. For large areas use a `VECTOR_PMTILES` layer with vector preloading instead — a raster source will usually start blocking your requests before a large raster preload finishes.
 
 ```yaml
 xyz:
   boundingBoxes:
-    - preCache: true        # set true to actually run at startup; false to skip
-      maxZoom: 8
+    - maxZoom: 8
       north: 50.0
       south: 24.0
       east: -66.0
       west: -125.0
 ```
 
-Multiple bounding boxes are processed in parallel. Preloading is slow for large areas at high zoom levels — at zoom 12, the contiguous US contains roughly 250 000 tiles per layer.
+Every configured bounding box runs at startup. They are processed in parallel, and within each job tiles are fetched with up to `xyz.preloadConcurrency` concurrent requests. Preloading is slow for large areas at high zoom levels — at zoom 12, the contiguous US contains roughly 250 000 tiles per layer.
 
 For ad-hoc preloads use the `POST /preloads` API instead; those are persisted, can be named, and can target a specific subset of layers.
 
@@ -254,16 +274,21 @@ For ad-hoc preloads use the `POST /preloads` API instead; those are persisted, c
 | `GET` | `/tilesZYX/{layer}/{z}/{y}/{x}.{ext}` | per-layer | Fetch a tile (ZYX coordinate order). |
 | `GET` | `/tilesZXY/{layer}/{z}/{x}/{y}.{ext}` | per-layer | Fetch a tile (ZXY coordinate order). |
 
-Both endpoints serve raster (`.png`) and vector (`.mvt`) tiles depending on the layer's `sourceType`. The extension in the URL is accepted but not validated — the `Content-Type` is set by the handler.
+Both endpoints serve raster (`.png`) and vector (`.mvt`) tiles depending on the layer's `sourceType`. The extension in the URL is accepted but not validated — the `Content-Type` is set by the handler from the tile's magic bytes.
 
-All tile responses set `Access-Control-Allow-Origin: *`. Tile endpoints return `401` for anonymous requests against private layers and `403` when authenticated principals lack access.
+Responses:
+
+- `Access-Control-Allow-Origin: *` on every tile response.
+- `Cache-Control` reflects the layer: `max-age=<tileExpirationMinutes>` (or `defaultCacheMaxAgeSeconds` when unset), `immutable` for local/vector tiles, and `public`/`private` matching the layer's ACL.
+- `401` for anonymous requests against a private layer; `403` when an authenticated principal lacks access.
+- `404` for a coordinate outside the valid range for its zoom, above the layer's `maxZoom`, or absent upstream. `503` when the source's circuit breaker is open (unless a stale disk tile can be served).
 
 ### Layer management
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/layers` | none (filtered) | List configured layers. The response contains only layers the caller can read. |
-| `POST` | `/layers` | admin | Add a new layer (JSON body matching the `Layer` schema). 409 on duplicate id. |
+| `POST` | `/layers` | admin | Add a new layer (JSON body matching the `Layer` schema). 409 on duplicate id; 400 on an invalid id or missing `urlTemplate`. |
 | `PUT` | `/layers/{id}` | admin | Replace an existing layer. 404 if missing. |
 | `DELETE` | `/layers/{id}` | admin | Remove a layer and delete its cached tiles from disk. |
 | `POST` | `/layers/geotiff` | admin | Multipart upload (`name`, `file`, optional `allowedUsers`, `allowedGroups`). Tiles the GeoTIFF with `gdal2tiles.py` and registers it as a `LOCAL` layer. |
@@ -280,7 +305,7 @@ For larger ares use protomaps vector layer. If the area is too large (too many t
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/preloads` | none (filtered) | List persisted preloads visible to the caller. |
-| `POST` | `/preloads` | admin | Create a preload (see body below). 409 if a vector download is already in progress; 503 if a `VECTOR_PMTILES` layer has no `urlTemplate` configured. |
+| `POST` | `/preloads` | admin | Create a preload (see body below). 409 if a vector download is already in progress; 400 for invalid input (e.g. a `VECTOR_PMTILES` layer with no `urlTemplate`, or an out-of-range bounding box / zoom). |
 | `DELETE` | `/preloads/{id}` | admin | Remove a preload record (does not delete cached tiles). |
 | `POST` | `/preload` | admin | Legacy fire-and-forget preload (not persisted). |
 
@@ -398,7 +423,7 @@ Offline mode can also be set at startup via `xyz.offline` in `application.yml` o
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/stats` | none | Per-instance tile-serve counters and free disk space. |
+| `GET` | `/stats` | none (filtered) | Per-instance tile-serve counters and free disk space. The `layers` array is filtered to the layers the caller can read, exactly like `GET /layers`. |
 
 ```json
 {
@@ -420,14 +445,33 @@ The counters are in-memory and reset on restart. With multiple instances behind 
 |--------|------|------|-------------|
 | `GET` | `/auth/config` | none | Returns `{mode, issuerUri, clientId}` (jwt) or `{mode: "token"}` so the UI knows which login flow to use. |
 
-## Authentication & Authorization
+## Security
 
-- All `POST`/`PUT`/`DELETE` endpoints require the realm role configured in `xyz.adminRole` (default `admin`).
+### Authentication & authorization
+
+- All `POST`/`PUT`/`DELETE` endpoints require the realm role configured in `xyz.adminRole` (default `admin`). Exceptions: `POST /export` and `POST /layers/geotiff` require only an authenticated principal.
 - All `GET` endpoints are anonymous-friendly. Per-layer reads are gated by `LayerAccessService`:
   - empty `allowedUsers` *and* `allowedGroups` → public.
   - admin role → bypasses ACLs.
   - else the JWT must contain `preferred_username` in `allowedUsers` or any `groups` entry in `allowedGroups`.
+- The same read ACL filters what `GET /layers`, `GET /stats`, the WMTS capabilities document, and the TileJSON endpoint expose — a caller never sees the existence of a layer they cannot read.
 - In `token` mode there is no per-user identity, so private layers are effectively admin-only.
+
+### Actuator / metrics
+
+- `/actuator/health/**` and `/actuator/info` are public (for container health probes).
+- `/actuator/prometheus` and any other actuator endpoint require the admin role, because the metrics carry per-layer identifiers and request volumes that would otherwise leak the names of private layers. Point your scraper at it with the admin token (token mode) or a service-account JWT holding the admin role, or expose management on a separate, non-public port with `management.server.port`.
+- Only `health`, `info`, and `prometheus` are exposed at all (`management.endpoints.web.exposure.include`).
+
+### Input hardening
+
+- **Layer ids** must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}` on both `POST /layers` and import, so a layer id can never traverse outside `baseTileDirectory`.
+- **GeoTIFF/PMTiles tooling** is invoked with argument lists (never a shell), and output paths are confined to `baseTileDirectory`.
+- **Import** (`POST /import`) rejects zip-slip paths, caps total decompressed size at `xyz.maxImportBytes`, and refuses to write once free disk falls below `minFreeDiskBytes`.
+
+### CORS
+
+Every JSON and tile response sets `Access-Control-Allow-Origin: *`, allowing any origin to read public (and the caller's authorized) data. Authentication is Bearer-token only — no cookies — so this is not a CSRF vector, but if you need to restrict which origins may read tiles, front the service with a proxy that overrides the header.
 
 ## Local Keycloak (for testing the JWT flow)
 

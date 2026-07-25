@@ -13,6 +13,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileTime;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,14 @@ public abstract class JsonFileStore<T> {
   private FileChannel lockChannel;
   private volatile FileTime lastKnownMtime = FileTime.fromMillis(0);
 
+  /**
+   * In-JVM serialization for {@link FileChannel#lock()}. Without this, two threads in the same JVM
+   * calling {@code lockChannel.lock()} concurrently trigger {@link
+   * java.nio.channels.OverlappingFileLockException} — the file lock is per-process, so the JVM
+   * refuses overlapping in-process holds rather than blocking.
+   */
+  private final ReentrantLock inProcessLock = new ReentrantLock();
+
   protected JsonFileStore(XyzConfiguration configuration, ObjectMapper objectMapper) {
     this.configuration = configuration;
     this.objectMapper = objectMapper;
@@ -51,6 +60,7 @@ public abstract class JsonFileStore<T> {
             StandardOpenOption.READ,
             StandardOpenOption.WRITE);
 
+    inProcessLock.lock();
     try (FileLock ignored = lockChannel.lock()) {
       if (Files.exists(jsonPath)) {
         logger.info("Loading {} from {}.", fileName(), jsonPath);
@@ -60,6 +70,8 @@ public abstract class JsonFileStore<T> {
         seed();
         writeFile();
       }
+    } finally {
+      inProcessLock.unlock();
     }
   }
 
@@ -79,11 +91,14 @@ public abstract class JsonFileStore<T> {
     if (jsonPath == null) return;
     try {
       if (Files.getLastModifiedTime(jsonPath).equals(lastKnownMtime)) return;
+      inProcessLock.lock();
       try (FileLock ignored = lockChannel.lock()) {
         if (Files.getLastModifiedTime(jsonPath).equals(lastKnownMtime)) return;
         List<T> before = snapshot();
         loadFromFile();
         onReloaded(before);
+      } finally {
+        inProcessLock.unlock();
       }
     } catch (IOException e) {
       logger.error("Failed to sync {} from {}.", fileName(), jsonPath, e);
@@ -95,10 +110,13 @@ public abstract class JsonFileStore<T> {
    * mutator} against the in-memory state, then writes the file back out.
    */
   protected final void withLockedReloadAndWrite(IORunnable mutator) throws IOException {
+    inProcessLock.lock();
     try (FileLock ignored = lockChannel.lock()) {
       loadFromFile();
       mutator.run();
       writeFile();
+    } finally {
+      inProcessLock.unlock();
     }
   }
 

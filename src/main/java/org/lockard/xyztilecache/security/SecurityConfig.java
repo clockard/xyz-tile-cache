@@ -46,8 +46,14 @@ public class SecurityConfig {
                         "/style.css",
                         "/favicon.ico",
                         "/static/**",
-                        "/auth/config")
+                        "/auth/config",
+                        "/actuator/health/**",
+                        "/actuator/info")
                     .permitAll()
+                    // Metrics carry per-layer identifiers/volumes that would leak private layer
+                    // names; gate prometheus (and any other actuator endpoint) behind admin.
+                    .requestMatchers("/actuator/**")
+                    .hasRole(configuration.getAdminRole().toUpperCase())
                     .requestMatchers(HttpMethod.GET, "/**")
                     .permitAll()
                     .requestMatchers(HttpMethod.POST, "/export")

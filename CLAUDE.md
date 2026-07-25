@@ -34,10 +34,10 @@ Spring Boot tile proxy on port 8383. Caches XYZ raster tiles, MVT vector tiles, 
 ```
 GET /tilesZYX/{layer}/{z}/{y}/{x}.{ext}
   → TileController → TileSourceHandlerRegistry → TileSourceHandler (by Layer.SourceType)
-       RasterTileHandler: Guava LoadingCache (500 tiles)
+       RasterTileHandler: Caffeine LoadingCache (byte-bounded, xyz.tileCacheBytes; keyed by layerId+z/x/y)
          miss → CacheLoader (Online or Offline, by xyz.offline)
               online: HTTP fetch from layer source
-              offline: read {baseTileDir}/{layer}/{z}/{x}/{y}.png
+              offline: read {baseTileDir}/{layer}/{z}/{x}/{y}.<ext>
          → TileWriter.storeTile() (@Async, off the response path)
        VectorPmtilesHandler: VectorPmtilesManager → PmtilesReader/RemotePmtilesReader
   → return tile bytes
@@ -58,7 +58,7 @@ GET /tilesZYX/{layer}/{z}/{y}/{x}.{ext}
 - `StatsController`, `AuthConfigController` — `/stats`, `/auth/config` (UI auth discovery).
 - `XyzConfiguration` — `@ConfigurationProperties("xyz")` for `application.yml`.
 - `Layer` — source URL template + circuit-breaker blocking (exponential 100ms→60s; states PROCEED / BLOCK / RETRY).
-- `OnlineCacheLoader` / `OfflineCacheLoader` — Guava `CacheLoader` impls for HTTP vs. disk.
+- `OnlineCacheLoader` / `OfflineCacheLoader` — Caffeine `CacheLoader` impls for HTTP vs. disk (stale-if-error fallback).
 - `TileWriter` — async persistence; enforces `xyz.minFreeDiskBytes`; inventories on startup.
 - `XyzUtil` — XYZ ↔ lat/lon math; bbox → tile enumeration.
 - `SecurityConfig`, `AdminTokenAuthFilter`, `LayerAccessService`, `UiFilter` — see Authentication.

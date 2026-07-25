@@ -1,17 +1,18 @@
 package org.lockard.xyztilecache.pmtiles;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
 import java.util.zip.GZIPInputStream;
 import org.lockard.xyztilecache.model.TileResult;
 import org.slf4j.Logger;
@@ -21,7 +22,7 @@ public class PmtilesReader implements Closeable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PmtilesReader.class);
   private final Path localFile;
-  private final RandomAccessFile raf;
+  private final FileChannel channel;
   private final PmtilesHeader header;
   private final List<PmtilesEntry> rootDir;
   // Key: leaf directory offset within the leaf section; value: decoded entries
@@ -29,19 +30,16 @@ public class PmtilesReader implements Closeable {
 
   public PmtilesReader(Path path) throws IOException {
     localFile = path;
-    raf = new RandomAccessFile(path.toAbsolutePath().normalize().toFile(), "r");
+    channel = FileChannel.open(path.toAbsolutePath().normalize(), StandardOpenOption.READ);
     try {
-      byte[] headerBytes = new byte[127];
-      raf.readFully(headerBytes);
-      header = PmtilesHeader.parse(headerBytes);
-
+      header = PmtilesHeader.parse(readRawBytes(0, 127));
       byte[] rootRaw = readRawBytes(header.rootDirOffset(), header.rootDirLength());
       rootDir = decodeDirectory(decompress(rootRaw, header.internalCompression()));
     } catch (IOException | RuntimeException e) {
-      raf.close();
+      channel.close();
       throw e;
     }
-    leafCache = CacheBuilder.newBuilder().maximumSize(64).build();
+    leafCache = Caffeine.newBuilder().maximumSize(64).build();
   }
 
   public PmtilesHeader getHeader() {
@@ -84,7 +82,7 @@ public class PmtilesReader implements Closeable {
   @Override
   public void close() throws IOException {
     leafCache.invalidateAll();
-    raf.close();
+    channel.close();
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────
@@ -93,23 +91,40 @@ public class PmtilesReader implements Closeable {
     try {
       return leafCache.get(
           leafPointer.offset(),
-          () -> {
-            byte[] raw =
-                readRawBytes(header.leafDirsOffset() + leafPointer.offset(), leafPointer.length());
-            return decodeDirectory(decompress(raw, header.internalCompression()));
+          k -> {
+            try {
+              byte[] raw =
+                  readRawBytes(
+                      header.leafDirsOffset() + leafPointer.offset(), leafPointer.length());
+              return decodeDirectory(decompress(raw, header.internalCompression()));
+            } catch (IOException e) {
+              throw new UncheckedIOException(e);
+            }
           });
-    } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof IOException ioe) throw ioe;
-      throw new IOException("Failed to load leaf directory", cause);
+    } catch (UncheckedIOException e) {
+      throw e.getCause();
+    } catch (RuntimeException e) {
+      throw new IOException("Failed to load leaf directory", e);
     }
   }
 
-  private synchronized byte[] readRawBytes(long offset, long length) throws IOException {
-    raf.seek(offset);
-    byte[] buf = new byte[(int) length];
-    raf.readFully(buf);
-    return buf;
+  private byte[] readRawBytes(long offset, long length) throws IOException {
+    ByteBuffer buf = ByteBuffer.allocate((int) length);
+    long pos = offset;
+    while (buf.hasRemaining()) {
+      int read = channel.read(buf, pos);
+      if (read < 0) {
+        throw new IOException(
+            "Unexpected EOF reading "
+                + length
+                + " bytes at offset "
+                + offset
+                + " from "
+                + localFile);
+      }
+      pos += read;
+    }
+    return buf.array();
   }
 
   static byte[] decompress(byte[] data, int compression) throws IOException {

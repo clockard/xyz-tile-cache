@@ -26,6 +26,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,23 +53,23 @@ class ImportExportControllerTest {
     registry.add(
         "xyz.layers",
         () -> {
-          Layer pub = new Layer();
+          LayerProperties pub = new LayerProperties();
           pub.setName("public-layer");
           pub.setUrlTemplate("https://example.com/pub/{z}/{y}/{x}");
           pub.setMaxZoom(5);
 
-          Layer aliceOnly = new Layer();
+          LayerProperties aliceOnly = new LayerProperties();
           aliceOnly.setName("alice-only");
           aliceOnly.setUrlTemplate("https://example.com/alice/{z}/{y}/{x}");
           aliceOnly.setAllowedUsers(List.of("alice"));
           aliceOnly.setMaxZoom(5);
 
-          Layer vectorLayer = new Layer();
+          LayerProperties vectorLayer = new LayerProperties();
           vectorLayer.setName("vector-layer");
           vectorLayer.setUrlTemplate("https://example.com/vec/{z}/{x}/{y}.pbf");
           vectorLayer.setMaxZoom(5);
 
-          Layer vectorPmtiles = new Layer();
+          LayerProperties vectorPmtiles = new LayerProperties();
           vectorPmtiles.setId("vector-pmtiles");
           vectorPmtiles.setName("Vector PMTiles");
           vectorPmtiles.setSourceType(Layer.SourceType.VECTOR_PMTILES);
@@ -198,7 +199,7 @@ class ImportExportControllerTest {
     assertThat(entries).containsKey("vector-layer/layer.json");
     Layer roundTripped =
         objectMapper.readValue(entries.get("vector-layer/layer.json"), Layer.class);
-    assertThat(roundTripped.getUrlTemplate()).isEqualTo("https://example.com/vec/{z}/{x}/{y}.pbf");
+    assertThat(roundTripped.urlTemplate()).isEqualTo("https://example.com/vec/{z}/{x}/{y}.pbf");
   }
 
   @Test
@@ -238,8 +239,8 @@ class ImportExportControllerTest {
 
     Layer roundTripped =
         objectMapper.readValue(entries.get("public-layer/layer.json"), Layer.class);
-    assertThat(roundTripped.getEffectiveId()).isEqualTo("public-layer");
-    assertThat(roundTripped.getUrlTemplate()).isEqualTo("https://example.com/pub/{z}/{y}/{x}");
+    assertThat(roundTripped.effectiveId()).isEqualTo("public-layer");
+    assertThat(roundTripped.urlTemplate()).isEqualTo("https://example.com/pub/{z}/{y}/{x}");
   }
 
   @Test
@@ -268,11 +269,11 @@ class ImportExportControllerTest {
 
   @Test
   void export_admin_layerWithoutTileDir_returnsOnlyLayerJson() throws Exception {
-    Layer empty = new Layer();
+    LayerProperties empty = new LayerProperties();
     empty.setName("empty-layer");
     empty.setUrlTemplate("https://example.com/empty/{z}/{y}/{x}");
     empty.setMaxZoom(3);
-    layerStore.addLayer(empty);
+    layerStore.addLayer(empty.toLayer());
 
     String jobId = submitExport("{\"layers\":[\"empty-layer\"]}", adminJwt());
     Map<String, byte[]> entries = waitAndDownload(jobId, adminJwt());
@@ -455,7 +456,7 @@ class ImportExportControllerTest {
 
   @Test
   void importZip_freshLayer_registersLayerAndWritesTiles() throws Exception {
-    Layer fresh = new Layer();
+    LayerProperties fresh = new LayerProperties();
     fresh.setName("imported-fresh");
     fresh.setUrlTemplate("https://example.com/fresh/{z}/{y}/{x}");
     fresh.setMaxZoom(7);
@@ -482,7 +483,7 @@ class ImportExportControllerTest {
 
   @Test
   void importZip_existingLayerId_skipsLayerJsonStillWritesTiles() throws Exception {
-    Layer impostor = new Layer();
+    LayerProperties impostor = new LayerProperties();
     impostor.setName("public-layer");
     impostor.setUrlTemplate("https://malicious.example.com/{z}/{y}/{x}");
     impostor.setMaxZoom(99);
@@ -501,7 +502,7 @@ class ImportExportControllerTest {
         .andExpect(jsonPath("$.layersSkipped[0]").value("public-layer"))
         .andExpect(jsonPath("$.tilesWritten").value(1));
 
-    assertThat(layerStore.getLayer("public-layer").get().getUrlTemplate())
+    assertThat(layerStore.getLayer("public-layer").get().urlTemplate())
         .isEqualTo("https://example.com/pub/{z}/{y}/{x}");
     Path imported = Paths.get(tileDir.getAbsolutePath(), "public-layer", "2", "2", "2.png");
     assertThat(Files.readAllBytes(imported)).containsExactly(77);
@@ -560,7 +561,7 @@ class ImportExportControllerTest {
 
   @Test
   void importZip_layerJsonWithBlankId_takesIdFromDirectory() throws Exception {
-    Layer blank = new Layer();
+    LayerProperties blank = new LayerProperties();
     blank.setUrlTemplate("https://example.com/blank/{z}/{y}/{x}");
     blank.setMaxZoom(4);
     byte[] zip =
@@ -576,7 +577,7 @@ class ImportExportControllerTest {
 
   @Test
   void importZip_layerJsonInvalidLayer_isSkipped() throws Exception {
-    Layer broken = new Layer();
+    LayerProperties broken = new LayerProperties();
     broken.setName("broken-layer");
     broken.setUrlTemplate("");
     byte[] zip =
@@ -606,7 +607,7 @@ class ImportExportControllerTest {
 
   @Test
   void importZip_nonAdminNewLayer_returns403() throws Exception {
-    Layer fresh = new Layer();
+    LayerProperties fresh = new LayerProperties();
     fresh.setName("non-admin-fresh");
     fresh.setUrlTemplate("https://example.com/fresh/{z}/{y}/{x}");
     byte[] zip =
@@ -692,7 +693,7 @@ class ImportExportControllerTest {
 
   @Test
   void importZip_layerJsonWithMismatchedId_takesIdFromDirectory() throws Exception {
-    Layer mismatch = new Layer();
+    LayerProperties mismatch = new LayerProperties();
     mismatch.setName("original-name");
     mismatch.setUrlTemplate("https://example.com/m/{z}/{y}/{x}");
     mismatch.setMaxZoom(4);

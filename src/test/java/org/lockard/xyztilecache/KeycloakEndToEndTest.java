@@ -11,6 +11,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.model.Layer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -106,18 +107,18 @@ class KeycloakEndToEndTest {
     registry.add(
         "xyz.layers",
         () -> {
-          Layer pub = new Layer();
+          LayerProperties pub = new LayerProperties();
           pub.setName("public-layer");
           pub.setUrlTemplate("http://unused/{z}/{y}/{x}");
           pub.setMaxZoom(5);
 
-          Layer foresters = new Layer();
+          LayerProperties foresters = new LayerProperties();
           foresters.setName("foresters-layer");
           foresters.setUrlTemplate("http://unused/{z}/{y}/{x}");
           foresters.setAllowedGroups(List.of("team-foresters"));
           foresters.setMaxZoom(5);
 
-          Layer aliceOnly = new Layer();
+          LayerProperties aliceOnly = new LayerProperties();
           aliceOnly.setName("alice-layer");
           aliceOnly.setUrlTemplate("http://unused/{z}/{y}/{x}");
           aliceOnly.setAllowedUsers(List.of("alice"));
@@ -332,7 +333,7 @@ class KeycloakEndToEndTest {
   @Test
   void createLayer_alice_admin_returns201() {
     String token = tokenFor("alice");
-    Layer layer = new Layer();
+    LayerProperties layer = new LayerProperties();
     layer.setName("alice-created");
     layer.setUrlTemplate("http://example.com/{z}/{y}/{x}");
     layer.setMaxZoom(10);
@@ -342,7 +343,7 @@ class KeycloakEndToEndTest {
             "/layers", new HttpEntity<>(layer, jsonBearerHeaders(token)), Layer.class);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-    assertThat(response.getBody().getEffectiveId()).isEqualTo("alice-created");
+    assertThat(response.getBody().effectiveId()).isEqualTo("alice-created");
 
     // Cleanup
     http.exchange(
@@ -355,7 +356,7 @@ class KeycloakEndToEndTest {
   @Test
   void createLayer_bob_nonAdmin_returns403() {
     String token = tokenFor("bob");
-    Layer layer = new Layer();
+    LayerProperties layer = new LayerProperties();
     layer.setName("bob-attempted");
     layer.setUrlTemplate("http://example.com/{z}/{y}/{x}");
 
@@ -368,7 +369,7 @@ class KeycloakEndToEndTest {
 
   @Test
   void createLayer_noToken_returns401() {
-    Layer layer = new Layer();
+    LayerProperties layer = new LayerProperties();
     layer.setName("anon-attempt");
     layer.setUrlTemplate("http://example.com/{z}/{y}/{x}");
 

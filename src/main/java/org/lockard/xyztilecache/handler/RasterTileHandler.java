@@ -1,10 +1,13 @@
 package org.lockard.xyztilecache.handler;
 
-import com.google.common.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.LoadingCache;
+import java.io.IOException;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletionException;
+import org.lockard.xyztilecache.cache.StaleTileException;
+import org.lockard.xyztilecache.cache.UpstreamUnavailableException;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.model.TileResult;
@@ -35,19 +38,30 @@ public class RasterTileHandler implements TileSourceHandler {
   }
 
   @Override
-  public Optional<TileResult> getTile(Layer layer, int z, int x, int y) {
+  public Optional<TileResult> getTile(Layer layer, int z, int x, int y) throws IOException {
     try {
-      byte[] data = tileCache.get(new Tile(layer, x, y, z));
+      byte[] data = tileCache.get(new Tile(layer.effectiveId(), x, y, z));
       return Optional.of(new TileResult(data, 0, detectContentType(data)));
-    } catch (ExecutionException e) {
+    } catch (CompletionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof StaleTileException stale) {
+        // Upstream is down but an expired disk tile exists; serve it without promoting the
+        // stale bytes into the in-memory cache so the next request retries the source.
+        LOGGER.debug(
+            "Serving stale tile {}/{}/{} for layer {} (upstream unavailable).",
+            z,
+            x,
+            y,
+            layer.effectiveId());
+        return Optional.of(
+            new TileResult(stale.staleData(), 0, detectContentType(stale.staleData())));
+      }
+      if (cause instanceof UpstreamUnavailableException uu) {
+        throw uu;
+      }
       LOGGER.debug(
-          "Failed to retrieve tile {}/{}/{} for layer {}",
-          z,
-          x,
-          y,
-          layer.getEffectiveId(),
-          e.getCause());
-      throw new TileNotFoundException(e.getCause());
+          "Failed to retrieve tile {}/{}/{} for layer {}", z, x, y, layer.effectiveId(), cause);
+      throw new TileNotFoundException(cause);
     }
   }
 

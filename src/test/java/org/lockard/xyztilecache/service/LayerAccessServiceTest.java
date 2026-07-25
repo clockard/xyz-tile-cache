@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
@@ -23,23 +24,23 @@ class LayerAccessServiceTest {
   private final LayerAccessService service = new LayerAccessService(new XyzConfiguration());
 
   private static Layer publicLayer() {
-    Layer l = new Layer();
+    LayerProperties l = new LayerProperties();
     l.setName("public");
-    return l;
+    return l.toLayer();
   }
 
   private static Layer userRestricted(String... users) {
-    Layer l = new Layer();
+    LayerProperties l = new LayerProperties();
     l.setName("user-restricted");
     l.setAllowedUsers(List.of(users));
-    return l;
+    return l.toLayer();
   }
 
   private static Layer groupRestricted(String... groups) {
-    Layer l = new Layer();
+    LayerProperties l = new LayerProperties();
     l.setName("group-restricted");
     l.setAllowedGroups(List.of(groups));
-    return l;
+    return l.toLayer();
   }
 
   private static Authentication userAuth(String username, List<String> groups, String... roles) {

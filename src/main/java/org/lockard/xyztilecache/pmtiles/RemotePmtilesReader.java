@@ -1,8 +1,9 @@
 package org.lockard.xyztilecache.pmtiles;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -11,7 +12,6 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
 import org.lockard.xyztilecache.model.TileResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
 public class RemotePmtilesReader {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(RemotePmtilesReader.class);
+  private static final long INITIAL_BACKOFF_MS = 30_000L;
+  private static final long MAX_BACKOFF_MS = 300_000L;
 
   private final String url;
   private final HttpClient httpClient;
@@ -28,13 +30,14 @@ public class RemotePmtilesReader {
   private volatile List<PmtilesEntry> rootDir;
   private final Cache<Long, List<PmtilesEntry>> leafCache;
   private final Object initLock = new Object();
-  private volatile boolean initialized = false;
+  private volatile long lastInitAttemptMs = 0L;
+  private volatile long nextBackoffMs = INITIAL_BACKOFF_MS;
 
   public RemotePmtilesReader(String url, HttpClient httpClient, int timeoutSeconds) {
     this.url = url;
     this.httpClient = httpClient;
     this.timeoutSeconds = timeoutSeconds;
-    this.leafCache = CacheBuilder.newBuilder().maximumSize(64).build();
+    this.leafCache = Caffeine.newBuilder().maximumSize(64).build();
   }
 
   public Optional<TileResult> getTile(int z, int x, int y) throws IOException {
@@ -66,27 +69,41 @@ public class RemotePmtilesReader {
   }
 
   private void ensureInitialized() {
-    if (initialized) {
+    if (header != null) {
+      return;
+    }
+    long now = System.currentTimeMillis();
+    if (now - lastInitAttemptMs < nextBackoffMs) {
       return;
     }
     synchronized (initLock) {
-      if (initialized) {
+      if (header != null) {
         return;
       }
+      now = System.currentTimeMillis();
+      if (now - lastInitAttemptMs < nextBackoffMs) {
+        return;
+      }
+      lastInitAttemptMs = now;
       try {
         byte[] headerBytes = fetchRange(0, 127);
-        header = PmtilesHeader.parse(headerBytes);
-        byte[] rootRaw = fetchRange(header.rootDirOffset(), header.rootDirLength());
-        rootDir =
+        PmtilesHeader parsed = PmtilesHeader.parse(headerBytes);
+        byte[] rootRaw = fetchRange(parsed.rootDirOffset(), parsed.rootDirLength());
+        List<PmtilesEntry> parsedRoot =
             PmtilesReader.decodeDirectory(
-                PmtilesReader.decompress(rootRaw, header.internalCompression()));
+                PmtilesReader.decompress(rootRaw, parsed.internalCompression()));
+        rootDir = parsedRoot;
+        header = parsed; // set last — guards the success check above
+        nextBackoffMs = INITIAL_BACKOFF_MS;
         LOGGER.info("RemotePmtilesReader initialized from {}", url);
-      } catch (IOException e) {
-        LOGGER.warn("Failed to initialize RemotePmtilesReader from {}: {}", url, e.getMessage());
-        header = null;
-        rootDir = null;
+      } catch (IOException | RuntimeException e) {
+        LOGGER.warn(
+            "Failed to initialize RemotePmtilesReader from {}: {} (will retry after {} ms)",
+            url,
+            e.getMessage(),
+            nextBackoffMs);
+        nextBackoffMs = Math.min(nextBackoffMs * 2, MAX_BACKOFF_MS);
       }
-      initialized = true;
     }
   }
 
@@ -94,15 +111,19 @@ public class RemotePmtilesReader {
     try {
       return leafCache.get(
           pointer.offset(),
-          () -> {
-            byte[] raw = fetchRange(header.leafDirsOffset() + pointer.offset(), pointer.length());
-            return PmtilesReader.decodeDirectory(
-                PmtilesReader.decompress(raw, header.internalCompression()));
+          k -> {
+            try {
+              byte[] raw = fetchRange(header.leafDirsOffset() + pointer.offset(), pointer.length());
+              return PmtilesReader.decodeDirectory(
+                  PmtilesReader.decompress(raw, header.internalCompression()));
+            } catch (IOException e) {
+              throw new UncheckedIOException(e);
+            }
           });
-    } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof IOException ioe) throw ioe;
-      throw new IOException("Failed to load remote leaf directory", cause);
+    } catch (UncheckedIOException e) {
+      throw e.getCause();
+    } catch (RuntimeException e) {
+      throw new IOException("Failed to load remote leaf directory", e);
     }
   }
 

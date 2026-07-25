@@ -6,6 +6,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.model.Layer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -33,7 +34,7 @@ class XyzTileCacheApplicationInitLayerTest {
         "xyz.layers",
         () -> {
           // VECTOR_PMTILES with initZoom > 0, blank URL → logs warning, skips
-          Layer vecNoUrl = new Layer();
+          LayerProperties vecNoUrl = new LayerProperties();
           vecNoUrl.setId("vec-no-url");
           vecNoUrl.setName("Vec No URL");
           vecNoUrl.setSourceType(Layer.SourceType.VECTOR_PMTILES);
@@ -44,7 +45,7 @@ class XyzTileCacheApplicationInitLayerTest {
               XyzTileCacheApplicationInitLayerTest.class
                   .getClassLoader()
                   .getResource("test_fixture_1.pmtiles");
-          Layer vecLocal = new Layer();
+          LayerProperties vecLocal = new LayerProperties();
           vecLocal.setId("vec-local");
           vecLocal.setName("Vec Local");
           vecLocal.setSourceType(Layer.SourceType.VECTOR_PMTILES);
@@ -52,7 +53,7 @@ class XyzTileCacheApplicationInitLayerTest {
           vecLocal.setUrlTemplate(Paths.get(fixture.getPath()).toString());
 
           // VECTOR_PMTILES with initZoom > 0, HTTP URL → attempts download (fails gracefully)
-          Layer vecHttp = new Layer();
+          LayerProperties vecHttp = new LayerProperties();
           vecHttp.setId("vec-http");
           vecHttp.setName("Vec HTTP");
           vecHttp.setSourceType(Layer.SourceType.VECTOR_PMTILES);
@@ -60,7 +61,7 @@ class XyzTileCacheApplicationInitLayerTest {
           vecHttp.setUrlTemplate("https://example.invalid/tiles.pmtiles");
 
           // Raster (XYZ) layer with initZoom > 0 → submits bounding-box preload
-          Layer rasterInit = new Layer();
+          LayerProperties rasterInit = new LayerProperties();
           rasterInit.setId("raster-init");
           rasterInit.setName("Raster Init");
           rasterInit.setSourceType(Layer.SourceType.XYZ);

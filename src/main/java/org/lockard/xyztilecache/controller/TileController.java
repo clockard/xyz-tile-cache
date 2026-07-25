@@ -2,6 +2,8 @@ package org.lockard.xyztilecache.controller;
 
 import java.io.IOException;
 import java.util.Optional;
+import org.lockard.xyztilecache.cache.UpstreamUnavailableException;
+import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.handler.TileNotFoundException;
 import org.lockard.xyztilecache.handler.TileSourceHandlerRegistry;
 import org.lockard.xyztilecache.model.Layer;
@@ -29,21 +31,26 @@ class TileController {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(TileController.class);
   private static final int COMPRESSION_GZIP = 2;
+  private static final long IMMUTABLE_MAX_AGE_SECONDS = 31_536_000L;
+  private static final int MAX_SUPPORTED_ZOOM = 30;
 
   private final LayerStore layerStore;
   private final LayerAccessService layerAccessService;
   private final PreloadService preloadService;
   private final TileSourceHandlerRegistry handlerRegistry;
+  private final XyzConfiguration configuration;
 
   TileController(
       LayerStore layerStore,
       LayerAccessService layerAccessService,
       PreloadService preloadService,
-      TileSourceHandlerRegistry handlerRegistry) {
+      TileSourceHandlerRegistry handlerRegistry,
+      XyzConfiguration configuration) {
     this.layerStore = layerStore;
     this.layerAccessService = layerAccessService;
     this.preloadService = preloadService;
     this.handlerRegistry = handlerRegistry;
+    this.configuration = configuration;
   }
 
   /** Legacy endpoint — prefer POST /preloads for new integrations. */
@@ -90,6 +97,11 @@ class TileController {
   }
 
   private ResponseEntity<byte[]> serveTile(String layerName, int z, int x, int y) {
+    // Reject out-of-range coordinates before they reach the handlers: garbage requests must not
+    // generate upstream fetches (whose failures would feed the layer's circuit breaker).
+    if (z < 0 || z > MAX_SUPPORTED_ZOOM || x < 0 || y < 0 || x >= (1L << z) || y >= (1L << z)) {
+      return ResponseEntity.notFound().build();
+    }
     Layer layer = layerStore.getLayers().get(layerName);
     if (layer == null) {
       return ResponseEntity.badRequest()
@@ -104,20 +116,23 @@ class TileController {
       return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
-    if (z > layer.getMaxZoom()) {
-      LOGGER.debug("Zoom {} exceeds maxZoom {} for layer {}", z, layer.getMaxZoom(), layerName);
+    if (z > layer.maxZoom()) {
+      LOGGER.debug("Zoom {} exceeds maxZoom {} for layer {}", z, layer.maxZoom(), layerName);
       return ResponseEntity.notFound().build();
     }
 
-    var handler = handlerRegistry.getHandler(layer.getSourceType());
+    var handler = handlerRegistry.getHandler(layer.sourceType());
     if (handler.isEmpty()) {
       return ResponseEntity.badRequest()
-          .body(("No handler for layer type " + layer.getSourceType()).getBytes());
+          .body(("No handler for layer type " + layer.sourceType()).getBytes());
     }
 
     Optional<TileResult> result;
     try {
       result = handler.get().getTile(layer, z, x, y);
+    } catch (UpstreamUnavailableException e) {
+      LOGGER.debug("Upstream blocked for layer {}: {}", layerName, e.getMessage());
+      return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
     } catch (TileNotFoundException e) {
       return ResponseEntity.notFound().build();
     } catch (IOException e) {
@@ -130,14 +145,30 @@ class TileController {
       return ResponseEntity.noContent().build();
     }
 
-    layerStore.getRuntimeState(layer.getEffectiveId()).incrementTilesServed();
+    layerStore.getRuntimeState(layer.effectiveId()).incrementTilesServed();
     TileResult tile = result.get();
     HttpHeaders headers = new HttpHeaders();
     headers.add("Access-Control-Allow-Origin", "*");
     headers.add("Content-Type", tile.contentType());
+    headers.add(HttpHeaders.CACHE_CONTROL, cacheControlFor(layer));
     if (tile.tileCompression() == COMPRESSION_GZIP) {
       headers.add("Content-Encoding", "gzip");
     }
     return new ResponseEntity<>(tile.data(), headers, HttpStatus.OK);
+  }
+
+  private String cacheControlFor(Layer layer) {
+    String visibility = layer.isPublic() ? "public" : "private";
+    Layer.SourceType type = layer.sourceType();
+    int expirationMinutes = layer.tileExpirationMinutes();
+    if (expirationMinutes == 0
+        && (type == Layer.SourceType.LOCAL || type == Layer.SourceType.VECTOR_PMTILES)) {
+      return visibility + ", immutable, max-age=" + IMMUTABLE_MAX_AGE_SECONDS;
+    }
+    long maxAge =
+        expirationMinutes > 0
+            ? expirationMinutes * 60L
+            : configuration.getDefaultCacheMaxAgeSeconds();
+    return visibility + ", max-age=" + maxAge;
   }
 }

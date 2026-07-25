@@ -9,6 +9,13 @@ import java.util.List;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class Preload {
 
+  public enum Status {
+    PENDING,
+    RUNNING,
+    DONE,
+    FAILED
+  }
+
   private String id;
   private String name;
   private BoundingBox boundingBox;
@@ -17,6 +24,8 @@ public class Preload {
   private Instant createdAt;
   private List<String> allowedUsers = new ArrayList<>();
   private List<String> allowedGroups = new ArrayList<>();
+  private Status status = Status.PENDING;
+  private String errorMessage;
 
   public String getId() {
     return id;
@@ -85,5 +94,21 @@ public class Preload {
   @JsonIgnore
   public boolean isPublic() {
     return allowedUsers.isEmpty() && allowedGroups.isEmpty();
+  }
+
+  public Status getStatus() {
+    return status;
+  }
+
+  public void setStatus(Status status) {
+    this.status = status == null ? Status.PENDING : status;
+  }
+
+  public String getErrorMessage() {
+    return errorMessage;
+  }
+
+  public void setErrorMessage(String errorMessage) {
+    this.errorMessage = errorMessage;
   }
 }

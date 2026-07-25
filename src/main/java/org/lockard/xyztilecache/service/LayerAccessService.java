@@ -24,7 +24,7 @@ public class LayerAccessService {
   }
 
   public boolean canRead(Layer layer, Authentication auth) {
-    return checkAccess(layer.isPublic(), layer.getAllowedUsers(), layer.getAllowedGroups(), auth);
+    return checkAccess(layer.isPublic(), layer.allowedUsers(), layer.allowedGroups(), auth);
   }
 
   public boolean canViewPreload(Preload preload, Authentication auth) {

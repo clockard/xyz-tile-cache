@@ -111,6 +111,45 @@ class RemotePmtilesReaderTest {
   }
 
   @Test
+  void getTile_retriesAfterBackoff_recoversFromInitFailure() throws Exception {
+    // First, stub the URL with a 500 so init fails
+    wireMock.stubFor(
+        get(urlEqualTo("/recoverable.pmtiles")).willReturn(aResponse().withStatus(500)));
+    RemotePmtilesReader reader =
+        new RemotePmtilesReader(
+            wireMock.baseUrl() + "/recoverable.pmtiles", HttpClient.newHttpClient(), 10);
+
+    // First call: init fails, header stays null
+    assertThat(reader.getTile(0, 0, 0)).isEmpty();
+
+    // Reset the backoff so the next call can retry immediately
+    java.lang.reflect.Field f = RemotePmtilesReader.class.getDeclaredField("lastInitAttemptMs");
+    f.setAccessible(true);
+    f.setLong(reader, 0L);
+
+    // Re-stub with a working range response and retry
+    wireMock.stubFor(
+        get(urlEqualTo("/recoverable.pmtiles"))
+            .willReturn(aResponse().withStatus(206).withTransformers("range")));
+    assertThat(reader.getTile(0, 0, 0)).isPresent();
+  }
+
+  @Test
+  void getTile_withinBackoffWindow_doesNotRetry() throws Exception {
+    wireMock.stubFor(get(urlEqualTo("/locked.pmtiles")).willReturn(aResponse().withStatus(500)));
+    RemotePmtilesReader reader =
+        new RemotePmtilesReader(
+            wireMock.baseUrl() + "/locked.pmtiles", HttpClient.newHttpClient(), 10);
+
+    assertThat(reader.getTile(0, 0, 0)).isEmpty();
+    int requestsAfterFirst = wireMock.getAllServeEvents().size();
+
+    // Without resetting the backoff timer, a second call must not hit the network again
+    assertThat(reader.getTile(0, 0, 0)).isEmpty();
+    assertThat(wireMock.getAllServeEvents()).hasSize(requestsAfterFirst);
+  }
+
+  @Test
   void getTile_serverReturns200_treatedAsSuccess() throws Exception {
     // Some servers return 200 OK instead of 206 Partial Content for range requests;
     // RemotePmtilesReader accepts both.

@@ -1,7 +1,10 @@
 package org.lockard.xyztilecache.service;
 
-import com.google.common.cache.LoadingCache;
-import java.awt.Point;
+import com.github.benmanes.caffeine.cache.LoadingCache;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -9,12 +12,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.lockard.xyztilecache.XyzUtil;
+import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
@@ -30,23 +34,43 @@ public class PreloadService {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PreloadService.class);
 
+  static final String INFLIGHT_GAUGE = "xyz_preload_inflight";
+
   private final LayerStore layerStore;
   private final LoadingCache<Tile, byte[]> tileCache;
   private final PreloadStore preloadStore;
   private final PmtilesDownloader pmtilesDownloader;
+  private final MeterRegistry meterRegistry;
+  private final XyzConfiguration configuration;
 
-  private final ExecutorService xyzExecutor = Executors.newSingleThreadExecutor();
-  private volatile Future<?> xyzFuture;
+  private final ExecutorService xyzExecutor = Executors.newVirtualThreadPerTaskExecutor();
+  private final AtomicInteger inflightXyzPreloads = new AtomicInteger();
 
   public PreloadService(
       LayerStore layerStore,
       LoadingCache<Tile, byte[]> tileCache,
       PreloadStore preloadStore,
-      PmtilesDownloader pmtilesDownloader) {
+      PmtilesDownloader pmtilesDownloader,
+      MeterRegistry meterRegistry,
+      XyzConfiguration configuration) {
     this.layerStore = layerStore;
     this.tileCache = tileCache;
     this.preloadStore = preloadStore;
     this.pmtilesDownloader = pmtilesDownloader;
+    this.meterRegistry = meterRegistry;
+    this.configuration = configuration;
+  }
+
+  @PostConstruct
+  void registerMetrics() {
+    Gauge.builder(INFLIGHT_GAUGE, inflightXyzPreloads, AtomicInteger::get)
+        .description("Number of in-flight xyz preload jobs.")
+        .register(meterRegistry);
+  }
+
+  @PreDestroy
+  void shutdown() {
+    xyzExecutor.shutdown();
   }
 
   public Preload submit(
@@ -71,20 +95,30 @@ public class PreloadService {
     Layer vectorLayer =
         validLayers.stream()
             .map(layerStore.getLayers()::get)
-            .filter(l -> l.getSourceType() == Layer.SourceType.VECTOR_PMTILES)
+            .filter(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES)
             .findFirst()
             .orElse(null);
 
+    Set<String> rasterLayers =
+        validLayers.stream()
+            .filter(
+                l -> layerStore.getLayers().get(l).sourceType() != Layer.SourceType.VECTOR_PMTILES)
+            .collect(Collectors.toSet());
+
     if (vectorLayer != null) {
-      if (vectorLayer.getUrlTemplate() == null || vectorLayer.getUrlTemplate().isBlank()) {
+      if (vectorLayer.urlTemplate() == null || vectorLayer.urlTemplate().isBlank()) {
         throw new IllegalArgumentException(
             "VECTOR_PMTILES layer '"
-                + vectorLayer.getEffectiveId()
+                + vectorLayer.effectiveId()
                 + "' has no urlTemplate configured");
       }
       if (pmtilesDownloader.isDownloadInProgress()) {
         throw new IllegalStateException("A vector download is already in progress");
       }
+      // Fail fast on input the pmtiles extract would reject; validating here (before the preload
+      // is persisted) keeps a doomed download from ever showing up as RUNNING.
+      PmtilesDownloader.requireValidBoundingBox(boundingBox);
+      PmtilesDownloader.requireValidMaxZoom(maxZoom);
     }
 
     Preload preload = new Preload();
@@ -101,9 +135,9 @@ public class PreloadService {
 
     preloadStore.addPreload(preload);
 
-    if (!validLayers.isEmpty()) {
+    if (!rasterLayers.isEmpty()) {
       boundingBox.setMaxZoom(maxZoom);
-      submitXyz(validLayers, boundingBox);
+      submitXyz(preload, rasterLayers, boundingBox, vectorLayer == null);
     }
     if (vectorLayer != null) {
       try {
@@ -124,31 +158,93 @@ public class PreloadService {
     runXyzPreload(validLayers, bbox);
   }
 
-  private synchronized void submitXyz(Set<String> layers, BoundingBox bbox) {
-    if (xyzFuture != null && !xyzFuture.isDone()) {
-      LOGGER.info("Skipping xyz preload dispatch — a previous preload is still running.");
-      return;
+  private void submitXyz(
+      Preload preload, Set<String> layers, BoundingBox bbox, boolean ownsLifecycle) {
+    xyzExecutor.submit(() -> runXyzPreload(preload, layers, bbox, ownsLifecycle));
+  }
+
+  /**
+   * When a PMTiles download runs in parallel it owns the preload's status lifecycle; the raster
+   * pass then only records failures.
+   */
+  private void runXyzPreload(
+      Preload preload, Set<String> layers, BoundingBox bbox, boolean ownsLifecycle) {
+    if (ownsLifecycle) {
+      updateRasterStatus(preload, Preload.Status.RUNNING, null);
     }
-    xyzFuture = xyzExecutor.submit(() -> runXyzPreload(layers, bbox));
+    try {
+      runXyzPreload(layers, bbox);
+      if (ownsLifecycle) {
+        updateRasterStatus(preload, Preload.Status.DONE, null);
+      }
+    } catch (RuntimeException e) {
+      updateRasterStatus(preload, Preload.Status.FAILED, e.getMessage());
+      throw e;
+    }
+  }
+
+  private void updateRasterStatus(Preload preload, Preload.Status status, String errorMessage) {
+    if (preload == null) return;
+    preload.setStatus(status);
+    preload.setErrorMessage(errorMessage);
+    try {
+      preloadStore.update(preload);
+    } catch (IOException e) {
+      LOGGER.warn(
+          "Failed to persist preload status {} for '{}': {}",
+          status,
+          preload.getId(),
+          e.getMessage());
+    } catch (java.util.NoSuchElementException e) {
+      LOGGER.debug("Preload '{}' no longer present; skipping status update", preload.getId());
+    }
   }
 
   private void runXyzPreload(Set<String> layers, BoundingBox bbox) {
-    List<Set<Point>> allPoints = XyzUtil.calculateAllBboxTiles(bbox);
-    for (String layerName : layers) {
-      Layer layer = layerStore.getLayers().get(layerName);
-      if (layer == null || layer.getSourceType() == Layer.SourceType.VECTOR_PMTILES) continue;
-      for (int z = 0; z < allPoints.size(); z++) {
-        for (Point p : allPoints.get(z)) {
-          Tile tile = new Tile(layer, p.x, p.y, z);
-          try {
-            tileCache.get(tile);
-          } catch (ExecutionException e) {
-            LOGGER.error("Error pre-loading bounding box tile: {}.", tile, e.getCause());
+    inflightXyzPreloads.incrementAndGet();
+    int concurrency = Math.max(1, configuration.getPreloadConcurrency());
+    Semaphore permits = new Semaphore(concurrency);
+    try {
+      // Iterate ranges lazily: materializing per-tile collections grows ~4^maxZoom and can
+      // exhaust the heap for large bboxes. The semaphore bounds in-flight fetches so a preload
+      // is parallel without hammering the source.
+      List<XyzUtil.TileRange> ranges = XyzUtil.calculateBboxRanges(bbox);
+      for (String layerName : layers) {
+        Layer layer = layerStore.getLayers().get(layerName);
+        if (layer == null || layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) continue;
+        String layerId = layer.effectiveId();
+        for (XyzUtil.TileRange range : ranges) {
+          for (int x = range.xMin(); x <= range.xMax(); x++) {
+            for (int y = range.yMin(); y <= range.yMax(); y++) {
+              Tile tile = new Tile(layerId, x, y, range.zoom());
+              permits.acquire();
+              xyzExecutor.submit(
+                  () -> {
+                    try {
+                      tileCache.get(tile);
+                    } catch (RuntimeException e) {
+                      LOGGER.error(
+                          "Error pre-loading bounding box tile: {}.",
+                          tile,
+                          e.getCause() != null ? e.getCause() : e);
+                    } finally {
+                      permits.release();
+                    }
+                  });
+            }
           }
         }
       }
+      // Drain: once all permits are reacquirable, every submitted fetch has finished.
+      permits.acquire(concurrency);
+      permits.release(concurrency);
+      LOGGER.info("Finished xyz preload for layers {}.", layers);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Preload interrupted", e);
+    } finally {
+      inflightXyzPreloads.decrementAndGet();
     }
-    LOGGER.info("Finished xyz preload for layers {}.", layers);
   }
 
   private static String displayName(String requested, BoundingBox bbox, int maxZoom) {
