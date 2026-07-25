@@ -12,9 +12,11 @@ WORKDIR /src
 # Upgrade golang.org/x/net to 0.55.0+ to fix CVE-2026-25680/25681/27136/39821/42502/42506 (HTML parsing/Render CPU & memory issues, idna Punycode privilege escalation)
 # Upgrade golang.org/x/crypto to 0.52.0+ to fix CVE-2026-39827/39828/39829/39830/39831/39832/39835/42508/46595/46597 (ssh client/server/agent/knownhosts issues)
 # Upgrade otel/sdk to 1.43.0+ to fix CVE-2026-39883 (PATH hijacking via kenv)
+# Upgrade grpc-go to 1.82.1+ to fix GHSA-hrxh-6v49-42gf (xDS RBAC and HTTP/2 vulnerabilities)
 RUN go get golang.org/x/net@v0.55.0 \
  && go get golang.org/x/crypto@v0.52.0 \
  && go get go.opentelemetry.io/otel/sdk@v1.43.0 \
+ && go get google.golang.org/grpc@v1.82.1 \
  && go mod tidy \
  && CGO_ENABLED=0 go build -o /usr/local/bin/pmtiles .
 
