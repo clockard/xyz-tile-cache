@@ -31,7 +31,8 @@ RUN apk upgrade --no-cache
 # gdal-tools provides gdal2tiles.py used by /layers/geotiff to tile uploaded GeoTIFFs.
 # Alpine splits GDAL drivers into separate packages; png is required for gdal2tiles output,
 # jpeg covers JPEG-compressed input TIFFs commonly used in remote sensing.
-RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg openjdk25-jre-headless\
+RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg\
+ && apk add --no-cache "openjdk25-jre-headless>=25.0.4_p7-r0" \
  && apk add --no-cache "libxml2>=2.13.9-r1" \
  && apk add --no-cache "openssl>=3.5.7-r0" "libcrypto3>=3.5.7-r0" "libssl3>=3.5.7-r0" "sqlite>=3.53.2" \
  && apk add --no-cache "c-ares>=1.34.8-r0" "libcurl>=8.21.0-r0" "libexpat>=2.8.2-r0" \
