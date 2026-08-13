@@ -72,6 +72,22 @@ public class PreloadController {
     return new ResponseEntity<>(infos, headers, HttpStatus.OK);
   }
 
+  /**
+   * Status for a single preload. Unreadable preloads are reported as 404 rather than 403 so the
+   * endpoint does not disclose the existence of preloads restricted to other users.
+   */
+  @GetMapping("/{id}")
+  public ResponseEntity<PreloadInfo> get(@PathVariable("id") String id) {
+    HttpHeaders headers = new HttpHeaders();
+    headers.add("Access-Control-Allow-Origin", "*");
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    return preloadStore
+        .findById(id)
+        .filter(p -> layerAccessService.canViewPreload(p, auth))
+        .map(p -> new ResponseEntity<>(toInfo(p), headers, HttpStatus.OK))
+        .orElseGet(() -> new ResponseEntity<>(headers, HttpStatus.NOT_FOUND));
+  }
+
   @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
   public ResponseEntity<?> create(@RequestBody PreloadCreateRequest request) {
     if (request.getBoundingBox() == null) {
@@ -149,6 +165,9 @@ public class PreloadController {
         p.getAllowedUsers(),
         p.getAllowedGroups(),
         p.getStatus(),
-        p.getErrorMessage());
+        p.getErrorMessage(),
+        p.getStartedAt(),
+        p.getFinishedAt(),
+        preloadService.progressFor(p));
   }
 }

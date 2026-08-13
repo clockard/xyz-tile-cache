@@ -307,6 +307,7 @@ For larger areas use a protomaps vector layer. If the area is too large (too man
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/preloads` | none (filtered) | List persisted preloads visible to the caller. |
+| `GET` | `/preloads/{id}` | none (filtered) | Status of a single preload (see below). 404 if it does not exist *or* the caller cannot view it. |
 | `POST` | `/preloads` | admin | Create a preload (see body below). 409 if a vector download is already in progress; 400 for invalid input (e.g. a `VECTOR_PMTILES` layer with no `urlTemplate`, or an out-of-range bounding box / zoom). |
 | `DELETE` | `/preloads/{id}` | admin | Remove a preload record (does not delete cached tiles). |
 | `POST` | `/preload` | admin | Legacy fire-and-forget preload (not persisted). |
@@ -325,6 +326,33 @@ For larger areas use a protomaps vector layer. If the area is too large (too man
   "allowedGroups": ["team-imagery"]
 }
 ```
+
+#### Preload status
+
+`POST /preloads` returns 202 with the same object shape as `GET /preloads/{id}`, so a client can hold onto the `id` and poll it:
+
+```json
+{
+  "id": "0f1c…",
+  "name": "philly-z14",
+  "status": "RUNNING",
+  "errorMessage": null,
+  "startedAt": "2026-08-12T18:44:04.598Z",
+  "finishedAt": null,
+  "progress": {
+    "totalTiles": 20964,
+    "completedTiles": 8112,
+    "failedTiles": 3,
+    "percentComplete": 38
+  }
+}
+```
+
+- `status` — `PENDING` → `RUNNING` → `DONE` / `FAILED`. `errorMessage` is set on `FAILED`.
+- `progress` — raster tile counts, live while the job runs and frozen at its final values afterward. A tile whose fetch errors is counted in `failedTiles` and is *not* retried, so it still counts toward `percentComplete`. `progress` is `null` for vector-only preloads (a `pmtiles extract` reports no intermediate progress) and for preloads created before this field existed.
+- A job mixing raster and `VECTOR_PMTILES` layers reaches `DONE` only once *both* halves finish, and `FAILED` if either one does. Its `progress` covers the raster tiles only, so it can read 100% while the vector extract is still running — `status` is the authoritative signal.
+- Counts are held in memory while a job runs and persisted to `preloads.json` when it finishes, so polling does not rewrite the file per tile. Nothing resumes a preload across a restart, so any job still `PENDING`/`RUNNING` at startup is marked `FAILED`.
+- The list endpoint returns the same fields for every visible preload.
 
 If `layers` includes a `VECTOR_PMTILES` layer, the proxy runs `pmtiles extract` against that layer's `urlTemplate` to materialize a PMTiles bundle covering the bounding box (capped at `maxZoom`) and writes it under `{baseTileDirectory}/{layerId}/`. Only one vector download runs at a time.
 

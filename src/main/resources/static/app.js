@@ -1587,14 +1587,65 @@ function renderDownloads(preloads) {
       : '';
 
     return `<li class="download-item" data-index="${i}"${hint}>
-      <div class="download-name">${escapeHtml(p.name || '(unnamed)')}${accessLine}</div>
+      <div class="download-item-header">
+        <div class="download-name">${escapeHtml(p.name || '(unnamed)')}${accessLine}</div>
+        ${preloadStatusBadge(p)}
+      </div>
       ${layersLine}
+      ${preloadProgressHtml(p)}
       <div class="download-meta">
         ${sizeLine}Zoom &le; ${p.maxZoom}<br>
         ${boundsLine}${date}
       </div>
+      ${preloadErrorHtml(p)}
     </li>`;
   }).join('');
+}
+
+const PRELOAD_STATUS_LABELS = {
+  PENDING: 'Queued',
+  RUNNING: 'Running',
+  DONE: 'Done',
+  FAILED: 'Failed'
+};
+
+function preloadStatusBadge(p) {
+  if (!p.status) return '';
+  const label = PRELOAD_STATUS_LABELS[p.status] || p.status;
+  return `<span class="status-badge ${escapeHtml(p.status.toLowerCase())}">${escapeHtml(label)}</span>`;
+}
+
+/**
+ * Tile progress bar. Only raster preloads report counts — a vector extract has no intermediate
+ * progress, so `progress` is null there and the status badge carries the whole story. A finished
+ * job shows its tile tally as text rather than a permanently full bar.
+ */
+function preloadProgressHtml(p) {
+  const progress = p.progress;
+  if (!progress || !progress.totalTiles) return '';
+  const failedNote = progress.failedTiles
+    ? ` &bull; ${formatCount(progress.failedTiles)} failed`
+    : '';
+  if (p.status === 'DONE') {
+    return `<div class="preload-progress-text">${formatCount(progress.completedTiles)} tiles cached${failedNote}</div>`;
+  }
+  const percent = Math.max(0, Math.min(100, progress.percentComplete || 0));
+  const barClass = p.status === 'FAILED' ? 'preload-progress-bar failed' : 'preload-progress-bar';
+  return `<div class="preload-progress">
+      <div class="preload-progress-track"><div class="${barClass}" style="width:${percent}%"></div></div>
+      <div class="preload-progress-text">
+        ${percent}% &bull; ${formatCount(progress.completedTiles)} / ${formatCount(progress.totalTiles)} tiles${failedNote}
+      </div>
+    </div>`;
+}
+
+function preloadErrorHtml(p) {
+  if (p.status !== 'FAILED' || !p.errorMessage) return '';
+  return `<div class="preload-error">${escapeHtml(p.errorMessage)}</div>`;
+}
+
+function formatCount(n) {
+  return Number(n || 0).toLocaleString();
 }
 
 function buildLayerLabels(p) {
