@@ -12,21 +12,28 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.lockard.xyztilecache.XyzUtil;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
+import org.lockard.xyztilecache.model.PreloadProgress;
 import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.lockard.xyztilecache.store.PreloadStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -45,6 +52,13 @@ public class PreloadService {
 
   private final ExecutorService xyzExecutor = Executors.newVirtualThreadPerTaskExecutor();
   private final AtomicInteger inflightXyzPreloads = new AtomicInteger();
+
+  /**
+   * Live tile counters for in-flight raster preloads, keyed by preload id. Counters stay in memory
+   * while a job runs — persisting every tile would rewrite {@code preloads.json} thousands of times
+   * — and are copied onto the {@link Preload} when it reaches a terminal status.
+   */
+  private final ConcurrentHashMap<String, ProgressCounter> progressById = new ConcurrentHashMap<>();
 
   public PreloadService(
       LayerStore layerStore,
@@ -135,19 +149,34 @@ public class PreloadService {
 
     preloadStore.addPreload(preload);
 
+    // A mixed job has two independent halves; it is only finished when both of them are.
+    JobTracker tracker =
+        new JobTracker(preload, (rasterLayers.isEmpty() ? 0 : 1) + (vectorLayer == null ? 0 : 1));
+
     if (!rasterLayers.isEmpty()) {
       boundingBox.setMaxZoom(maxZoom);
-      submitXyz(preload, rasterLayers, boundingBox, vectorLayer == null);
+      // Register the counter before submitting so a status poll between submit and the first tile
+      // fetch already reports a total rather than "unknown".
+      progressById.put(preload.getId(), new ProgressCounter());
+      submitXyz(preload, rasterLayers, boundingBox, tracker);
     }
     if (vectorLayer != null) {
-      try {
-        pmtilesDownloader.startDownload(preload, vectorLayer);
-      } catch (RuntimeException e) {
-        LOGGER.error("Failed to start vector download for preload {}", preload.getId(), e);
-        throw e;
-      }
+      startVectorDownload(preload, vectorLayer, tracker);
     }
     return preload;
+  }
+
+  private void startVectorDownload(Preload preload, Layer vectorLayer, JobTracker tracker) {
+    try {
+      pmtilesDownloader
+          .startDownload(preload, vectorLayer, false)
+          .whenComplete((ignored, error) -> tracker.partFinished(errorMessage(error)));
+    } catch (RuntimeException e) {
+      LOGGER.error("Failed to start vector download for preload {}", preload.getId(), e);
+      // The raster half may already be running, so the job still has to be closed out.
+      tracker.partFinished(errorMessage(e));
+      throw e;
+    }
   }
 
   /** Synchronous xyz preload used by startup bounding-box initialization. */
@@ -155,52 +184,96 @@ public class PreloadService {
     Set<String> validLayers =
         layerNames.stream().filter(layerStore.getLayers()::containsKey).collect(Collectors.toSet());
     if (validLayers.isEmpty()) return;
-    runXyzPreload(validLayers, bbox);
-  }
-
-  private void submitXyz(
-      Preload preload, Set<String> layers, BoundingBox bbox, boolean ownsLifecycle) {
-    xyzExecutor.submit(() -> runXyzPreload(preload, layers, bbox, ownsLifecycle));
+    runXyzPreload(validLayers, bbox, null);
   }
 
   /**
-   * When a PMTiles download runs in parallel it owns the preload's status lifecycle; the raster
-   * pass then only records failures.
+   * Tile progress for a preload: live counters while it runs, otherwise the snapshot persisted when
+   * it finished. Null when there is nothing to count — a vector-only preload, or one created before
+   * counters existed.
    */
-  private void runXyzPreload(
-      Preload preload, Set<String> layers, BoundingBox bbox, boolean ownsLifecycle) {
-    if (ownsLifecycle) {
-      updateRasterStatus(preload, Preload.Status.RUNNING, null);
+  public PreloadProgress progressFor(Preload preload) {
+    ProgressCounter counter = progressById.get(preload.getId());
+    if (counter != null) {
+      return counter.snapshot();
     }
-    try {
-      runXyzPreload(layers, bbox);
-      if (ownsLifecycle) {
-        updateRasterStatus(preload, Preload.Status.DONE, null);
+    if (preload.getTotalTiles() <= 0) {
+      return null;
+    }
+    return PreloadProgress.of(
+        preload.getTotalTiles(), preload.getCompletedTiles(), preload.getFailedTiles());
+  }
+
+  /**
+   * Nothing resumes a preload across a restart, so any job still marked PENDING/RUNNING in {@code
+   * preloads.json} is dead and would otherwise poll as RUNNING forever.
+   */
+  @EventListener(ApplicationReadyEvent.class)
+  public void failInterruptedPreloads() {
+    for (Preload preload : preloadStore.listPreloads()) {
+      if (preload.getStatus() == Preload.Status.PENDING
+          || preload.getStatus() == Preload.Status.RUNNING) {
+        LOGGER.info("Marking preload '{}' FAILED: interrupted by a restart", preload.getId());
+        updateStatus(preload, Preload.Status.FAILED, "Interrupted by a server restart.");
       }
-    } catch (RuntimeException e) {
-      updateRasterStatus(preload, Preload.Status.FAILED, e.getMessage());
-      throw e;
     }
   }
 
-  private void updateRasterStatus(Preload preload, Preload.Status status, String errorMessage) {
+  private void submitXyz(
+      Preload preload, Set<String> layers, BoundingBox bbox, JobTracker tracker) {
+    xyzExecutor.submit(() -> runXyzPreload(preload, layers, bbox, tracker));
+  }
+
+  /**
+   * Runs the raster half of a preload and reports its outcome to {@code tracker}, which owns the
+   * status: a job that also has a PMTiles download is DONE only once that half has finished too.
+   */
+  private void runXyzPreload(
+      Preload preload, Set<String> layers, BoundingBox bbox, JobTracker tracker) {
+    ProgressCounter counter = progressById.get(preload.getId());
+    updateStatus(preload, Preload.Status.RUNNING, null);
+    String error = null;
+    try {
+      runXyzPreload(layers, bbox, counter);
+    } catch (RuntimeException e) {
+      LOGGER.error("Raster preload pass failed for preload {}", preload.getId(), e);
+      error = errorMessage(e);
+    } finally {
+      copyProgress(preload, counter);
+      progressById.remove(preload.getId());
+      tracker.partFinished(error);
+    }
+  }
+
+  private void updateStatus(Preload preload, Preload.Status status, String errorMessage) {
     if (preload == null) return;
-    preload.setStatus(status);
-    preload.setErrorMessage(errorMessage);
+    preload.markStatus(status, errorMessage);
+    persist(preload);
+  }
+
+  private void copyProgress(Preload preload, ProgressCounter counter) {
+    if (counter == null) return;
+    PreloadProgress snapshot = counter.snapshot();
+    preload.setTotalTiles(snapshot.totalTiles());
+    preload.setCompletedTiles(snapshot.completedTiles());
+    preload.setFailedTiles(snapshot.failedTiles());
+  }
+
+  private void persist(Preload preload) {
     try {
       preloadStore.update(preload);
     } catch (IOException e) {
       LOGGER.warn(
-          "Failed to persist preload status {} for '{}': {}",
-          status,
+          "Failed to persist preload '{}' status {}: {}",
           preload.getId(),
+          preload.getStatus(),
           e.getMessage());
     } catch (java.util.NoSuchElementException e) {
       LOGGER.debug("Preload '{}' no longer present; skipping status update", preload.getId());
     }
   }
 
-  private void runXyzPreload(Set<String> layers, BoundingBox bbox) {
+  private void runXyzPreload(Set<String> layers, BoundingBox bbox, ProgressCounter counter) {
     inflightXyzPreloads.incrementAndGet();
     int concurrency = Math.max(1, configuration.getPreloadConcurrency());
     Semaphore permits = new Semaphore(concurrency);
@@ -209,9 +282,16 @@ public class PreloadService {
       // exhaust the heap for large bboxes. The semaphore bounds in-flight fetches so a preload
       // is parallel without hammering the source.
       List<XyzUtil.TileRange> ranges = XyzUtil.calculateBboxRanges(bbox);
-      for (String layerName : layers) {
-        Layer layer = layerStore.getLayers().get(layerName);
-        if (layer == null || layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) continue;
+      List<Layer> targets =
+          layers.stream()
+              .map(layerStore.getLayers()::get)
+              .filter(l -> l != null && l.sourceType() != Layer.SourceType.VECTOR_PMTILES)
+              .toList();
+      if (counter != null) {
+        long perLayer = ranges.stream().mapToLong(XyzUtil.TileRange::count).sum();
+        counter.setTotal(perLayer * targets.size());
+      }
+      for (Layer layer : targets) {
         String layerId = layer.effectiveId();
         for (XyzUtil.TileRange range : ranges) {
           for (int x = range.xMin(); x <= range.xMax(); x++) {
@@ -222,7 +302,9 @@ public class PreloadService {
                   () -> {
                     try {
                       tileCache.get(tile);
+                      if (counter != null) counter.recordCompleted();
                     } catch (RuntimeException e) {
+                      if (counter != null) counter.recordFailed();
                       LOGGER.error(
                           "Error pre-loading bounding box tile: {}.",
                           tile,
@@ -244,6 +326,71 @@ public class PreloadService {
       throw new IllegalStateException("Preload interrupted", e);
     } finally {
       inflightXyzPreloads.decrementAndGet();
+    }
+  }
+
+  private static String errorMessage(Throwable throwable) {
+    if (throwable == null) {
+      return null;
+    }
+    Throwable cause =
+        throwable instanceof CompletionException && throwable.getCause() != null
+            ? throwable.getCause()
+            : throwable;
+    String message = cause.getMessage();
+    return message == null || message.isBlank() ? cause.toString() : message;
+  }
+
+  /**
+   * Counts down the halves of one preload — a raster pass, a PMTiles download, or both — so that a
+   * mixed job only reaches a terminal status once every half has reported. The first error wins;
+   * the whole job fails if any half does.
+   */
+  private final class JobTracker {
+    private final Preload preload;
+    private final AtomicInteger remaining;
+    private final AtomicReference<String> firstError = new AtomicReference<>();
+
+    JobTracker(Preload preload, int parts) {
+      this.preload = preload;
+      this.remaining = new AtomicInteger(parts);
+    }
+
+    void partFinished(String error) {
+      if (error != null) {
+        firstError.compareAndSet(null, error);
+      }
+      if (remaining.decrementAndGet() > 0) {
+        // The other half is still working: keep whatever this one recorded (tile counts) on disk,
+        // but leave the job RUNNING.
+        persist(preload);
+        return;
+      }
+      String failure = firstError.get();
+      updateStatus(preload, failure == null ? Preload.Status.DONE : Preload.Status.FAILED, failure);
+    }
+  }
+
+  /** Mutable tile tally for one in-flight raster preload. */
+  private static final class ProgressCounter {
+    private final AtomicLong total = new AtomicLong();
+    private final AtomicLong completed = new AtomicLong();
+    private final AtomicLong failed = new AtomicLong();
+
+    void setTotal(long value) {
+      total.set(value);
+    }
+
+    void recordCompleted() {
+      completed.incrementAndGet();
+    }
+
+    void recordFailed() {
+      failed.incrementAndGet();
+    }
+
+    PreloadProgress snapshot() {
+      return PreloadProgress.of(total.get(), completed.get(), failed.get());
     }
   }
 

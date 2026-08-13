@@ -26,6 +26,11 @@ public class Preload {
   private List<String> allowedGroups = new ArrayList<>();
   private Status status = Status.PENDING;
   private String errorMessage;
+  private Instant startedAt;
+  private Instant finishedAt;
+  private long totalTiles;
+  private long completedTiles;
+  private long failedTiles;
 
   public String getId() {
     return id;
@@ -110,5 +115,65 @@ public class Preload {
 
   public void setErrorMessage(String errorMessage) {
     this.errorMessage = errorMessage;
+  }
+
+  public Instant getStartedAt() {
+    return startedAt;
+  }
+
+  public void setStartedAt(Instant startedAt) {
+    this.startedAt = startedAt;
+  }
+
+  public Instant getFinishedAt() {
+    return finishedAt;
+  }
+
+  public void setFinishedAt(Instant finishedAt) {
+    this.finishedAt = finishedAt;
+  }
+
+  public long getTotalTiles() {
+    return totalTiles;
+  }
+
+  public void setTotalTiles(long totalTiles) {
+    this.totalTiles = totalTiles;
+  }
+
+  public long getCompletedTiles() {
+    return completedTiles;
+  }
+
+  public void setCompletedTiles(long completedTiles) {
+    this.completedTiles = completedTiles;
+  }
+
+  public long getFailedTiles() {
+    return failedTiles;
+  }
+
+  public void setFailedTiles(long failedTiles) {
+    this.failedTiles = failedTiles;
+  }
+
+  /**
+   * Applies a status transition along with its timestamp. Kept off {@link #setStatus} so Jackson
+   * deserialization of a persisted preload does not rewrite the timestamps it just read.
+   */
+  @JsonIgnore
+  public void markStatus(Status newStatus, String error) {
+    Instant now = Instant.now();
+    if (newStatus == Status.RUNNING && startedAt == null) {
+      startedAt = now;
+    }
+    if (newStatus == Status.DONE || newStatus == Status.FAILED) {
+      if (startedAt == null) {
+        startedAt = now;
+      }
+      finishedAt = now;
+    }
+    setStatus(newStatus);
+    this.errorMessage = error;
   }
 }

@@ -15,4 +15,7 @@ public record PreloadInfo(
     List<String> allowedUsers,
     List<String> allowedGroups,
     Preload.Status status,
-    String errorMessage) {}
+    String errorMessage,
+    Instant startedAt,
+    Instant finishedAt,
+    PreloadProgress progress) {}

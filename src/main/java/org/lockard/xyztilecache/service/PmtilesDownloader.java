@@ -46,7 +46,19 @@ public class PmtilesDownloader {
     return preloadName.replaceAll("[^a-zA-Z0-9_\\-.]", "_") + ".pmtiles";
   }
 
+  /** Starts a download that owns the preload's status from RUNNING through to DONE / FAILED. */
   public CompletableFuture<Void> startDownload(Preload preload, Layer layer) {
+    return startDownload(preload, layer, true);
+  }
+
+  /**
+   * @param ownsTerminalStatus whether this download decides the preload's final status. False when
+   *     the preload also has a raster pass running: that job is only finished once both halves are,
+   *     so the outcome is reported through the returned future — which completes exceptionally on
+   *     failure — and the caller marks the preload DONE or FAILED.
+   */
+  public CompletableFuture<Void> startDownload(
+      Preload preload, Layer layer, boolean ownsTerminalStatus) {
     if (!downloadInProgress.compareAndSet(false, true)) {
       throw new IllegalStateException("A PMTiles download is already in progress");
     }
@@ -54,9 +66,15 @@ public class PmtilesDownloader {
         () -> {
           try {
             doDownload(preload, layer);
+            if (ownsTerminalStatus) {
+              markDone(preload);
+            }
           } catch (RuntimeException e) {
             // Safety net: an unexpected error must never leave the preload stuck RUNNING.
             LOGGER.error("PMTiles download failed for preload '{}'", preload.getId(), e);
+            if (!ownsTerminalStatus) {
+              throw e;
+            }
             markFailed(preload, e.getMessage());
           } finally {
             downloadInProgress.set(false);
@@ -64,25 +82,21 @@ public class PmtilesDownloader {
         });
   }
 
+  /** Runs the extract, throwing {@link DownloadFailedException} if it does not produce a file. */
   private void doDownload(Preload preload, Layer layer) {
     String layerId = layer.effectiveId();
     Path downloadDir =
         Path.of(xyzConfig.getBaseTileDirectory(), layerId).toAbsolutePath().normalize();
     Path outputPath = downloadDir.resolve(outputFilename(preload.getName())).normalize();
     if (!outputPath.startsWith(downloadDir)) {
-      String msg = "PMTiles filename escapes download directory: " + outputPath;
-      LOGGER.error(msg);
-      markFailed(preload, msg);
-      return;
+      throw new DownloadFailedException(
+          "PMTiles filename escapes download directory: " + outputPath);
     }
 
     try {
       Files.createDirectories(outputPath.getParent());
     } catch (IOException e) {
-      String msg = "Could not create download directory: " + e.getMessage();
-      LOGGER.error(msg);
-      markFailed(preload, msg);
-      return;
+      throw new DownloadFailedException("Could not create download directory: " + e.getMessage());
     }
 
     markRunning(preload);
@@ -94,10 +108,8 @@ public class PmtilesDownloader {
     try {
       process = buildProcess(preload, layer, outputPath).start();
     } catch (IOException e) {
-      String msg = "Could not start pmtiles extract process: " + e.getMessage();
-      LOGGER.error(msg);
-      markFailed(preload, msg);
-      return;
+      throw new DownloadFailedException(
+          "Could not start pmtiles extract process: " + e.getMessage());
     }
 
     String output;
@@ -105,19 +117,14 @@ public class PmtilesDownloader {
       output = new String(process.getInputStream().readAllBytes());
       int exitCode = process.waitFor();
       if (exitCode != 0) {
-        String msg =
+        Files.deleteIfExists(outputPath);
+        throw new DownloadFailedException(
             "pmtiles extract failed (exit "
                 + exitCode
                 + "): "
-                + (output.isBlank() ? "(no output)" : output.trim());
-        LOGGER.error(msg);
-        Files.deleteIfExists(outputPath);
-        markFailed(preload, msg);
-        return;
+                + (output.isBlank() ? "(no output)" : output.trim()));
       }
     } catch (IOException | InterruptedException e) {
-      String msg = "Error waiting for pmtiles extract: " + e.getMessage();
-      LOGGER.error(msg);
       try {
         Files.deleteIfExists(outputPath);
       } catch (IOException ignored) {
@@ -125,14 +132,19 @@ public class PmtilesDownloader {
       if (e instanceof InterruptedException) {
         Thread.currentThread().interrupt();
       }
-      markFailed(preload, msg);
-      return;
+      throw new DownloadFailedException("Error waiting for pmtiles extract: " + e.getMessage());
     }
 
     LOGGER.info("PMTiles download completed: {}", outputPath);
     vectorPmtilesManager.closeLayer(layerId);
     vectorPmtilesManager.initLayer(layer);
-    markDone(preload);
+  }
+
+  /** A download that failed for a reported reason, as opposed to an unexpected bug. */
+  static class DownloadFailedException extends RuntimeException {
+    DownloadFailedException(String message) {
+      super(message);
+    }
   }
 
   private void markRunning(Preload preload) {
@@ -148,8 +160,7 @@ public class PmtilesDownloader {
   }
 
   private void updateStatus(Preload preload, Preload.Status status, String errorMessage) {
-    preload.setStatus(status);
-    preload.setErrorMessage(errorMessage);
+    preload.markStatus(status, errorMessage);
     try {
       preloadStore.update(preload);
     } catch (IOException e) {

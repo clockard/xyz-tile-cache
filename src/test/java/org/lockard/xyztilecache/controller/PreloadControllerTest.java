@@ -150,6 +150,59 @@ class PreloadControllerTest {
         .andExpect(jsonPath("$[?(@.name=='restricted-acl')]").doesNotExist());
   }
 
+  // ── Status by id ───────────────────────────────────────────────────────────
+
+  private static String createPreload(MockMvc mvc, String body) throws Exception {
+    String json =
+        mvc.perform(
+                post("/preloads")
+                    .with(adminJwt())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body))
+            .andExpect(status().isAccepted())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    return json.replaceAll(".*\"id\":\"([^\"]+)\".*", "$1");
+  }
+
+  @Test
+  void getPreloadById_returnsStatusAndProgress(@Autowired MockMvc mvc) throws Exception {
+    String id =
+        createPreload(
+            mvc,
+            "{\"name\":\"status-1\",\"boundingBox\":"
+                + validBboxJson()
+                + ",\"maxZoom\":2,\"layers\":[\"test\"]}");
+
+    mvc.perform(get("/preloads/" + id))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(id))
+        .andExpect(jsonPath("$.name").value("status-1"))
+        .andExpect(jsonPath("$.status").isString())
+        .andExpect(jsonPath("$.progress.totalTiles").isNumber())
+        .andExpect(jsonPath("$.progress.percentComplete").isNumber());
+  }
+
+  @Test
+  void getUnknownPreload_returns404(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(get("/preloads/does-not-exist").with(adminJwt())).andExpect(status().isNotFound());
+  }
+
+  @Test
+  void getRestrictedPreloadById_returns404ForOtherUsers(@Autowired MockMvc mvc) throws Exception {
+    String id =
+        createPreload(
+            mvc,
+            "{\"name\":\"status-restricted\",\"boundingBox\":"
+                + validBboxJson()
+                + ",\"maxZoom\":2,\"layers\":[\"test\"],\"allowedUsers\":[\"alice\"]}");
+
+    mvc.perform(get("/preloads/" + id).with(adminJwt())).andExpect(status().isOk());
+    mvc.perform(get("/preloads/" + id).with(userJwt("bob"))).andExpect(status().isNotFound());
+    mvc.perform(get("/preloads/" + id)).andExpect(status().isNotFound());
+  }
+
   // ── Delete ─────────────────────────────────────────────────────────────────
 
   @Test
