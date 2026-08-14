@@ -21,12 +21,25 @@ class AuthConfigController {
     this.issuerUri = issuerUri;
   }
 
+  /**
+   * Discovery for the UI. {@code adminRole} is included so the browser can decide which controls to
+   * show against the same role the server actually enforces via {@code xyz.adminRole}, rather than
+   * assuming the default. It is a role name, not a credential — the server re-checks every write.
+   */
   @GetMapping("/config")
   Map<String, String> config() {
     XyzConfiguration.Auth auth = configuration.getAuth();
     if (auth.getMode() == XyzConfiguration.Auth.Mode.TOKEN) {
-      return Map.of("mode", "token");
+      return Map.of("mode", "token", "adminRole", configuration.getAdminRole());
     }
-    return Map.of("mode", "jwt", "issuerUri", issuerUri, "clientId", auth.getClientId());
+    return Map.of(
+        "mode",
+        "jwt",
+        "issuerUri",
+        issuerUri,
+        "clientId",
+        auth.getClientId(),
+        "adminRole",
+        configuration.getAdminRole());
   }
 }

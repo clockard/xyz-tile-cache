@@ -3,7 +3,10 @@ package org.lockard.xyztilecache.security;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.io.File;
@@ -91,5 +94,47 @@ class SecurityConfigTest {
   @Test
   void authConfig_anonymous_returns200(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(get("/auth/config")).andExpect(status().isOk());
+  }
+
+  @Test
+  void authConfig_exposesAdminRoleForUiGating(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(get("/auth/config"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.mode").value("jwt"))
+        .andExpect(jsonPath("$.adminRole").value("admin"));
+  }
+
+  @Test
+  void preflightDeletePreload_returns200WithoutAuth(@Autowired MockMvc mvc) throws Exception {
+    // Preflights carry no Authorization header, so they must be answered ahead of the
+    // authorization rules in jwt mode too.
+    mvc.perform(
+            options("/preloads/00000000-0000-0000-0000-000000000000")
+                .header("Origin", "http://example.com")
+                .header("Access-Control-Request-Method", "DELETE")
+                .header("Access-Control-Request-Headers", "authorization"))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Access-Control-Allow-Origin", "*"));
+  }
+
+  @Test
+  void preflightPostLayers_returns200WithoutAuth(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(
+            options("/layers")
+                .header("Origin", "http://example.com")
+                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Headers", "content-type,authorization"))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  void getLayers_withOrigin_carriesSingleCorsHeader(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(get("/layers").header("Origin", "http://example.com"))
+        .andExpect(status().isOk())
+        .andExpect(
+            result ->
+                org.assertj.core.api.Assertions.assertThat(
+                        result.getResponse().getHeaders("Access-Control-Allow-Origin"))
+                    .containsExactly("*"));
   }
 }

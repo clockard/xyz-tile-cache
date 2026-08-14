@@ -42,7 +42,6 @@ class LayerController {
   @GetMapping
   ResponseEntity<Collection<Layer>> list() {
     HttpHeaders headers = new HttpHeaders();
-    headers.add("Access-Control-Allow-Origin", "*");
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     List<Layer> visible =
         layerStore.getLayers().values().stream()

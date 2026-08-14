@@ -2,7 +2,9 @@ package org.lockard.xyztilecache.security;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -87,6 +89,77 @@ class SecurityConfigTokenModeTest {
   void authConfig_returnsTokenMode(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(get("/auth/config"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.mode").value("token"));
+        .andExpect(jsonPath("$.mode").value("token"))
+        .andExpect(jsonPath("$.adminRole").value("admin"));
+  }
+
+  // ── preload endpoints ─────────────────────────────────────────────────────
+
+  @Test
+  void deletePreload_correctToken_passesAuth(@Autowired MockMvc mvc) throws Exception {
+    // Preload doesn't exist, so 404 (not 401/403) confirms the admin token cleared the auth gate.
+    mvc.perform(
+            delete("/preloads/00000000-0000-0000-0000-000000000000")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ADMIN_TOKEN))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void deletePreload_lowercaseBearerScheme_passesAuth(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(
+            delete("/preloads/00000000-0000-0000-0000-000000000000")
+                .header(HttpHeaders.AUTHORIZATION, "bearer " + ADMIN_TOKEN))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void deletePreload_anonymous_returns401(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(delete("/preloads/00000000-0000-0000-0000-000000000000"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void deletePreload_wrongToken_returns401WithInvalidTokenError(@Autowired MockMvc mvc)
+      throws Exception {
+    mvc.perform(
+            delete("/preloads/00000000-0000-0000-0000-000000000000")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(
+            result ->
+                org.assertj.core.api.Assertions.assertThat(
+                        result.getResponse().getHeader("WWW-Authenticate"))
+                    .contains("error=\"invalid_token\""));
+  }
+
+  // ── CORS preflight ────────────────────────────────────────────────────────
+
+  @Test
+  void preflightDeletePreload_returns200WithoutAuth(@Autowired MockMvc mvc) throws Exception {
+    // Browsers never attach Authorization to a preflight, so it must be answered before the
+    // authorization rules run or every cross-origin DELETE fails 401.
+    mvc.perform(
+            options("/preloads/00000000-0000-0000-0000-000000000000")
+                .header("Origin", "http://example.com")
+                .header("Access-Control-Request-Method", "DELETE")
+                .header("Access-Control-Request-Headers", "authorization"))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Access-Control-Allow-Origin", "*"));
+  }
+
+  @Test
+  void deletePreload_withOrigin_carriesSingleCorsHeader(@Autowired MockMvc mvc) throws Exception {
+    // Two Access-Control-Allow-Origin headers (filter + hand-set) would make browsers reject the
+    // response, so the actual request must carry exactly one.
+    mvc.perform(
+            delete("/preloads/00000000-0000-0000-0000-000000000000")
+                .header("Origin", "http://example.com")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + ADMIN_TOKEN))
+        .andExpect(status().isNotFound())
+        .andExpect(
+            result ->
+                org.assertj.core.api.Assertions.assertThat(
+                        result.getResponse().getHeaders("Access-Control-Allow-Origin"))
+                    .containsExactly("*"));
   }
 }

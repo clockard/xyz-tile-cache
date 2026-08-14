@@ -1,7 +1,9 @@
 package org.lockard.xyztilecache.security;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.io.File;
@@ -55,5 +57,14 @@ class SecurityConfigTokenModeCustomRoleTest {
   void postLayers_anonymous_returns401WithCustomAdminRole(@Autowired MockMvc mvc) throws Exception {
     mvc.perform(post("/layers").contentType(MediaType.APPLICATION_JSON).content("{}"))
         .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void authConfig_reportsConfiguredAdminRole(@Autowired MockMvc mvc) throws Exception {
+    // The UI gates its admin-only controls on this value. If it went on reporting the default
+    // "admin", a real superuser would see no write controls on a deployment like this one.
+    mvc.perform(get("/auth/config"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.adminRole").value("superuser"));
   }
 }

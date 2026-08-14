@@ -5,11 +5,14 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import org.lockard.xyztilecache.config.XyzConfiguration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -22,10 +25,15 @@ import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthen
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(SecurityConfig.class);
 
   private final XyzConfiguration configuration;
 
@@ -36,6 +44,11 @@ public class SecurityConfig {
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
     http.csrf(csrf -> csrf.ignoringRequestMatchers(AntPathRequestMatcher.antMatcher("/**")))
+        // Spring Security's CorsFilter runs ahead of the authorization filters and answers
+        // preflights itself. Without it, the OPTIONS preflight a browser sends before any
+        // DELETE/PUT (or JSON POST) falls through to anyRequest().hasRole(...) and is rejected
+        // 401 — preflights never carry an Authorization header — so the real request is never sent.
+        .cors(Customizer.withDefaults())
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             auth ->
@@ -66,6 +79,13 @@ public class SecurityConfig {
                     .hasRole(configuration.getAdminRole().toUpperCase()));
 
     if (configuration.getAuth().getMode() == XyzConfiguration.Auth.Mode.TOKEN) {
+      String adminToken = configuration.getAuth().getAdminToken();
+      if (adminToken == null || adminToken.isBlank()) {
+        LOGGER.warn(
+            "xyz.auth.mode=token but xyz.auth.adminToken is blank: no token can authenticate, so"
+                + " every write request will be rejected 401. Set xyz.auth.adminToken (env"
+                + " XYZ_AUTH_ADMIN_TOKEN).");
+      }
       http.addFilterBefore(
               new AdminTokenAuthFilter(
                   configuration.getAuth().getAdminToken(), configuration.getAdminRole()),
@@ -78,6 +98,24 @@ public class SecurityConfig {
               oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
     }
     return http.build();
+  }
+
+  /**
+   * Permissive CORS matching the {@code Access-Control-Allow-Origin: *} the read endpoints used to
+   * set by hand. Credentials stay disabled, which is what allows the {@code *} wildcard origin;
+   * tokens travel in the Authorization header, not cookies, so nothing depends on them.
+   */
+  @Bean
+  public CorsConfigurationSource corsConfigurationSource() {
+    CorsConfiguration config = new CorsConfiguration();
+    config.setAllowedOrigins(List.of("*"));
+    config.setAllowedMethods(List.of("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"));
+    config.setAllowedHeaders(List.of("*"));
+    config.setAllowCredentials(false);
+    config.setMaxAge(3600L);
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    source.registerCorsConfiguration("/**", config);
+    return source;
   }
 
   static Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter() {

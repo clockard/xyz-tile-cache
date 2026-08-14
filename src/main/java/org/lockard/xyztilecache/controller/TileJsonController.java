@@ -70,7 +70,6 @@ class TileJsonController {
     }
 
     HttpHeaders headers = new HttpHeaders();
-    headers.add("Access-Control-Allow-Origin", "*");
     return new ResponseEntity<>(doc, headers, HttpStatus.OK);
   }
 }

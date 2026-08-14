@@ -71,7 +71,6 @@ class StatsController {
     }
 
     HttpHeaders headers = new HttpHeaders();
-    headers.add("Access-Control-Allow-Origin", "*");
     return new ResponseEntity<>(
         new StatsResponse(INSTANCE_ID, totalServed, diskFreeBytes, layerStats),
         headers,
