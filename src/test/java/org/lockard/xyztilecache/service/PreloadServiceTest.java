@@ -17,6 +17,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.lockard.xyztilecache.config.LayerProperties;
@@ -424,6 +426,82 @@ class PreloadServiceTest {
     assertThat(running.getErrorMessage()).contains("restart");
     assertThat(done.getStatus()).isEqualTo(Preload.Status.DONE);
     verify(preloadStore).update(running);
+  }
+
+  // ── cancellation ──────────────────────────────────────────────────────────
+
+  @Test
+  void cancel_runningRasterPreload_stopsFetchingRemainingTiles() throws Exception {
+    Layer layer = xyzLayer("test");
+    when(layerStore.getLayers()).thenReturn(Map.of("test", layer));
+
+    // Every fetch parks until the test releases it, so the cancel lands while the job is running
+    // and only the in-flight fetches (bounded by preloadConcurrency) can get past it.
+    CountDownLatch fetchStarted = new CountDownLatch(1);
+    CountDownLatch releaseFetches = new CountDownLatch(1);
+    AtomicInteger fetched = new AtomicInteger();
+    when(tileCache.get(any()))
+        .thenAnswer(
+            invocation -> {
+              fetched.incrementAndGet();
+              fetchStarted.countDown();
+              releaseFetches.await();
+              return new byte[] {1};
+            });
+
+    // A global bbox to zoom 8 is tens of thousands of tiles: far more than can slip through.
+    BoundingBox global = new BoundingBox();
+    global.setNorth(85);
+    global.setSouth(-85);
+    global.setEast(180);
+    global.setWest(-180);
+
+    Preload result = service.submit("t", global, 8, Set.of("test"), null, null);
+    assertThat(fetchStarted.await(10, TimeUnit.SECONDS)).isTrue();
+
+    assertThat(service.cancel(result.getId())).isTrue();
+    releaseFetches.countDown();
+    awaitTerminal(result);
+
+    assertThat(result.getTotalTiles()).isGreaterThan(1000);
+    assertThat(fetched.get())
+        .isLessThanOrEqualTo(new XyzConfiguration().getPreloadConcurrency())
+        .isPositive();
+    assertThat(result.getStatus()).isEqualTo(Preload.Status.FAILED);
+    assertThat(result.getErrorMessage()).contains("cancelled");
+  }
+
+  @Test
+  void cancel_runningVectorPreload_killsTheDownload() throws Exception {
+    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
+    CompletableFuture<Void> download = new CompletableFuture<>();
+    when(pmtilesDownloader.startDownload(any(), eq(vec), eq(false))).thenReturn(download);
+
+    Preload result = service.submit("t", bbox(), 5, Set.of("vec"), null, null);
+
+    assertThat(service.cancel(result.getId())).isTrue();
+    verify(pmtilesDownloader).cancelDownload(result.getId());
+    download.complete(null);
+  }
+
+  @Test
+  void cancel_unknownPreload_returnsFalse() {
+    assertThat(service.cancel("does-not-exist")).isFalse();
+    assertThat(service.cancel(null)).isFalse();
+  }
+
+  @Test
+  void cancel_finishedPreload_returnsFalse() throws Exception {
+    Layer layer = xyzLayer("test");
+    when(layerStore.getLayers()).thenReturn(Map.of("test", layer));
+    when(tileCache.get(any())).thenReturn(new byte[] {1});
+
+    Preload result = service.submit("t", bbox(), 0, Set.of("test"), null, null);
+    awaitTerminal(result);
+
+    // The flag is dropped when the job ends, so completed jobs are not reported as cancellable.
+    assertThat(service.cancel(result.getId())).isFalse();
   }
 
   // ── preloadXyzTiles ───────────────────────────────────────────────────────

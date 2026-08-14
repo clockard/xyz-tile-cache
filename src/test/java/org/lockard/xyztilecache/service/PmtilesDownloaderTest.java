@@ -317,6 +317,68 @@ class PmtilesDownloaderTest {
     assertThat(downloader.isDownloadInProgress()).isFalse();
   }
 
+  // ── Cancellation ──────────────────────────────────────────────────────────
+
+  @Test
+  void cancelDownload_runningExtract_killsProcessAndFailsAsCancelled() throws Exception {
+    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    Layer l = layer("https://example.com/tiles.pmtiles", 5);
+    Preload p = preload(-1, -1, 1, 1, 5);
+
+    java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
+    PmtilesDownloader downloader =
+        new PmtilesDownloader(
+            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+          @Override
+          protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
+            started.countDown();
+            // Stands in for a long extract: without a kill this would outlive the test.
+            return new ProcessBuilder("sleep", "300");
+          }
+        };
+
+    java.util.concurrent.CompletableFuture<Void> future = downloader.startDownload(p, l);
+    assertThat(started.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+    // A cancel aimed at a different preload must not touch this download.
+    assertThat(downloader.cancelDownload("some-other-preload")).isFalse();
+    assertThat(downloader.cancelDownload(p.getId())).isTrue();
+
+    future.get(30, java.util.concurrent.TimeUnit.SECONDS);
+    assertThat(p.getStatus()).isEqualTo(Preload.Status.FAILED);
+    assertThat(p.getErrorMessage()).contains("cancelled");
+    assertThat(downloader.isDownloadInProgress()).isFalse();
+    verify(manager, never()).initLayer(any());
+  }
+
+  @Test
+  void cancelDownload_noDownloadRunning_returnsFalse() {
+    PmtilesDownloader downloader =
+        new PmtilesDownloader(
+            xyzConfig(),
+            mock(VectorPmtilesManager.class),
+            mock(org.lockard.xyztilecache.store.PreloadStore.class));
+    assertThat(downloader.cancelDownload("anything")).isFalse();
+  }
+
+  @Test
+  void cancelDownload_afterCompletion_returnsFalse() throws Exception {
+    Preload p = preload(-1, -1, 1, 1, 5);
+    PmtilesDownloader downloader =
+        new PmtilesDownloader(
+            xyzConfig(),
+            mock(VectorPmtilesManager.class),
+            mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+          @Override
+          protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
+            return new ProcessBuilder("true");
+          }
+        };
+
+    downloader.startDownload(p, layer("https://example.com/tiles.pmtiles", 5)).get();
+    assertThat(downloader.cancelDownload(p.getId())).isFalse();
+  }
+
   // ── requireValidBoundingBox ───────────────────────────────────────────────
 
   @Test

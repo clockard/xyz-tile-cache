@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
@@ -29,6 +30,9 @@ public class PmtilesDownloader {
 
   private final AtomicBoolean downloadInProgress = new AtomicBoolean(false);
 
+  /** The download currently running, so a delete can kill its external process. */
+  private final AtomicReference<RunningDownload> running = new AtomicReference<>();
+
   public PmtilesDownloader(
       XyzConfiguration xyzConfig,
       VectorPmtilesManager vectorPmtilesManager,
@@ -40,6 +44,23 @@ public class PmtilesDownloader {
 
   public boolean isDownloadInProgress() {
     return downloadInProgress.get();
+  }
+
+  /**
+   * Kills the extract for {@code preloadId} if it is the one currently running. The process is
+   * destroyed, its partial output deleted by the normal failure path, and the download reported as
+   * cancelled rather than as a process failure.
+   *
+   * @return true if a download for that preload was running
+   */
+  public boolean cancelDownload(String preloadId) {
+    RunningDownload current = running.get();
+    if (current == null || !current.matches(preloadId)) {
+      return false;
+    }
+    LOGGER.info("Cancelling pmtiles extract for preload '{}'", preloadId);
+    current.cancel();
+    return true;
   }
 
   public static String outputFilename(String preloadName) {
@@ -62,10 +83,14 @@ public class PmtilesDownloader {
     if (!downloadInProgress.compareAndSet(false, true)) {
       throw new IllegalStateException("A PMTiles download is already in progress");
     }
+    // Registered before the async body starts so a cancel arriving in that window is not lost:
+    // the process is killed as soon as it is attached.
+    RunningDownload current = new RunningDownload(preload.getId());
+    running.set(current);
     return CompletableFuture.runAsync(
         () -> {
           try {
-            doDownload(preload, layer);
+            doDownload(preload, layer, current);
             if (ownsTerminalStatus) {
               markDone(preload);
             }
@@ -77,13 +102,14 @@ public class PmtilesDownloader {
             }
             markFailed(preload, e.getMessage());
           } finally {
+            running.compareAndSet(current, null);
             downloadInProgress.set(false);
           }
         });
   }
 
   /** Runs the extract, throwing {@link DownloadFailedException} if it does not produce a file. */
-  private void doDownload(Preload preload, Layer layer) {
+  private void doDownload(Preload preload, Layer layer, RunningDownload current) {
     String layerId = layer.effectiveId();
     Path downloadDir =
         Path.of(xyzConfig.getBaseTileDirectory(), layerId).toAbsolutePath().normalize();
@@ -111,6 +137,7 @@ public class PmtilesDownloader {
       throw new DownloadFailedException(
           "Could not start pmtiles extract process: " + e.getMessage());
     }
+    current.attach(process);
 
     String output;
     try {
@@ -118,6 +145,10 @@ public class PmtilesDownloader {
       int exitCode = process.waitFor();
       if (exitCode != 0) {
         Files.deleteIfExists(outputPath);
+        // A killed process exits non-zero; report why it really stopped.
+        if (current.isCancelled()) {
+          throw new DownloadFailedException("PMTiles download cancelled.");
+        }
         throw new DownloadFailedException(
             "pmtiles extract failed (exit "
                 + exitCode
@@ -132,12 +163,55 @@ public class PmtilesDownloader {
       if (e instanceof InterruptedException) {
         Thread.currentThread().interrupt();
       }
+      // Killing the process closes its output stream, so a cancel surfaces here as an IOException.
+      if (current.isCancelled()) {
+        throw new DownloadFailedException("PMTiles download cancelled.");
+      }
       throw new DownloadFailedException("Error waiting for pmtiles extract: " + e.getMessage());
     }
 
     LOGGER.info("PMTiles download completed: {}", outputPath);
     vectorPmtilesManager.closeLayer(layerId);
     vectorPmtilesManager.initLayer(layer);
+  }
+
+  /**
+   * A download in flight, with the handle needed to stop it. {@code cancelled} and {@code process}
+   * are written in opposite orders by {@link #cancel()} and {@link #attach(Process)}, so whichever
+   * happens second sees the other's write and the process is never left running after a cancel.
+   */
+  private static final class RunningDownload {
+    private final String preloadId;
+    private final AtomicBoolean cancelled = new AtomicBoolean();
+    private volatile Process process;
+
+    RunningDownload(String preloadId) {
+      this.preloadId = preloadId;
+    }
+
+    boolean matches(String id) {
+      return preloadId != null && preloadId.equals(id);
+    }
+
+    /** Publishes the started process, killing it immediately if a cancel already arrived. */
+    void attach(Process started) {
+      process = started;
+      if (cancelled.get()) {
+        started.destroyForcibly();
+      }
+    }
+
+    void cancel() {
+      cancelled.set(true);
+      Process current = process;
+      if (current != null) {
+        current.destroyForcibly();
+      }
+    }
+
+    boolean isCancelled() {
+      return cancelled.get();
+    }
   }
 
   /** A download that failed for a reported reason, as opposed to an unexpected bug. */

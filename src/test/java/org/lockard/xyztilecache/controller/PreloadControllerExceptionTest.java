@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.service.PreloadService;
 import org.lockard.xyztilecache.store.PreloadStore;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -98,6 +99,15 @@ class PreloadControllerExceptionTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(validRequest()))
         .andExpect(status().isInternalServerError());
+  }
+
+  @Test
+  void delete_cancelsTheRunningJobBeforeRemovingTheRecord(@Autowired MockMvc mvc) throws Exception {
+    mvc.perform(delete("/preloads/some-id").with(adminJwt())).andExpect(status().isNoContent());
+
+    InOrder inOrder = inOrder(preloadService, preloadStore);
+    inOrder.verify(preloadService).cancel("some-id");
+    inOrder.verify(preloadStore).removePreload("some-id");
   }
 
   @Test
