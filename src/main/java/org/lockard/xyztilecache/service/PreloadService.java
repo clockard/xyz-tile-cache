@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -59,6 +60,13 @@ public class PreloadService {
    * — and are copied onto the {@link Preload} when it reaches a terminal status.
    */
   private final ConcurrentHashMap<String, ProgressCounter> progressById = new ConcurrentHashMap<>();
+
+  /**
+   * Cancel flags for jobs that are still running, keyed by preload id. Present from submit until
+   * every half of the job has reported, so {@link #cancel(String)} can tell a live job from one
+   * that already finished.
+   */
+  private final ConcurrentHashMap<String, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
 
   public PreloadService(
       LayerStore layerStore,
@@ -152,18 +160,44 @@ public class PreloadService {
     // A mixed job has two independent halves; it is only finished when both of them are.
     JobTracker tracker =
         new JobTracker(preload, (rasterLayers.isEmpty() ? 0 : 1) + (vectorLayer == null ? 0 : 1));
+    AtomicBoolean cancelled = new AtomicBoolean();
+    cancelFlags.put(preload.getId(), cancelled);
 
     if (!rasterLayers.isEmpty()) {
       boundingBox.setMaxZoom(maxZoom);
       // Register the counter before submitting so a status poll between submit and the first tile
       // fetch already reports a total rather than "unknown".
       progressById.put(preload.getId(), new ProgressCounter());
-      submitXyz(preload, rasterLayers, boundingBox, tracker);
+      submitXyz(preload, rasterLayers, boundingBox, tracker, cancelled);
     }
     if (vectorLayer != null) {
       startVectorDownload(preload, vectorLayer, tracker);
     }
     return preload;
+  }
+
+  /**
+   * Stops a running preload: the raster pass abandons its remaining tiles and any PMTiles extract
+   * is killed, its partial output removed. Tiles already fetched are kept — cancelling stops
+   * further work, it does not undo it.
+   *
+   * @return true if the preload was still running
+   */
+  public boolean cancel(String preloadId) {
+    if (preloadId == null) {
+      return false;
+    }
+    // Both halves must be told: they run independently and either may still be working.
+    AtomicBoolean flag = cancelFlags.get(preloadId);
+    if (flag != null) {
+      flag.set(true);
+    }
+    boolean vectorCancelled = pmtilesDownloader.cancelDownload(preloadId);
+    boolean cancelled = flag != null || vectorCancelled;
+    if (cancelled) {
+      LOGGER.info("Cancelling preload '{}'", preloadId);
+    }
+    return cancelled;
   }
 
   private void startVectorDownload(Preload preload, Layer vectorLayer, JobTracker tracker) {
@@ -184,7 +218,8 @@ public class PreloadService {
     Set<String> validLayers =
         layerNames.stream().filter(layerStore.getLayers()::containsKey).collect(Collectors.toSet());
     if (validLayers.isEmpty()) return;
-    runXyzPreload(validLayers, bbox, null);
+    // Startup preloads have no preload record, so there is nothing to cancel them through.
+    runXyzPreload(validLayers, bbox, null, new AtomicBoolean());
   }
 
   /**
@@ -220,8 +255,12 @@ public class PreloadService {
   }
 
   private void submitXyz(
-      Preload preload, Set<String> layers, BoundingBox bbox, JobTracker tracker) {
-    xyzExecutor.submit(() -> runXyzPreload(preload, layers, bbox, tracker));
+      Preload preload,
+      Set<String> layers,
+      BoundingBox bbox,
+      JobTracker tracker,
+      AtomicBoolean cancelled) {
+    xyzExecutor.submit(() -> runXyzPreload(preload, layers, bbox, tracker, cancelled));
   }
 
   /**
@@ -229,12 +268,19 @@ public class PreloadService {
    * status: a job that also has a PMTiles download is DONE only once that half has finished too.
    */
   private void runXyzPreload(
-      Preload preload, Set<String> layers, BoundingBox bbox, JobTracker tracker) {
+      Preload preload,
+      Set<String> layers,
+      BoundingBox bbox,
+      JobTracker tracker,
+      AtomicBoolean cancelled) {
     ProgressCounter counter = progressById.get(preload.getId());
     updateStatus(preload, Preload.Status.RUNNING, null);
     String error = null;
     try {
-      runXyzPreload(layers, bbox, counter);
+      runXyzPreload(layers, bbox, counter, cancelled);
+      if (cancelled.get()) {
+        error = "Preload cancelled.";
+      }
     } catch (RuntimeException e) {
       LOGGER.error("Raster preload pass failed for preload {}", preload.getId(), e);
       error = errorMessage(e);
@@ -273,7 +319,8 @@ public class PreloadService {
     }
   }
 
-  private void runXyzPreload(Set<String> layers, BoundingBox bbox, ProgressCounter counter) {
+  private void runXyzPreload(
+      Set<String> layers, BoundingBox bbox, ProgressCounter counter, AtomicBoolean cancelled) {
     inflightXyzPreloads.incrementAndGet();
     int concurrency = Math.max(1, configuration.getPreloadConcurrency());
     Semaphore permits = new Semaphore(concurrency);
@@ -291,16 +338,21 @@ public class PreloadService {
         long perLayer = ranges.stream().mapToLong(XyzUtil.TileRange::count).sum();
         counter.setTotal(perLayer * targets.size());
       }
+      // A cancel stops the enumeration here and is re-checked inside each queued task, so at most
+      // the fetches already in flight (bounded by the semaphore) run past the cancel.
+      enumerate:
       for (Layer layer : targets) {
         String layerId = layer.effectiveId();
         for (XyzUtil.TileRange range : ranges) {
           for (int x = range.xMin(); x <= range.xMax(); x++) {
             for (int y = range.yMin(); y <= range.yMax(); y++) {
+              if (cancelled.get()) break enumerate;
               Tile tile = new Tile(layerId, x, y, range.zoom());
               permits.acquire();
               xyzExecutor.submit(
                   () -> {
                     try {
+                      if (cancelled.get()) return;
                       tileCache.get(tile);
                       if (counter != null) counter.recordCompleted();
                     } catch (RuntimeException e) {
@@ -320,7 +372,11 @@ public class PreloadService {
       // Drain: once all permits are reacquirable, every submitted fetch has finished.
       permits.acquire(concurrency);
       permits.release(concurrency);
-      LOGGER.info("Finished xyz preload for layers {}.", layers);
+      if (cancelled.get()) {
+        LOGGER.info("Cancelled xyz preload for layers {}.", layers);
+      } else {
+        LOGGER.info("Finished xyz preload for layers {}.", layers);
+      }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("Preload interrupted", e);
@@ -366,6 +422,7 @@ public class PreloadService {
         persist(preload);
         return;
       }
+      cancelFlags.remove(preload.getId());
       String failure = firstError.get();
       updateStatus(preload, failure == null ? Preload.Status.DONE : Preload.Status.FAILED, failure);
     }

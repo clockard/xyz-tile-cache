@@ -116,6 +116,9 @@ public class PreloadController {
 
   @DeleteMapping("/{id}")
   public ResponseEntity<?> delete(@PathVariable("id") String id) {
+    // Stop the work before dropping the record: otherwise the job keeps fetching tiles (and keeps
+    // an extract process running) long after the caller was told the preload was gone.
+    preloadService.cancel(id);
     try {
       preloadStore.removePreload(id);
     } catch (NoSuchElementException e) {
