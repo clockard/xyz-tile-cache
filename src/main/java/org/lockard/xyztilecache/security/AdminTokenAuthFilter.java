@@ -53,7 +53,9 @@ public class AdminTokenAuthFilter extends OncePerRequestFilter {
     if (!matches(presented)) {
       // Match jwt mode: reject an invalid credential outright rather than silently degrading to
       // anonymous, which made a mistyped token indistinguishable from sending no token at all.
-      LOGGER.warn(
+      // Logged at debug: this fires once per rejected request, so anything spraying tokens (or one
+      // misconfigured polling client) would otherwise write an unbounded stream of warnings.
+      LOGGER.debug(
           "Rejected bearer token for {} {}: does not match the configured xyz.auth.adminToken.",
           request.getMethod(),
           request.getRequestURI());

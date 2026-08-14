@@ -538,7 +538,16 @@ To consume a private layer, send `Authorization: Bearer <token>` on **both** the
 
 ### CORS
 
-Every JSON and tile response sets `Access-Control-Allow-Origin: *`, allowing any origin to read public (and the caller's authorized) data. Authentication is Bearer-token only — no cookies — so this is not a CSRF vector, but if you need to restrict which origins may read tiles, front the service with a proxy that overrides the header.
+CORS is handled centrally by Spring Security's `CorsFilter`, configured by the `corsConfigurationSource` bean in `SecurityConfig`:
+
+- **Origins** — `*`. Any origin may read public data, and any origin may read whatever the token it presents is authorized for.
+- **Methods** — `GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS`, so browser-driven writes work, not just reads.
+- **Credentials** — disabled. That is what allows the `*` wildcard origin; tokens travel in the `Authorization` header, never in cookies.
+- **Preflight** — `OPTIONS` is answered by the filter before authorization runs, and needs no `Authorization` header. (Preflights never carry one, so a preflight reaching the authorization rules would be rejected `401` and the real request would never be sent.)
+
+Because authentication is Bearer-token only — no cookies, no ambient credentials — the wildcard origin is not a CSRF vector: a hostile page can issue the request but cannot supply a token. Note that CORS headers appear only on responses to requests that carry an `Origin` header, which is normal browser behaviour; `curl` will not show them unless you send one.
+
+To restrict which origins may read tiles, either narrow `corsConfigurationSource` or front the service with a proxy that overrides the headers.
 
 ## Local Keycloak (for testing the JWT flow)
 

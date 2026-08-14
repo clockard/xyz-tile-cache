@@ -1713,11 +1713,11 @@ function preloadActionsHtml(p) {
       <button class="download-delete-btn" title="Remove this preload from the list">Delete</button>
     </div>`;
   }
-  // The server only drops the record: tiles already written stay in the cache, and a job still
-  // running keeps fetching. Say so rather than implying this frees disk or cancels work.
+  // Deleting cancels a running job, but only stops further work: tiles already written stay in
+  // the cache. Say so rather than implying this frees disk.
   const runningNote =
     p.status === 'RUNNING' || p.status === 'PENDING'
-      ? 'Tiles already queued keep downloading. '
+      ? 'This stops the download in progress. '
       : '';
   return `<div class="download-confirm">
     <div class="download-confirm-text">Remove from the list? ${runningNote}Cached tiles are kept.</div>
