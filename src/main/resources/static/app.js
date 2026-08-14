@@ -12,6 +12,9 @@ let downloadsPollInterval = null;
 let pendingBbox = null;
 let layerMap = {};
 let currentDownloads = [];
+// Id of the preload showing an inline "are you sure?" row. Keyed by id rather than list position
+// so the 5s downloads poll can re-render underneath a pending confirmation without losing it.
+let preloadDeleteConfirm = null;
 let pendingExportBbox = null;
 let exportDrawInteraction = null;
 
@@ -176,6 +179,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   downloadsList.addEventListener('click', (e) => {
     const item = e.target.closest('.download-item');
     if (!item) return;
+
+    // The delete controls live inside the clickable item, so claim the click before it falls
+    // through to the select/show-on-map behaviour.
+    if (e.target.closest('.download-delete-btn')) {
+      preloadDeleteConfirm = item.dataset.id;
+      renderDownloads(currentDownloads);
+      return;
+    }
+    if (e.target.closest('.download-cancel-del')) {
+      preloadDeleteConfirm = null;
+      renderDownloads(currentDownloads);
+      return;
+    }
+    if (e.target.closest('.download-confirm-del')) {
+      executeDeletePreload(item.dataset.id);
+      return;
+    }
+
     const idx = parseInt(item.dataset.index, 10);
     const d = currentDownloads[idx];
     document.querySelectorAll('.download-item').forEach(el => el.classList.remove('selected'));
@@ -244,7 +265,7 @@ async function initAuth() {
     const stored = localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
     if (stored) {
       auth.accessToken = stored;
-      auth.user = { username: 'admin', isAdmin: true, roles: ['admin'], groups: [] };
+      auth.user = tokenModeUser();
     }
     return;
   }
@@ -377,6 +398,7 @@ async function logout() {
     auth.user = null;
     applyAuthUiState();
     await loadLayers();
+    await refreshDownloadsIfOpen();
     return;
   }
 
@@ -384,6 +406,7 @@ async function logout() {
   clearTokens();
   applyAuthUiState();
   await loadLayers();
+  await refreshDownloadsIfOpen();
 
   if (auth.config && auth.config.issuerUri) {
     const params = new URLSearchParams({
@@ -433,10 +456,11 @@ async function submitLogin() {
   }
   localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
   auth.accessToken = token;
-  auth.user = { username: 'admin', isAdmin: true, roles: ['admin'], groups: [] };
+  auth.user = tokenModeUser();
   hideLoginModal();
   applyAuthUiState();
   await loadLayers();
+  await refreshDownloadsIfOpen();
 }
 
 async function exchangeCodeForTokens(code, codeVerifier, redirectUri) {
@@ -524,6 +548,29 @@ function decodeBase64Url(segment) {
   return new TextDecoder().decode(bytes);
 }
 
+/**
+ * The realm role the server treats as admin, from /auth/config (xyz.adminRole). Falls back to the
+ * server's own default when the config call failed. Compared case-insensitively because Spring maps
+ * the claim to an uppercased ROLE_ authority, so 'Admin' and 'admin' authorize identically.
+ */
+function adminRoleName() {
+  const configured = auth.config && auth.config.adminRole;
+  return String(configured || 'admin').toLowerCase();
+}
+
+function hasAdminRole(roles) {
+  const target = adminRoleName();
+  return roles.some((r) => String(r).toLowerCase() === target);
+}
+
+/**
+ * Synthetic user for token mode. There is no identity in a static token — the server grants it the
+ * admin authority outright — so report the configured role rather than a hardcoded 'admin'.
+ */
+function tokenModeUser() {
+  return { username: 'admin', isAdmin: true, roles: [adminRoleName()], groups: [] };
+}
+
 function decodeUser(accessToken) {
   if (!accessToken) return null;
   try {
@@ -534,7 +581,7 @@ function decodeUser(accessToken) {
       username: payload.preferred_username || payload.sub,
       roles,
       groups,
-      isAdmin: roles.includes('admin')
+      isAdmin: hasAdminRole(roles)
     };
   } catch (e) {
     return null;
@@ -1455,6 +1502,7 @@ function openDownloadsPanel() {
 function closeDownloadsPanel() {
   downloadsPanel.classList.remove('open');
   downloadsBtn.classList.remove('active');
+  preloadDeleteConfirm = null;
   if (highlightSource) highlightSource.clear();
   stopDownloadPolling();
 }
@@ -1473,6 +1521,15 @@ function stopDownloadPolling() {
 
 async function loadDownloads() {
   await Promise.all([loadPreloads(), loadExportJobs()]);
+}
+
+/**
+ * Re-fetch after a login/logout so the admin-only delete buttons appear or disappear immediately
+ * instead of on the next 5s poll. The poll only runs while the panel is open, so neither does this.
+ */
+async function refreshDownloadsIfOpen() {
+  preloadDeleteConfirm = null;
+  if (downloadsPanel.classList.contains('open')) await loadDownloads();
 }
 
 async function loadPreloads() {
@@ -1586,7 +1643,7 @@ function renderDownloads(preloads) {
       ? `<div class="download-access">Restricted</div>`
       : '';
 
-    return `<li class="download-item" data-index="${i}"${hint}>
+    return `<li class="download-item" data-index="${i}" data-id="${escapeHtml(p.id || '')}"${hint}>
       <div class="download-item-header">
         <div class="download-name">${escapeHtml(p.name || '(unnamed)')}${accessLine}</div>
         ${preloadStatusBadge(p)}
@@ -1598,6 +1655,7 @@ function renderDownloads(preloads) {
         ${boundsLine}${date}
       </div>
       ${preloadErrorHtml(p)}
+      ${preloadActionsHtml(p)}
     </li>`;
   }).join('');
 }
@@ -1642,6 +1700,55 @@ function preloadProgressHtml(p) {
 function preloadErrorHtml(p) {
   if (p.status !== 'FAILED' || !p.errorMessage) return '';
   return `<div class="preload-error">${escapeHtml(p.errorMessage)}</div>`;
+}
+
+/**
+ * Delete affordance for a preload. DELETE /preloads/{id} is gated on the admin role server-side,
+ * so non-admins get no button rather than one that always fails 401.
+ */
+function preloadActionsHtml(p) {
+  if (!isAdmin() || !p.id) return '';
+  if (preloadDeleteConfirm !== p.id) {
+    return `<div class="download-actions">
+      <button class="download-delete-btn" title="Remove this preload from the list">Delete</button>
+    </div>`;
+  }
+  // The server only drops the record: tiles already written stay in the cache, and a job still
+  // running keeps fetching. Say so rather than implying this frees disk or cancels work.
+  const runningNote =
+    p.status === 'RUNNING' || p.status === 'PENDING'
+      ? 'Tiles already queued keep downloading. '
+      : '';
+  return `<div class="download-confirm">
+    <div class="download-confirm-text">Remove from the list? ${runningNote}Cached tiles are kept.</div>
+    <div class="download-actions">
+      <button class="btn-danger download-confirm-del">Remove</button>
+      <button class="download-cancel-del">Cancel</button>
+    </div>
+  </div>`;
+}
+
+async function executeDeletePreload(id) {
+  try {
+    const resp = await authFetch(apiPath(`/preloads/${encodeURIComponent(id)}`), {
+      method: 'DELETE'
+    });
+    if (resp.status === 204) {
+      preloadDeleteConfirm = null;
+      showToast('Preload removed', 'success');
+      await loadDownloads();
+      return;
+    }
+    if (resp.status === 401 || resp.status === 403) showToast('Admin role required', 'error');
+    else if (resp.status === 404) {
+      // Someone else removed it, or the poll is showing a stale list — resync either way.
+      showToast('Preload not found', 'error');
+      preloadDeleteConfirm = null;
+      await loadDownloads();
+    } else showToast(`Delete failed (${resp.status})`, 'error');
+  } catch (e) {
+    showToast('Network error deleting preload', 'error');
+  }
 }
 
 function formatCount(n) {

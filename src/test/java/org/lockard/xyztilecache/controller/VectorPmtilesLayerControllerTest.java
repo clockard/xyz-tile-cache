@@ -85,7 +85,11 @@ class VectorPmtilesLayerControllerTest {
   @Test
   void getTile_presentTile_returns200WithProtobufType(@Autowired MockMvc mvc) throws Exception {
     // z=0, x=0, y=0 is present in test_fixture_1.pmtiles
-    mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/vector-test/0/0/0.mvt"))
+    // CORS headers now come from the global CorsFilter, which only engages when an Origin is
+    // present, so send one rather than expecting the header on a same-origin request.
+    mvc.perform(
+            MockMvcRequestBuilders.get("/tilesZYX/vector-test/0/0/0.mvt")
+                .header("Origin", "http://example.com"))
         .andExpect(MockMvcResultMatchers.status().isOk())
         .andExpect(MockMvcResultMatchers.header().string("Content-Type", "application/x-protobuf"))
         .andExpect(MockMvcResultMatchers.header().string("Access-Control-Allow-Origin", "*"))

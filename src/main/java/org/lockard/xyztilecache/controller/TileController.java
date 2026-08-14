@@ -148,7 +148,6 @@ class TileController {
     layerStore.getRuntimeState(layer.effectiveId()).incrementTilesServed();
     TileResult tile = result.get();
     HttpHeaders headers = new HttpHeaders();
-    headers.add("Access-Control-Allow-Origin", "*");
     headers.add("Content-Type", tile.contentType());
     headers.add(HttpHeaders.CACHE_CONTROL, cacheControlFor(layer));
     if (tile.tileCompression() == COMPRESSION_GZIP) {

@@ -61,7 +61,6 @@ public class PreloadController {
   @GetMapping
   public ResponseEntity<List<PreloadInfo>> list() {
     HttpHeaders headers = new HttpHeaders();
-    headers.add("Access-Control-Allow-Origin", "*");
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     List<PreloadInfo> infos = new ArrayList<>();
     for (Preload p : preloadStore.listPreloads()) {
@@ -79,7 +78,6 @@ public class PreloadController {
   @GetMapping("/{id}")
   public ResponseEntity<PreloadInfo> get(@PathVariable("id") String id) {
     HttpHeaders headers = new HttpHeaders();
-    headers.add("Access-Control-Allow-Origin", "*");
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     return preloadStore
         .findById(id)

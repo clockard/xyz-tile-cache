@@ -72,7 +72,6 @@ class WmtsController {
     String xml = builder.build(visible, baseUrl);
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(APPLICATION_XML);
-    headers.add("Access-Control-Allow-Origin", "*");
     return new ResponseEntity<>(xml, headers, HttpStatus.OK);
   }
 
