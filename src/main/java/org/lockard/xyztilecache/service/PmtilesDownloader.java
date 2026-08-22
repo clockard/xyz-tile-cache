@@ -15,6 +15,7 @@ import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.Preload;
 import org.lockard.xyztilecache.store.PreloadStore;
+import org.lockard.xyztilecache.store.TileInventoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ public class PmtilesDownloader {
   private final XyzConfiguration xyzConfig;
   private final VectorPmtilesManager vectorPmtilesManager;
   private final PreloadStore preloadStore;
+  private final TileInventoryStore inventory;
 
   private final AtomicBoolean downloadInProgress = new AtomicBoolean(false);
 
@@ -36,10 +38,12 @@ public class PmtilesDownloader {
   public PmtilesDownloader(
       XyzConfiguration xyzConfig,
       VectorPmtilesManager vectorPmtilesManager,
-      PreloadStore preloadStore) {
+      PreloadStore preloadStore,
+      TileInventoryStore inventory) {
     this.xyzConfig = xyzConfig;
     this.vectorPmtilesManager = vectorPmtilesManager;
     this.preloadStore = preloadStore;
+    this.inventory = inventory;
   }
 
   public boolean isDownloadInProgress() {
@@ -127,6 +131,10 @@ public class PmtilesDownloader {
 
     markRunning(preload);
 
+    // A re-run under the same preload name replaces an archive already counted, and every failure
+    // path below deletes whatever is at outputPath. Both are byte deltas against this size.
+    long previousSize = TileInventoryStore.sizeOrMissing(outputPath);
+
     String sourceUrl = resolveSourceUrl(layer.urlTemplate());
     LOGGER.info("Starting pmtiles extract: source={} output={}", sourceUrl, outputPath);
 
@@ -145,6 +153,7 @@ public class PmtilesDownloader {
       int exitCode = process.waitFor();
       if (exitCode != 0) {
         Files.deleteIfExists(outputPath);
+        discardArchive(layerId, previousSize);
         // A killed process exits non-zero; report why it really stopped.
         if (current.isCancelled()) {
           throw new DownloadFailedException("PMTiles download cancelled.");
@@ -158,6 +167,7 @@ public class PmtilesDownloader {
     } catch (IOException | InterruptedException e) {
       try {
         Files.deleteIfExists(outputPath);
+        discardArchive(layerId, previousSize);
       } catch (IOException ignored) {
       }
       if (e instanceof InterruptedException) {
@@ -171,8 +181,23 @@ public class PmtilesDownloader {
     }
 
     LOGGER.info("PMTiles download completed: {}", outputPath);
+    // The archive holds many tiles in one file: it counts toward the layer's bytes, not its tile
+    // count. A zero-exit extract that produced no file leaves nothing to count.
+    long archiveSize = TileInventoryStore.sizeOrMissing(outputPath);
+    if (archiveSize >= 0) {
+      inventory.recordWrite(layerId, 0, archiveSize - Math.max(previousSize, 0));
+    } else {
+      discardArchive(layerId, previousSize);
+    }
     vectorPmtilesManager.closeLayer(layerId);
     vectorPmtilesManager.initLayer(layer);
+  }
+
+  /** Removes a deleted archive's bytes from the layer total, if it had been counted. */
+  private void discardArchive(String layerId, long previousSize) {
+    if (previousSize > 0) {
+      inventory.recordWrite(layerId, 0, -previousSize);
+    }
   }
 
   /**

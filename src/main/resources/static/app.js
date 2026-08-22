@@ -41,7 +41,7 @@ let downloadsPanel, downloadsList;
 let preloadOverlay, bboxDisplay, zoomSlider, zoomValue, preloadNameInput;
 let preloadLayersContainer, preloadWarningRow;
 let preloadAllowedUsers, preloadAllowedGroups;
-let zoomIndicator, attributionEl;
+let zoomIndicator, attributionEl, cacheStatsEl;
 let geoTiffOverlay, geoTiffNameInput, geoTiffFileInput, geoTiffStatus;
 let geoTiffAllowedUsers, geoTiffAllowedGroups;
 let exportOverlay, exportLayersContainer, exportBboxDisplay, exportMaxZoom, exportStatus;
@@ -58,6 +58,9 @@ let lfAttribution, lfMaxZoom, lfExpiration, lfAllowedUsers, lfAllowedGroups;
 let editingLayerName = null;
 let lmDeleteConfirm = null;
 
+/** Latest GET /stats payload; per-layer figures are keyed by layer id. */
+let cacheStats = { totals: null, layers: {} };
+
 const VECTOR_MAX_ZOOM = 15;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -68,6 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   downloadsBtn     = document.getElementById('downloads-btn');
   uploadGeoTiffBtn = document.getElementById('upload-geotiff-btn');
   manageLayersBtn  = document.getElementById('manage-layers-btn');
+  cacheStatsEl     = document.getElementById('cache-stats');
   downloadsPanel  = document.getElementById('downloads-panel');
   downloadsList   = document.getElementById('downloads-list');
   exportsSection  = document.getElementById('exports-section');
@@ -226,6 +230,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   applyAuthUiState();
   await loadLayers();
   await loadOfflineMode();
+  await loadStats();
 });
 
 // ── Path helper ───────────────────────────────────────────────────────────────
@@ -398,6 +403,7 @@ async function logout() {
     auth.user = null;
     applyAuthUiState();
     await loadLayers();
+    await loadStats();
     await refreshDownloadsIfOpen();
     return;
   }
@@ -406,6 +412,7 @@ async function logout() {
   clearTokens();
   applyAuthUiState();
   await loadLayers();
+  await loadStats();
   await refreshDownloadsIfOpen();
 
   if (auth.config && auth.config.issuerUri) {
@@ -460,6 +467,7 @@ async function submitLogin() {
   hideLoginModal();
   applyAuthUiState();
   await loadLayers();
+  await loadStats();
   await refreshDownloadsIfOpen();
 }
 
@@ -671,7 +679,9 @@ function initMap() {
     target: 'map',
     controls: [
       new ol.control.Zoom(),
-      new ol.control.ScaleLine({ units: 'metric' })
+      // Rendered into #map-bottom-left so the scale bar and the cache-stats chip are stacked by
+      // flexbox instead of both pinning themselves to the same corner.
+      new ol.control.ScaleLine({ units: 'metric', target: document.getElementById('scale-line') })
     ],
     layers: [highlightLayer, drawOverlay],
     view: new ol.View({
@@ -1520,7 +1530,8 @@ function stopDownloadPolling() {
 }
 
 async function loadDownloads() {
-  await Promise.all([loadPreloads(), loadExportJobs()]);
+  // Stats ride along with the poll: a running preload is the main thing that moves the totals.
+  await Promise.all([loadPreloads(), loadExportJobs(), loadStats()]);
 }
 
 /**
@@ -1768,10 +1779,72 @@ function bboxToBounds(bbox) {
   return [bbox.west, bbox.south, bbox.east, bbox.north];
 }
 
+// ── Cache stats ───────────────────────────────────────────────────────────────
+
+/**
+ * Loads GET /stats and repaints anything showing cache figures. Sent with credentials so a
+ * logged-in user sees their restricted layers; the response is already filtered by read access,
+ * so whatever comes back is what this caller is allowed to know about.
+ */
+async function loadStats() {
+  try {
+    const resp = await authFetch(apiPath('/stats'));
+    if (!resp.ok) return;
+    const stats = await resp.json();
+    cacheStats = {
+      totals: {
+        cachedTiles: stats.cachedTiles,
+        cachedBytes: stats.cachedBytes,
+        tilesServed: stats.tilesServedByInstance,
+      },
+      layers: Object.fromEntries((stats.layers || []).map((l) => [l.name, l])),
+    };
+  } catch (e) {
+    return; // Stats are decoration; a failure must not disturb the map.
+  }
+  renderCacheStats();
+  // Keep the manage-layers list in step, but never yank the user out of the edit form.
+  if (layerManagerOverlay && !layerManagerOverlay.classList.contains('hidden')
+      && lmListView && !lmListView.classList.contains('hidden')) {
+    renderLayerManagerList();
+  }
+}
+
+function renderCacheStats() {
+  if (!cacheStatsEl) return;
+  const totals = cacheStats.totals;
+  if (!totals) {
+    cacheStatsEl.classList.add('hidden');
+    return;
+  }
+  cacheStatsEl.innerHTML = [
+    ['Cached', `${formatCount(totals.cachedTiles)} tiles`],
+    ['Size', formatBytes(totals.cachedBytes)],
+    ['Served', formatCount(totals.tilesServed)],
+  ]
+    .map(
+      ([label, value]) =>
+        `<span><span class="cache-stat-label">${label}</span>` +
+        `<span class="cache-stat-value">${escapeHtml(value)}</span></span>`
+    )
+    .join('');
+  cacheStatsEl.classList.remove('hidden');
+}
+
+/** Cached tiles/bytes for one layer, or null when /stats did not report it. */
+function layerStats(layerId) {
+  return cacheStats.layers[layerId] || null;
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function splitList(s) {
   return s.split(',').map((x) => x.trim()).filter(Boolean);
+}
+
+function formatCount(n) {
+  if (n == null) return '–';
+  return Number(n).toLocaleString();
 }
 
 function formatBytes(bytes) {
@@ -1847,6 +1920,7 @@ async function submitGeoTiff() {
       addLayerToSelect(layer);
       switchLayer(layerKey);
       layerSelect.value = layerKey;
+      await loadStats();
       return;
     }
     const text = await resp.text();
@@ -1881,6 +1955,8 @@ function showLayerManager() {
   lmDeleteConfirm = null;
   renderLayerManagerList();
   layerManagerOverlay.classList.remove('hidden');
+  // Paint with what we have, then repaint when fresh figures land rather than blocking the open.
+  loadStats();
 }
 
 function hideLayerManager() {
@@ -1919,10 +1995,15 @@ function renderLayerManagerList() {
         </div>
       </div>`;
     }
+    const stats = layerStats(layerId);
+    const cached = stats
+      ? `${formatCount(stats.cachedTiles)} tiles cached &bull; ${escapeHtml(formatBytes(stats.cachedBytes))} &bull; ${formatCount(stats.tilesServedByInstance)} served`
+      : '<span class="lm-stat-empty">Cache size unavailable</span>';
     return `<div class="lm-layer-row" data-name="${escapeHtml(layerId)}">
       <div class="lm-row-info">
         <span class="lm-row-name">${escapeHtml(displayName)}</span>
         <span class="lm-row-meta">${escapeHtml(layerId)} &bull; ${escapeHtml(layer.sourceType || 'XYZ')} &bull; ${access}</span>
+        <span class="lm-row-stats">${cached}</span>
       </div>
       <div class="lm-row-actions">
         <button class="lm-edit-btn">Edit</button>
@@ -2050,6 +2131,7 @@ async function saveLayer() {
       const display = layer.name || layer.id;
       showToast(editingLayerName ? `Layer '${display}' updated` : `Layer '${display}' added`, 'success');
       await loadLayers();
+      await loadStats();
       lmDeleteConfirm = null;
       renderLayerManagerList();
       return;
@@ -2072,6 +2154,7 @@ async function executeDeleteLayer(name) {
     if (resp.status === 204) {
       showToast(`Layer '${name}' deleted`, 'success');
       await loadLayers();
+      await loadStats();
       lmDeleteConfirm = null;
       renderLayerManagerList();
       return;
@@ -2272,6 +2355,7 @@ async function submitImport() {
       'success'
     );
     await loadLayers();
+    await loadStats();
   } catch (e) {
     importStatus.textContent = 'Network error during import.';
   } finally {

@@ -27,6 +27,7 @@ import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.ImportSummary;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.store.LayerStore;
+import org.lockard.xyztilecache.store.TileInventoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
@@ -56,18 +57,21 @@ public class ImportExportService {
   private final LayerStore layerStore;
   private final ObjectMapper objectMapper;
   private final LayerAccessService layerAccessService;
+  private final TileInventoryStore inventory;
 
   public ImportExportService(
       XyzConfiguration configuration,
       VectorPmtilesManager vectorPmtilesManager,
       LayerStore layerStore,
       ObjectMapper objectMapper,
-      LayerAccessService layerAccessService) {
+      LayerAccessService layerAccessService,
+      TileInventoryStore inventory) {
     this.configuration = configuration;
     this.vectorPmtilesManager = vectorPmtilesManager;
     this.layerStore = layerStore;
     this.objectMapper = objectMapper;
     this.layerAccessService = layerAccessService;
+    this.inventory = inventory;
   }
 
   /**
@@ -364,13 +368,14 @@ public class ImportExportService {
    * place), and writing stops if free disk space drops below {@code minFreeDiskBytes}. On any abort
    * the partially written target is deleted so a rejected import leaves no half-file behind.
    */
-  private void copyEntry(InputStream in, Path target, Path baseDir, long[] budget)
+  private long copyEntry(InputStream in, Path target, Path baseDir, long[] budget)
       throws IOException {
     long freeBytes = Files.getFileStore(baseDir).getUsableSpace();
     if (freeBytes < configuration.getMinFreeDiskBytes()) {
       throw new IOException("Insufficient free disk space to import; aborting.");
     }
     byte[] buffer = new byte[8192];
+    long written = 0L;
     try (OutputStream out = Files.newOutputStream(target)) {
       int read;
       while ((read = in.read(buffer)) != -1) {
@@ -382,6 +387,7 @@ public class ImportExportService {
         }
         budget[0] -= read;
         out.write(buffer, 0, read);
+        written += read;
       }
     } catch (IOException e) {
       try {
@@ -391,6 +397,7 @@ public class ImportExportService {
       }
       throw e;
     }
+    return written;
   }
 
   /**
@@ -409,6 +416,10 @@ public class ImportExportService {
     long pmtilesImported = 0L;
     Map<String, Boolean> layerAccess = new HashMap<>();
     long[] budget = {configuration.getMaxImportBytes()};
+    // Imports write thousands of files; accumulate per layer and report once at the end rather
+    // than touching the inventory per tile. Reported in a finally block because an aborted import
+    // (size cap, denied layer) still leaves the files it already wrote on disk.
+    Map<String, long[]> written = new HashMap<>();
 
     try (ZipInputStream zis = new ZipInputStream(in)) {
       ZipEntry entry;
@@ -445,13 +456,11 @@ public class ImportExportService {
         String tail = name.substring(slash + 1);
         if ("layer.json".equals(tail)) {
           handleLayerJson(zis, layerId, added, skipped);
-        } else if (TILE_TAIL.matcher(tail).matches()) {
+        } else if (TILE_TAIL.matcher(tail).matches() || CACHED_TILE_TAIL.matcher(tail).matches()) {
           Files.createDirectories(target.getParent());
-          copyEntry(zis, target, baseDir, budget);
-          tilesWritten++;
-        } else if (CACHED_TILE_TAIL.matcher(tail).matches()) {
-          Files.createDirectories(target.getParent());
-          copyEntry(zis, target, baseDir, budget);
+          long previous = TileInventoryStore.sizeOrMissing(target);
+          long bytes = copyEntry(zis, target, baseDir, budget);
+          accumulate(written, layerId, previous < 0 ? 1 : 0, bytes - Math.max(previous, 0));
           tilesWritten++;
         } else if (tail.endsWith(".pmtiles")) {
           if (!SAFE_PMTILES_NAME.matcher(tail).matches()) {
@@ -468,14 +477,26 @@ public class ImportExportService {
             LOGGER.warn("Skipping PMTiles entry {} because it already exists", name);
             continue;
           }
-          copyEntry(zis, pmtilesTarget, baseDir, budget);
+          long bytes = copyEntry(zis, pmtilesTarget, baseDir, budget);
+          // A pmtiles archive is one file holding many tiles: its bytes count toward the layer's
+          // disk usage, but it is not a tile in the count.
+          accumulate(written, layerId, 0, bytes);
           vectorPmtilesManager.notifyFileAvailable(pmtilesTarget);
           pmtilesImported++;
         }
       }
+    } finally {
+      written.forEach((id, delta) -> inventory.recordBulk(id, delta[0], delta[1]));
     }
 
     return new ImportSummary(added, skipped, tilesWritten, pmtilesImported);
+  }
+
+  private static void accumulate(
+      Map<String, long[]> written, String layerId, long tiles, long bytes) {
+    long[] delta = written.computeIfAbsent(layerId, id -> new long[2]);
+    delta[0] += tiles;
+    delta[1] += bytes;
   }
 
   private boolean checkLayerAccess(String layerId, Authentication auth) {

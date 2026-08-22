@@ -40,6 +40,8 @@ xyz:
   tileTimeoutSeconds: 5
   layerSyncSeconds: 10          # How often to check for layer changes from other instances (seconds)
   preloadConcurrency: 4         # Parallel tile fetches per preload job
+  inventoryFlushSeconds: 30     # How often cached-tile totals are written to tile-inventory.json
+  inventoryFlushTiles: 10000    # Also flush once this many tiles have been reported since the last
   uiEnabled: true               # Set to false to disable the web UI (all UI paths return 404)
   adminRole: admin              # Keycloak realm role required for write operations
   layers:

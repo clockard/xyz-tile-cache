@@ -54,15 +54,6 @@ class LayerTest {
     assertThat(state.requestStrategy(later)).isEqualTo(Layer.RequestStrategy.BLOCK);
   }
 
-  @Test
-  void addTileStats_accumulatesCountAndSize() {
-    final var state = new LayerRuntimeState();
-    state.addTileStats(100L);
-    state.addTileStats(200L);
-    assertThat(state.getCachedTiles()).isEqualTo(2);
-    assertThat(state.getCachedTilesSize()).isEqualTo(300L);
-  }
-
   // ── Layer data model tests ────────────────────────────────────────────────
 
   @Test

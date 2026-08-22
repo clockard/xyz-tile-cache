@@ -14,12 +14,16 @@ import org.lockard.xyztilecache.model.LayerChangedEvent;
 import org.lockard.xyztilecache.model.LayerRuntimeState;
 import org.lockard.xyztilecache.model.XyzLayer;
 import org.lockard.xyztilecache.store.LayerStore;
+import org.lockard.xyztilecache.store.TileInventoryStore;
 
 class TileCacheMetricsUnitTest {
+
+  @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir;
 
   private MeterRegistry registry;
   private LayerStore layerStore;
   private LayerRuntimeState osmState;
+  private TileInventoryStore inventory;
   private TileCacheMetrics metrics;
 
   @BeforeEach
@@ -45,14 +49,24 @@ class TileCacheMetricsUnitTest {
     osmState = new LayerRuntimeState();
     when(layerStore.getRuntimeState("osm")).thenReturn(osmState);
 
-    metrics = new TileCacheMetrics(registry, layerStore);
+    org.lockard.xyztilecache.config.XyzConfiguration inventoryConfig =
+        new org.lockard.xyztilecache.config.XyzConfiguration();
+    inventoryConfig.setBaseTileDirectory(tempDir.toString());
+    inventory =
+        new TileInventoryStore(inventoryConfig, new com.fasterxml.jackson.databind.ObjectMapper());
+    try {
+      inventory.init();
+    } catch (java.io.IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+    metrics = new TileCacheMetrics(registry, layerStore, inventory);
     metrics.registerExistingLayers();
   }
 
   @Test
-  void cachedTilesGauge_reflectsRuntimeState() {
-    osmState.addTileStats(1024);
-    osmState.addTileStats(2048);
+  void cachedTilesGauge_reflectsInventory() {
+    inventory.recordWrite("osm", 1, 1024);
+    inventory.recordWrite("osm", 1, 2048);
 
     assertThat(registry.find(TileCacheMetrics.CACHED_TILES).tag("layer", "osm").gauge().value())
         .isEqualTo(2.0);

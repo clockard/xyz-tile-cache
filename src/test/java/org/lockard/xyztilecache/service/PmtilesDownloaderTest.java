@@ -23,6 +23,19 @@ class PmtilesDownloaderTest {
 
   @TempDir Path tempDir;
 
+  /** An initialised inventory rooted at the test's temp dir. */
+  private org.lockard.xyztilecache.store.TileInventoryStore newInventory() {
+    try {
+      var store =
+          new org.lockard.xyztilecache.store.TileInventoryStore(
+              xyzConfig(), new com.fasterxml.jackson.databind.ObjectMapper());
+      store.init();
+      return store;
+    } catch (java.io.IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+  }
+
   private XyzConfiguration xyzConfig() {
     XyzConfiguration c = new XyzConfiguration();
     c.setBaseTileDirectory(tempDir.toString());
@@ -83,7 +96,10 @@ class PmtilesDownloaderTest {
     Preload p = preload(-74.0, 40.5, -73.5, 41.0, 12);
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class));
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory());
     ProcessBuilder pb = downloader.buildProcess(p, l, tempDir.resolve("test.pmtiles"));
     assertThat(pb.command()).contains("pmtiles", "extract");
     assertThat(pb.command()).contains(l.urlTemplate());
@@ -98,7 +114,10 @@ class PmtilesDownloaderTest {
     Preload p = preload(-73.1234, 40.5678, -73.0, 41.0, 14);
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class));
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory());
     ProcessBuilder pb = downloader.buildProcess(p, l, tempDir.resolve("test.pmtiles"));
     String bboxArg = pb.command().stream().filter(a -> a.startsWith("--bbox=")).findFirst().get();
     assertThat(bboxArg).matches("--bbox=-?\\d+\\.\\d+,-?\\d+\\.\\d+,-?\\d+\\.\\d+,-?\\d+\\.\\d+");
@@ -113,7 +132,10 @@ class PmtilesDownloaderTest {
     Preload p = preload(-74.0, 40.5, -73.5, 41.0, 20); // slider set to 20 for the raster layers
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class));
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory());
     ProcessBuilder pb = downloader.buildProcess(p, l, tempDir.resolve("test.pmtiles"));
     assertThat(pb.command()).contains("--maxzoom=15");
     assertThat(pb.command()).doesNotContain("--maxzoom=20");
@@ -126,7 +148,10 @@ class PmtilesDownloaderTest {
     Preload p = preload(-74.0, 40.5, -73.5, 41.0, 10);
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class));
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory());
     ProcessBuilder pb = downloader.buildProcess(p, l, tempDir.resolve("test.pmtiles"));
     assertThat(pb.command()).contains("--maxzoom=10");
   }
@@ -151,7 +176,10 @@ class PmtilesDownloaderTest {
     Preload p = preload(-1, -1, 1, 1, 5);
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class));
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory());
     assertThatThrownBy(() -> downloader.buildProcess(p, l, Path.of("/tmp/evil;injected")))
         .isInstanceOf(IllegalArgumentException.class);
   }
@@ -168,7 +196,10 @@ class PmtilesDownloaderTest {
 
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory()) {
           @Override
           protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
             started.countDown();
@@ -199,7 +230,10 @@ class PmtilesDownloaderTest {
 
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory()) {
           @Override
           protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
             return new ProcessBuilder("true");
@@ -211,13 +245,65 @@ class PmtilesDownloaderTest {
   }
 
   @Test
+  void startDownload_success_reportsArchiveBytesToInventory() throws Exception {
+    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    Layer l = layer("https://example.com/tiles.pmtiles", 5);
+    org.lockard.xyztilecache.store.TileInventoryStore inventory = newInventory();
+
+    PmtilesDownloader downloader =
+        new PmtilesDownloader(
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            inventory) {
+          @Override
+          protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
+            // Stand in for the real extract: produce an archive of a known size at `out`.
+            return new ProcessBuilder("sh", "-c", "printf '12345678' > " + out);
+          }
+        };
+
+    downloader.startDownload(preload(-1, -1, 1, 1, 5), l).get();
+
+    // An archive is one file holding many tiles: bytes count, tile count does not.
+    assertThat(inventory.bytes(l.effectiveId())).isEqualTo(8);
+    assertThat(inventory.tiles(l.effectiveId())).isZero();
+  }
+
+  @Test
+  void startDownload_failedProcess_reportsNothingToInventory() throws Exception {
+    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    Layer l = layer("https://example.com/tiles.pmtiles", 5);
+    org.lockard.xyztilecache.store.TileInventoryStore inventory = newInventory();
+
+    PmtilesDownloader downloader =
+        new PmtilesDownloader(
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            inventory) {
+          @Override
+          protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
+            return new ProcessBuilder("false");
+          }
+        };
+
+    downloader.startDownload(preload(-1, -1, 1, 1, 5), l).get();
+
+    assertThat(inventory.bytes(l.effectiveId())).isZero();
+  }
+
+  @Test
   void startDownload_failedProcess_doesNotCallManager() throws Exception {
     VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
 
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory()) {
           @Override
           protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
             return new ProcessBuilder("false");
@@ -235,7 +321,10 @@ class PmtilesDownloaderTest {
 
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory()) {
           @Override
           protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
             return new ProcessBuilder("false");
@@ -253,7 +342,10 @@ class PmtilesDownloaderTest {
 
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory()) {
           @Override
           protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
             return new ProcessBuilder("__nonexistent_command_xyz_123456__");
@@ -274,7 +366,10 @@ class PmtilesDownloaderTest {
 
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory()) {
           @Override
           protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
             try {
@@ -304,7 +399,10 @@ class PmtilesDownloaderTest {
 
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory()) {
           @Override
           protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
             throw new IllegalArgumentException("boundingBox is out of range");
@@ -328,7 +426,10 @@ class PmtilesDownloaderTest {
     java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
     PmtilesDownloader downloader =
         new PmtilesDownloader(
-            xyzConfig(), manager, mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+            xyzConfig(),
+            manager,
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory()) {
           @Override
           protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
             started.countDown();
@@ -357,7 +458,8 @@ class PmtilesDownloaderTest {
         new PmtilesDownloader(
             xyzConfig(),
             mock(VectorPmtilesManager.class),
-            mock(org.lockard.xyztilecache.store.PreloadStore.class));
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory());
     assertThat(downloader.cancelDownload("anything")).isFalse();
   }
 
@@ -368,7 +470,8 @@ class PmtilesDownloaderTest {
         new PmtilesDownloader(
             xyzConfig(),
             mock(VectorPmtilesManager.class),
-            mock(org.lockard.xyztilecache.store.PreloadStore.class)) {
+            mock(org.lockard.xyztilecache.store.PreloadStore.class),
+            newInventory()) {
           @Override
           protected ProcessBuilder buildProcess(Preload preload, Layer layer, Path out) {
             return new ProcessBuilder("true");

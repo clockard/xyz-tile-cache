@@ -78,6 +78,8 @@ xyz:
   offline: false                   # true = serve from disk only, never make outbound requests
   tileTimeoutSeconds: 5            # per-request timeout for outbound tile fetches
   tileCacheBytes: 268435456        # in-memory tile cache budget in bytes (default 256 MiB)
+  inventoryFlushSeconds: 30        # how often cached-tile totals are written to tile-inventory.json
+  inventoryFlushTiles: 10000       # also flush once this many tiles have been reported
   defaultCacheMaxAgeSeconds: 86400 # Cache-Control max-age for tiles with no tileExpirationMinutes
   preloadConcurrency: 4            # parallel tile fetches per preload job
   layerSyncSeconds: 10             # how often to re-read layers.json so multiple instances stay in sync
@@ -454,20 +456,39 @@ Offline mode can also be set at startup via `xyz.offline` in `application.yml` o
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/stats` | none (filtered) | Per-instance tile-serve counters and free disk space. The `layers` array is filtered to the layers the caller can read, exactly like `GET /layers`. |
+| `POST` | `/stats/reconcile` | admin | Rebuilds the cached-tile totals by walking the tile directory. Returns `202` immediately; the scan runs in the background and can take minutes on a large cache. |
 
 ```json
 {
   "instanceId": "12345@hostname",
   "tilesServedByInstance": 45230,
+  "cachedTiles": 812004,
+  "cachedBytes": 19837452288,
   "diskFreeBytes": 132100997120,
   "layers": [
-    { "name": "osm", "tilesServedByInstance": 20000 },
-    { "name": "esri-satellite", "tilesServedByInstance": 25230 }
+    { "name": "osm", "tilesServedByInstance": 20000, "cachedTiles": 512004, "cachedBytes": 11238844416 },
+    { "name": "esri-satellite", "tilesServedByInstance": 25230, "cachedTiles": 300000, "cachedBytes": 8598607872 }
   ]
 }
 ```
 
-The counters are in-memory and reset on restart. With multiple instances behind a load balancer, query each one individually and aggregate client-side.
+`cachedTiles` and `cachedBytes` come from the [cached-tile inventory](#cached-tile-inventory) and describe the shared tile directory, so unlike the serve counters they survive a restart. The top-level totals sum only the layers in the `layers` array, so a caller who cannot read a layer never sees its volume through the total either.
+
+The serve counters are in-memory and reset on restart. With multiple instances behind a load balancer, query each one individually and aggregate client-side.
+
+### Cached-tile inventory
+
+The per-layer disk totals behind the `xyz_layer_cached_tiles` and `xyz_layer_cached_bytes` gauges are **not** in-memory — they are maintained as tiles are written and persisted to `tile-inventory.json` in the tile directory.
+
+- **Startup does not walk the cache.** The totals load from the file, so boot time is independent of how many tile files exist.
+- **Every writer reports in**: live tile fetches, preloads, zip imports, GeoTIFF tiling, remote vector-tile caching, and PMTiles downloads. Refreshing an expired tile is counted as a size change, not as an extra tile.
+- **A PMTiles archive counts toward bytes but not toward the tile count** — it is one file holding many tiles.
+- **Writes are batched.** The file is written on a timer when something changed (`xyz.inventoryFlushSeconds`), once a burst crosses `xyz.inventoryFlushTiles`, and on shutdown. Never per tile.
+- **The directory is walked only when the totals cannot be trusted**: the first start after upgrading, a start following an unclean shutdown (detected by a missing `tile-inventory.clean` marker), a corrupt inventory file, or an explicit `POST /stats/reconcile`. Scans always run in the background.
+
+Totals are advisory statistics — they never gate serving — so if they ever look wrong, `POST /stats/reconcile` rebuilds them from disk.
+
+With several instances sharing one tile directory, each flush applies that instance's changes to whatever the file currently holds rather than overwriting it, so their contributions merge instead of clobbering each other.
 
 ### Auth discovery
 
