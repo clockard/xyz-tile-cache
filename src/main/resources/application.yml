@@ -64,6 +64,23 @@ xyz:
       wmtsStyle: "default"
       wmtsFormat: "image/png"
 
+    # WMS (GetMap per tile). Tiles are always requested in EPSG:3857, so the
+    # server must publish the layer in Web Mercator. wmsVersion picks the
+    # dialect: 1.3.0 sends CRS=, 1.1.1 sends SRS=.
+    # - id: "states-wms"
+    #   name: "US States (WMS)"
+    #   sourceType: WMS
+    #   urlTemplate: "https://ahocevar.com/geoserver/wms"
+    #   wmsLayers: "topp:states"       # required; comma-separated for multiple
+    #   wmsStyles: ""                  # blank = the server's default style
+    #   wmsFormat: "image/png"
+    #   wmsVersion: "1.3.0"            # or "1.1.1"
+    #   wmsTransparent: true
+    #   wmsTileSize: 256
+    #   wmsTime: false                 # true adds TIME= from timeFormat
+    #   wmsExtraParams:                # vendor parameters, sent as given
+    #     CQL_FILTER: "STATE_NAME='Colorado'"
+
     # ─── XYZ: Streets & General ────────────────────────────────────────────────
 
     - id: "osm"

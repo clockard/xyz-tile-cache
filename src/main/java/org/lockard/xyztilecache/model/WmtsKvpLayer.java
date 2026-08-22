@@ -2,7 +2,6 @@ package org.lockard.xyztilecache.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /** WMTS KVP (key-value-pair) layer. Builds a {@code GetTile} query against the base URL. */
@@ -45,11 +44,7 @@ public record WmtsKvpLayer(
 
   @Override
   public String tileFileExtension() {
-    String f = wmtsFormat == null ? "" : wmtsFormat.toLowerCase(Locale.ROOT);
-    if (f.contains("jpeg") || f.contains("jpg")) return "jpg";
-    if (f.contains("webp")) return "webp";
-    if (f.contains("gif")) return "gif";
-    return "png";
+    return MimeExtensions.fromMimeType(wmtsFormat);
   }
 
   @Override

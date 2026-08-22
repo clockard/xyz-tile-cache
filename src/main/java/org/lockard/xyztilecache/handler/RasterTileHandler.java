@@ -24,6 +24,7 @@ public class RasterTileHandler implements TileSourceHandler {
           Layer.SourceType.XYZ,
           Layer.SourceType.WMTS_REST,
           Layer.SourceType.WMTS_KVP,
+          Layer.SourceType.WMS,
           Layer.SourceType.LOCAL);
 
   private final LoadingCache<Tile, byte[]> tileCache;

@@ -6,7 +6,7 @@ A caching proxy for map tiles. It sits between your map client and any tile sour
 
 ## Capabilities:
 
-- Raster tile sources — XYZ (standard slippy map), WMTS-REST, and WMTS-KVP.
+- Raster tile sources — XYZ (standard slippy map), WMTS-REST, WMTS-KVP, and WMS.
 - Time-aware sources — weather radar, daily satellite imagery (URL `{time}` substitution or WMTS `TIME` dimension).
 - User-uploaded local layers — upload a GeoTIFF and the proxy tiles it with `gdal2tiles` and serves it as a `LOCAL` layer.
 - Vector tiles — `VECTOR_PMTILES` layers served from a local or remote PMTiles source; areas can be preloaded on demand via a normal preload that includes the vector layer, and per-layer `initZoom > 0` triggers a world-covering download at startup.
@@ -216,6 +216,40 @@ Layers where the tile URL or WMTS request includes a date/time (weather radar, d
 ```
 
 The current time is substituted into `{time}` using the layer's `timeFormat` at request time.
+
+#### WMS layers
+
+A `WMS` layer turns each tile request into a `GetMap` call for that tile's extent, so any WMS
+service becomes an XYZ tile source the cache can serve and preload like any other.
+
+```yaml
+- id: "states-wms"
+  name: "US States (WMS)"
+  sourceType: WMS
+  urlTemplate: "https://ahocevar.com/geoserver/wms"   # base endpoint, no query needed
+  wmsLayers: "topp:states"        # required; comma-separated for multiple layers
+  wmsStyles: ""                   # blank = the server's default style
+  wmsFormat: "image/png"          # also sets the cached tile's file extension
+  wmsVersion: "1.3.0"             # or "1.1.1"
+  wmsTransparent: true
+  wmsTileSize: 256                # WIDTH/HEIGHT sent to the server
+  wmsTime: false                  # true adds TIME=, formatted with timeFormat
+  wmsExtraParams:                 # vendor parameters, passed through as given
+    CQL_FILTER: "STATE_NAME='Colorado'"
+```
+
+**Tiles are always requested in `EPSG:3857`.** WMS 1.3.0 reversed the axis order of geographic
+CRSs relative to 1.1.1, so the same `BBOX` in EPSG:4326 means `lat,lon` under one version and
+`lon,lat` under the other — the usual cause of a WMS layer coming back transposed. Web Mercator is
+easting/northing in both versions and is the grid tiles are served on anyway, so requesting it
+avoids the ambiguity. A server that cannot deliver EPSG:3857 is not supported.
+
+`wmsVersion` only changes how the projection parameter is spelled: `CRS` for 1.3.0, `SRS` for
+1.1.1. If `urlTemplate` already carries a query string (`.../ows?authkey=…`), the GetMap parameters
+are appended to it.
+
+Layers with `wmsTime: true` are excluded from preload for the same reason as other time-varying
+sources: the tiles they return are already stale by the next request.
 
 #### LOCAL layers (uploaded GeoTIFFs)
 

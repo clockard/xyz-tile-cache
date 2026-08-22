@@ -123,4 +123,71 @@ class XyzUtilTest {
       assertThat(range.count()).isEqualTo(expected.size());
     }
   }
+
+  // ── tileBounds3857 ─────────────────────────────────────────────────────────
+
+  private static final double ORIGIN = 20037508.342789244;
+  private static final double TOLERANCE = 1e-6;
+
+  @Test
+  void tileBounds3857_zeroZoom_coversTheWholeWorld() {
+    XyzUtil.Bounds3857 b = XyzUtil.tileBounds3857(0, 0, 0);
+
+    assertThat(b.minX()).isCloseTo(-ORIGIN, offset(TOLERANCE));
+    assertThat(b.minY()).isCloseTo(-ORIGIN, offset(TOLERANCE));
+    assertThat(b.maxX()).isCloseTo(ORIGIN, offset(TOLERANCE));
+    assertThat(b.maxY()).isCloseTo(ORIGIN, offset(TOLERANCE));
+  }
+
+  @Test
+  void tileBounds3857_zoomOne_splitsTheWorldIntoQuadrants() {
+    // y grows southward from the north-west origin, so tile (0,0) is the north-west quadrant.
+    XyzUtil.Bounds3857 northWest = XyzUtil.tileBounds3857(0, 0, 1);
+    assertThat(northWest.minX()).isCloseTo(-ORIGIN, offset(TOLERANCE));
+    assertThat(northWest.maxX()).isCloseTo(0.0, offset(TOLERANCE));
+    assertThat(northWest.minY()).isCloseTo(0.0, offset(TOLERANCE));
+    assertThat(northWest.maxY()).isCloseTo(ORIGIN, offset(TOLERANCE));
+
+    XyzUtil.Bounds3857 southEast = XyzUtil.tileBounds3857(1, 1, 1);
+    assertThat(southEast.minX()).isCloseTo(0.0, offset(TOLERANCE));
+    assertThat(southEast.maxX()).isCloseTo(ORIGIN, offset(TOLERANCE));
+    assertThat(southEast.minY()).isCloseTo(-ORIGIN, offset(TOLERANCE));
+    assertThat(southEast.maxY()).isCloseTo(0.0, offset(TOLERANCE));
+  }
+
+  @Test
+  void tileBounds3857_tilesAreSquareAndAbutTheirNeighbours() {
+    XyzUtil.Bounds3857 left = XyzUtil.tileBounds3857(4, 6, 4);
+    XyzUtil.Bounds3857 right = XyzUtil.tileBounds3857(5, 6, 4);
+    XyzUtil.Bounds3857 below = XyzUtil.tileBounds3857(4, 7, 4);
+
+    double span = left.maxX() - left.minX();
+    assertThat(left.maxY() - left.minY()).isCloseTo(span, offset(TOLERANCE));
+    assertThat(right.minX()).isCloseTo(left.maxX(), offset(TOLERANCE));
+    assertThat(below.maxY()).isCloseTo(left.minY(), offset(TOLERANCE));
+  }
+
+  @Test
+  void tileBounds3857_agreesWithTheDegreeBasedTileMath() {
+    // Cross-check against the lat/lon helpers by projecting their output: the two derivations of a
+    // tile's extent must land in the same place.
+    int x = 37;
+    int y = 22;
+    int z = 6;
+    XyzUtil.Bounds3857 b = XyzUtil.tileBounds3857(x, y, z);
+
+    assertThat(b.minX()).isCloseTo(lonToMetres(XyzUtil.tile2lon(x, z)), offset(1e-3));
+    assertThat(b.maxX()).isCloseTo(lonToMetres(XyzUtil.tile2lon(x + 1, z)), offset(1e-3));
+    assertThat(b.maxY()).isCloseTo(latToMetres(XyzUtil.tile2lat(y, z)), offset(1e-3));
+    assertThat(b.minY()).isCloseTo(latToMetres(XyzUtil.tile2lat(y + 1, z)), offset(1e-3));
+  }
+
+  private static double lonToMetres(double lon) {
+    return lon * ORIGIN / 180.0;
+  }
+
+  private static double latToMetres(double lat) {
+    double y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
+    return y * ORIGIN / 180.0;
+  }
 }

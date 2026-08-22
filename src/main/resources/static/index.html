@@ -290,6 +290,7 @@
               <option value="XYZ">XYZ</option>
               <option value="WMTS_REST">WMTS REST</option>
               <option value="WMTS_KVP">WMTS KVP</option>
+              <option value="WMS">WMS</option>
               <option value="VECTOR_PMTILES">PMTiles Vector</option>
               <option value="LOCAL">Local</option>
             </select>
@@ -319,6 +320,46 @@
               <label class="checkbox-label">
                 <input type="checkbox" id="lf-wmts-time"> Has time dimension
               </label>
+            </div>
+          </div>
+          <div id="lf-wms-section" class="hidden">
+            <div class="form-row">
+              <label for="lf-wms-layers">WMS Layers * <span class="field-hint">(comma-separated)</span></label>
+              <input type="text" id="lf-wms-layers" placeholder="topp:states">
+            </div>
+            <div class="form-row">
+              <label for="lf-wms-styles">Styles <span class="field-hint">(blank = server default)</span></label>
+              <input type="text" id="lf-wms-styles">
+            </div>
+            <div class="form-row form-row-half">
+              <div>
+                <label for="lf-wms-format">Format</label>
+                <input type="text" id="lf-wms-format">
+              </div>
+              <div>
+                <label for="lf-wms-version">Version</label>
+                <select id="lf-wms-version">
+                  <option value="1.3.0">1.3.0</option>
+                  <option value="1.1.1">1.1.1</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <label for="lf-wms-tile-size">Tile Size</label>
+              <input type="number" id="lf-wms-tile-size" min="64" max="2048" step="1">
+            </div>
+            <div class="form-row">
+              <label class="checkbox-label">
+                <input type="checkbox" id="lf-wms-transparent"> Request transparent tiles
+              </label>
+            </div>
+            <div class="form-row">
+              <label class="checkbox-label">
+                <input type="checkbox" id="lf-wms-time"> Has time dimension
+              </label>
+            </div>
+            <div class="form-row">
+              <div class="field-hint">Tiles are requested in EPSG:3857; the server must support it.</div>
             </div>
           </div>
           <div class="form-row">

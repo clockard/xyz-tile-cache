@@ -53,6 +53,8 @@ let offlineToggleBtn;
 let layerManagerOverlay, layerManagerTitle, lmListView, lmLayerList, lmFormView;
 let lfId, lfName, lfSourceType, lfUrl, lfUrlRow, lfWmtsSection;
 let lfWmtsLayer, lfWmtsMatrix, lfWmtsStyle, lfWmtsFormat, lfWmtsTime;
+let lfWmsSection, lfWmsLayers, lfWmsStyles, lfWmsFormat, lfWmsVersion;
+let lfWmsTileSize, lfWmsTransparent, lfWmsTime;
 let lfAttribution, lfMaxZoom, lfExpiration, lfAllowedUsers, lfAllowedGroups;
 
 let editingLayerName = null;
@@ -124,6 +126,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   lfWmtsStyle         = document.getElementById('lf-wmts-style');
   lfWmtsFormat        = document.getElementById('lf-wmts-format');
   lfWmtsTime          = document.getElementById('lf-wmts-time');
+  lfWmsSection        = document.getElementById('lf-wms-section');
+  lfWmsLayers         = document.getElementById('lf-wms-layers');
+  lfWmsStyles         = document.getElementById('lf-wms-styles');
+  lfWmsFormat         = document.getElementById('lf-wms-format');
+  lfWmsVersion        = document.getElementById('lf-wms-version');
+  lfWmsTileSize       = document.getElementById('lf-wms-tile-size');
+  lfWmsTransparent    = document.getElementById('lf-wms-transparent');
+  lfWmsTime           = document.getElementById('lf-wms-time');
   lfAttribution       = document.getElementById('lf-attribution');
   lfMaxZoom           = document.getElementById('lf-max-zoom');
   lfExpiration        = document.getElementById('lf-expiration');
@@ -1349,7 +1359,8 @@ function buildPreloadLayerCheckboxes() {
 
 function layerHasTimeComponent(layer) {
   if (!layer) return false;
-  if (layer.wmtsTime === true) return true;
+  // Mirrors Layer.doesUrlHaveTime() on the server: a dimension flag, or a {time} placeholder.
+  if (layer.wmtsTime === true || layer.wmsTime === true) return true;
   return typeof layer.urlTemplate === 'string' && layer.urlTemplate.includes('{time}');
 }
 
@@ -2061,12 +2072,21 @@ function populateLayerForm(layer) {
   lfWmtsStyle.value = layer ? (layer.wmtsStyle || 'default') : 'default';
   lfWmtsFormat.value = layer ? (layer.wmtsFormat || 'image/png') : 'image/png';
   lfWmtsTime.checked = layer ? (layer.wmtsTime || false) : false;
+  lfWmsLayers.value = layer ? (layer.wmsLayers || '') : '';
+  lfWmsStyles.value = layer ? (layer.wmsStyles || '') : '';
+  lfWmsFormat.value = layer ? (layer.wmsFormat || 'image/png') : 'image/png';
+  lfWmsVersion.value = layer ? (layer.wmsVersion || '1.3.0') : '1.3.0';
+  lfWmsTileSize.value = layer && layer.wmsTileSize ? layer.wmsTileSize : 256;
+  // Transparency defaults on: a WMS layer is most often an overlay.
+  lfWmsTransparent.checked = layer ? layer.wmsTransparent !== false : true;
+  lfWmsTime.checked = layer ? (layer.wmsTime || false) : false;
   onSourceTypeChange();
 }
 
 function onSourceTypeChange() {
   const type = lfSourceType.value;
   lfWmtsSection.classList.toggle('hidden', type !== 'WMTS_KVP');
+  lfWmsSection.classList.toggle('hidden', type !== 'WMS');
   lfUrlRow.classList.toggle('hidden', type === 'LOCAL');
   lfUrl.placeholder = type === 'VECTOR_PMTILES'
     ? '/path/to/tiles.pmtiles or https://example.com/tiles.pmtiles'
@@ -2103,6 +2123,21 @@ function readLayerForm() {
     layer.wmtsStyle = lfWmtsStyle.value.trim() || 'default';
     layer.wmtsFormat = lfWmtsFormat.value.trim() || 'image/png';
     layer.wmtsTime = lfWmtsTime.checked;
+  }
+  if (sourceType === 'WMS') {
+    const wmsLayers = lfWmsLayers.value.trim();
+    if (!wmsLayers) {
+      showToast('WMS Layers is required', 'error');
+      return null;
+    }
+    layer.wmsLayers = wmsLayers;
+    // Sent as typed, including empty: a blank STYLES means "server default" to a WMS server.
+    layer.wmsStyles = lfWmsStyles.value.trim();
+    layer.wmsFormat = lfWmsFormat.value.trim() || 'image/png';
+    layer.wmsVersion = lfWmsVersion.value;
+    layer.wmsTileSize = parseInt(lfWmsTileSize.value, 10) || 256;
+    layer.wmsTransparent = lfWmsTransparent.checked;
+    layer.wmsTime = lfWmsTime.checked;
   }
   return layer;
 }

@@ -7,6 +7,7 @@ import java.util.Map;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LocalLayer;
 import org.lockard.xyztilecache.model.VectorPmtilesLayer;
+import org.lockard.xyztilecache.model.WmsLayer;
 import org.lockard.xyztilecache.model.WmtsKvpLayer;
 import org.lockard.xyztilecache.model.WmtsRestLayer;
 import org.lockard.xyztilecache.model.XyzLayer;
@@ -39,6 +40,16 @@ public class LayerProperties {
   private String wmtsStyle = "default";
   private String wmtsFormat = "image/png";
   private boolean wmtsTime = false;
+
+  // WMS specifics
+  private String wmsLayers;
+  private String wmsStyles = "";
+  private String wmsFormat = "image/png";
+  private String wmsVersion = "1.3.0";
+  private boolean wmsTransparent = true;
+  private int wmsTileSize = 256;
+  private boolean wmsTime = false;
+  private Map<String, String> wmsExtraParams = new HashMap<>();
 
   public Layer toLayer() {
     return switch (sourceType) {
@@ -85,6 +96,27 @@ public class LayerProperties {
               wmtsStyle,
               wmtsFormat,
               wmtsTime,
+              timeFormat);
+      case WMS ->
+          new WmsLayer(
+              id,
+              name,
+              urlTemplate,
+              attribution,
+              maxZoom,
+              initZoom,
+              tileExpirationMinutes,
+              allowedUsers,
+              allowedGroups,
+              headers,
+              wmsLayers,
+              wmsStyles,
+              wmsFormat,
+              wmsVersion,
+              wmsTransparent,
+              wmsTileSize,
+              wmsTime,
+              wmsExtraParams,
               timeFormat);
       case LOCAL ->
           new LocalLayer(
@@ -244,5 +276,69 @@ public class LayerProperties {
 
   public void setWmtsTime(boolean wmtsTime) {
     this.wmtsTime = wmtsTime;
+  }
+
+  public String getWmsLayers() {
+    return wmsLayers;
+  }
+
+  public void setWmsLayers(String wmsLayers) {
+    this.wmsLayers = wmsLayers;
+  }
+
+  public String getWmsStyles() {
+    return wmsStyles;
+  }
+
+  public void setWmsStyles(String wmsStyles) {
+    this.wmsStyles = wmsStyles;
+  }
+
+  public String getWmsFormat() {
+    return wmsFormat;
+  }
+
+  public void setWmsFormat(String wmsFormat) {
+    this.wmsFormat = wmsFormat;
+  }
+
+  public String getWmsVersion() {
+    return wmsVersion;
+  }
+
+  public void setWmsVersion(String wmsVersion) {
+    this.wmsVersion = wmsVersion;
+  }
+
+  public boolean isWmsTransparent() {
+    return wmsTransparent;
+  }
+
+  public void setWmsTransparent(boolean wmsTransparent) {
+    this.wmsTransparent = wmsTransparent;
+  }
+
+  public int getWmsTileSize() {
+    return wmsTileSize;
+  }
+
+  public void setWmsTileSize(int wmsTileSize) {
+    this.wmsTileSize = wmsTileSize;
+  }
+
+  public boolean isWmsTime() {
+    return wmsTime;
+  }
+
+  public void setWmsTime(boolean wmsTime) {
+    this.wmsTime = wmsTime;
+  }
+
+  public Map<String, String> getWmsExtraParams() {
+    return wmsExtraParams;
+  }
+
+  public void setWmsExtraParams(Map<String, String> wmsExtraParams) {
+    this.wmsExtraParams = wmsExtraParams == null ? new HashMap<>() : wmsExtraParams;
   }
 }

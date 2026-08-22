@@ -23,6 +23,7 @@ import org.lockard.xyztilecache.model.LayerRuntimeState;
 import org.lockard.xyztilecache.model.LocalLayer;
 import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.model.VectorPmtilesLayer;
+import org.lockard.xyztilecache.model.WmsLayer;
 import org.lockard.xyztilecache.model.WmtsKvpLayer;
 import org.lockard.xyztilecache.model.WmtsRestLayer;
 import org.lockard.xyztilecache.model.XyzLayer;
@@ -212,6 +213,7 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
       case XyzLayer xyz -> xyz.buildUrl(tile.z(), tile.x(), tile.y(), timeStr);
       case WmtsRestLayer wmts -> wmts.buildUrl(tile.z(), tile.x(), tile.y(), timeStr);
       case WmtsKvpLayer wmts -> wmts.buildUrl(tile.z(), tile.x(), tile.y(), timeStr);
+      case WmsLayer wms -> wms.buildUrl(tile.z(), tile.x(), tile.y(), timeStr);
       case LocalLayer ignored ->
           throw new IllegalStateException("LOCAL layers should not reach buildTileUrl: " + layer);
       case VectorPmtilesLayer ignored ->
