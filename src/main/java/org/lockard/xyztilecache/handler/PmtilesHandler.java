@@ -5,21 +5,21 @@ import java.util.Optional;
 import java.util.Set;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.TileResult;
-import org.lockard.xyztilecache.service.VectorPmtilesManager;
+import org.lockard.xyztilecache.service.PmtilesManager;
 import org.springframework.stereotype.Component;
 
 @Component
-public class VectorPmtilesHandler implements TileSourceHandler {
+public class PmtilesHandler implements TileSourceHandler {
 
-  private final VectorPmtilesManager manager;
+  private final PmtilesManager manager;
 
-  public VectorPmtilesHandler(VectorPmtilesManager manager) {
+  public PmtilesHandler(PmtilesManager manager) {
     this.manager = manager;
   }
 
   @Override
   public Set<Layer.SourceType> sourceTypes() {
-    return Set.of(Layer.SourceType.VECTOR_PMTILES);
+    return Set.of(Layer.SourceType.PMTILES);
   }
 
   @Override

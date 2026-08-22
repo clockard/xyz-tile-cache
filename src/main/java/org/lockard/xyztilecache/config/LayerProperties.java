@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LocalLayer;
-import org.lockard.xyztilecache.model.VectorPmtilesLayer;
+import org.lockard.xyztilecache.model.PmtilesLayer;
 import org.lockard.xyztilecache.model.WmsLayer;
 import org.lockard.xyztilecache.model.WmtsKvpLayer;
 import org.lockard.xyztilecache.model.WmtsRestLayer;
@@ -128,8 +128,8 @@ public class LayerProperties {
               tileExpirationMinutes,
               allowedUsers,
               allowedGroups);
-      case VECTOR_PMTILES ->
-          new VectorPmtilesLayer(
+      case PMTILES ->
+          new PmtilesLayer(
               id,
               name,
               urlTemplate,

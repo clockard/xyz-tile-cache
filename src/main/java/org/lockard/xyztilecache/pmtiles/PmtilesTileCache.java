@@ -4,27 +4,40 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.TileResult;
 import org.lockard.xyztilecache.store.TileInventoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class VectorTileCache {
+public class PmtilesTileCache {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(VectorTileCache.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(PmtilesTileCache.class);
 
   private final Path cacheDir;
   private final XyzConfiguration xyzConfig;
   private final String layerId;
   private final TileInventoryStore inventory;
 
-  public VectorTileCache(
-      Path cacheDir, XyzConfiguration xyzConfig, String layerId, TileInventoryStore inventory) {
+  /**
+   * The layer's tile type, read on each use rather than captured: a layer backed only by a remote
+   * archive does not know its type until that archive's header has been fetched, which happens
+   * after this cache is constructed.
+   */
+  private final Supplier<PmtilesTileType> tileType;
+
+  public PmtilesTileCache(
+      Path cacheDir,
+      XyzConfiguration xyzConfig,
+      String layerId,
+      TileInventoryStore inventory,
+      Supplier<PmtilesTileType> tileType) {
     this.cacheDir = cacheDir;
     this.xyzConfig = xyzConfig;
     this.layerId = layerId;
     this.inventory = inventory;
+    this.tileType = tileType;
   }
 
   public Optional<TileResult> get(int z, int x, int y) {
@@ -36,7 +49,7 @@ public class VectorTileCache {
       byte[] data = Files.readAllBytes(path);
       int compression =
           isGzip(data) ? PmtilesHeader.COMPRESSION_GZIP : PmtilesHeader.COMPRESSION_NONE;
-      return Optional.of(new TileResult(data, compression, "application/x-protobuf"));
+      return Optional.of(new TileResult(data, compression, tileType.get().contentType()));
     } catch (IOException e) {
       LOGGER.debug("Failed to read cached vector tile {}/{}/{}: {}", z, x, y, e.getMessage());
       return Optional.empty();
@@ -73,7 +86,10 @@ public class VectorTileCache {
   }
 
   public Path cachePath(int z, int x, int y) {
-    return cacheDir.resolve(String.valueOf(z)).resolve(String.valueOf(x)).resolve(y + ".pbf");
+    return cacheDir
+        .resolve(String.valueOf(z))
+        .resolve(String.valueOf(x))
+        .resolve(y + "." + tileType.get().extension());
   }
 
   private static Path existingAncestor(Path path) {

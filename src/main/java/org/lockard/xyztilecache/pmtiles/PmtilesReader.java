@@ -46,6 +46,11 @@ public class PmtilesReader implements Closeable {
     return header;
   }
 
+  /** What this archive holds, per its header. Fixed for the whole file. */
+  public PmtilesTileType tileType() {
+    return PmtilesTileType.fromHeaderValue(header.tileType());
+  }
+
   byte[] readMetadata(long offset, long length) throws IOException {
     return readRawBytes(offset, length);
   }
@@ -69,7 +74,7 @@ public class PmtilesReader implements Closeable {
 
     if (id >= entry.tileId() && id < entry.tileId() + entry.runLength()) {
       byte[] data = readRawBytes(header.tileDataOffset() + entry.offset(), entry.length());
-      return Optional.of(new TileResult(data, header.tileCompression(), "application/x-protobuf"));
+      return Optional.of(new TileResult(data, header.tileCompression(), tileType().contentType()));
     }
 
     return Optional.empty();

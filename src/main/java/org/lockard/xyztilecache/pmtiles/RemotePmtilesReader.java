@@ -40,6 +40,17 @@ public class RemotePmtilesReader {
     this.leafCache = Caffeine.newBuilder().maximumSize(64).build();
   }
 
+  /**
+   * What the remote archive holds, once its header has been read. Empty until the lazy
+   * initialisation succeeds, so callers fall back rather than block on a remote fetch.
+   */
+  public Optional<PmtilesTileType> tileType() {
+    PmtilesHeader current = header;
+    return current == null
+        ? Optional.empty()
+        : Optional.of(PmtilesTileType.fromHeaderValue(current.tileType()));
+  }
+
   public Optional<TileResult> getTile(int z, int x, int y) throws IOException {
     ensureInitialized();
     if (header == null) {
@@ -62,7 +73,11 @@ public class RemotePmtilesReader {
 
     if (id >= entry.tileId() && id < entry.tileId() + entry.runLength()) {
       byte[] data = fetchRange(header.tileDataOffset() + entry.offset(), entry.length());
-      return Optional.of(new TileResult(data, header.tileCompression(), "application/x-protobuf"));
+      return Optional.of(
+          new TileResult(
+              data,
+              header.tileCompression(),
+              PmtilesTileType.fromHeaderValue(header.tileType()).contentType()));
     }
 
     return Optional.empty();

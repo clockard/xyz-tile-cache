@@ -314,8 +314,10 @@ xyz:
       headers:
         Referer: "https://www.accuweather.com"
 
-  # ─── Vector (VECTOR_PMTILES) ───────────────────────────────────────────────
-  # A VECTOR_PMTILES layer serves raw MVT tiles at
+  # ─── PMTiles ───────────────────────────────────────────────────────────────
+  # A PMTILES layer serves whatever its archive holds -- MVT, PNG, JPEG or WebP,
+  # per the archive's header. One tile type per layer; put a raster archive in
+  # its own layer. A vector archive serves raw MVT tiles at
   # /tilesZYX/{id}/{z}/{y}/{x}.mvt  and  /tilesZXY/{id}/{z}/{x}/{y}.mvt
   #
   # urlTemplate: local file path OR remote https:// URL to a .pmtiles archive.
@@ -329,7 +331,7 @@ xyz:
 
     - id: "protomaps"
       name: "Protomaps Vector"
-      sourceType: VECTOR_PMTILES
+      sourceType: PMTILES     # VECTOR_PMTILES still accepted
       maxZoom: 15
       urlTemplate: "${PMTILES_SOURCE_URL:https://build.protomaps.com/{date}.pmtiles}"
       initZoom: "${XYZ_PROTOMAPS_INIT_ZOOM:0}"

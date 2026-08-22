@@ -23,8 +23,9 @@ import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LayerChangedEvent;
 import org.lockard.xyztilecache.model.TileResult;
 import org.lockard.xyztilecache.pmtiles.PmtilesReader;
+import org.lockard.xyztilecache.pmtiles.PmtilesTileCache;
+import org.lockard.xyztilecache.pmtiles.PmtilesTileType;
 import org.lockard.xyztilecache.pmtiles.RemotePmtilesReader;
-import org.lockard.xyztilecache.pmtiles.VectorTileCache;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.lockard.xyztilecache.store.TileInventoryStore;
 import org.slf4j.Logger;
@@ -33,9 +34,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 @Service
-public class VectorPmtilesManager {
+public class PmtilesManager {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(VectorPmtilesManager.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(PmtilesManager.class);
 
   private final LayerStore layerStore;
   private final XyzConfiguration xyzConfig;
@@ -44,13 +45,22 @@ public class VectorPmtilesManager {
       new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, RemotePmtilesReader> remoteReaders =
       new ConcurrentHashMap<>();
-  private final ConcurrentHashMap<String, VectorTileCache> caches = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, PmtilesTileCache> caches = new ConcurrentHashMap<>();
+
+  /**
+   * The tile type each layer settled on, taken from the first archive opened for it. A layer serves
+   * one kind of tile: clients get a single content type and a single tile extension per layer, and
+   * TileJSON and WMTS advertise one format. Archives that disagree are refused rather than mixed in
+   * — put a raster archive in its own layer.
+   */
+  private final ConcurrentHashMap<String, PmtilesTileType> layerTileTypes =
+      new ConcurrentHashMap<>();
 
   private final ExecutorService cacheWriter = Executors.newVirtualThreadPerTaskExecutor();
 
   private final TileInventoryStore inventory;
 
-  public VectorPmtilesManager(
+  public PmtilesManager(
       LayerStore layerStore, XyzConfiguration xyzConfig, TileInventoryStore inventory) {
     this.layerStore = layerStore;
     this.xyzConfig = xyzConfig;
@@ -60,7 +70,7 @@ public class VectorPmtilesManager {
   @PostConstruct
   void init() {
     layerStore.getLayers().values().stream()
-        .filter(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES)
+        .filter(l -> l.sourceType() == Layer.SourceType.PMTILES)
         .forEach(this::initLayer);
   }
 
@@ -70,22 +80,31 @@ public class VectorPmtilesManager {
 
     Path layerDir = layerDir(layerId);
     List<Path> pmtilesFiles = new ArrayList<>(findAllPmtiles(layerDir));
-    caches.put(layerId, new VectorTileCache(layerDir, xyzConfig, layerId, inventory));
+    caches.put(
+        layerId,
+        new PmtilesTileCache(
+            layerDir,
+            xyzConfig,
+            layerId,
+            inventory,
+            () -> tileType(layerId).orElse(PmtilesTileType.MVT)));
 
     if (source == null || source.isBlank()) {
-      openLocalReaders(layerId, pmtilesFiles);
+      openLocalReaders(layerId, pmtilesFiles, null);
       LOGGER.warn("VECTOR_PMTILES layer '{}' has no urlTemplate; no reader opened", layerId);
       return;
     }
 
     if (source.startsWith("http://") || source.startsWith("https://")) {
-      openLocalReaders(layerId, pmtilesFiles);
+      openLocalReaders(layerId, pmtilesFiles, null);
       openRemoteReader(layerId, source);
     } else {
       Path sourcePath = Path.of(source).toAbsolutePath().normalize();
       pmtilesFiles.removeIf(p -> p.toAbsolutePath().normalize().equals(sourcePath));
+      // Kept last so downloaded extracts are consulted before the full archive, but passed as the
+      // authoritative path: the layer's declared source decides the layer's tile type.
       pmtilesFiles.add(sourcePath);
-      openLocalReaders(layerId, pmtilesFiles);
+      openLocalReaders(layerId, pmtilesFiles, sourcePath);
     }
   }
 
@@ -94,6 +113,8 @@ public class VectorPmtilesManager {
     if (locals != null) locals.forEach(this::closeReaderSilently);
     remoteReaders.remove(layerId);
     caches.remove(layerId);
+    // Re-resolved on the next open: the layer's archives may have changed.
+    layerTileTypes.remove(layerId);
   }
 
   public Optional<TileResult> getTile(String layerId, int z, int x, int y) throws IOException {
@@ -106,7 +127,7 @@ public class VectorPmtilesManager {
         }
       }
     }
-    VectorTileCache cache = caches.get(layerId);
+    PmtilesTileCache cache = caches.get(layerId);
     if (cache != null) {
       Optional<TileResult> cached = cache.get(z, x, y);
       if (cached.isPresent()) return cached;
@@ -116,7 +137,7 @@ public class VectorPmtilesManager {
       if (remote != null) {
         Optional<TileResult> result = remote.getTile(z, x, y);
         if (result.isPresent() && cache != null) {
-          VectorTileCache target = cache;
+          PmtilesTileCache target = cache;
           TileResult tile = result.get();
           CompletableFuture.runAsync(() -> target.store(z, x, y, tile), cacheWriter);
         }
@@ -130,7 +151,7 @@ public class VectorPmtilesManager {
   public void notifyFileAvailable(Path filePath) {
     String pathStr = filePath.toAbsolutePath().normalize().toString();
     layerStore.getLayers().values().stream()
-        .filter(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES)
+        .filter(l -> l.sourceType() == Layer.SourceType.PMTILES)
         .filter(l -> pathStr.equals(l.urlTemplate()))
         .forEach(
             l -> {
@@ -142,7 +163,7 @@ public class VectorPmtilesManager {
     if (parent != null) {
       String layerId = parent.getFileName().toString();
       Layer layer = layerStore.getLayers().get(layerId);
-      if (layer != null && layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) {
+      if (layer != null && layer.sourceType() == Layer.SourceType.PMTILES) {
         closeLayer(layerId);
         initLayer(layer);
       }
@@ -157,7 +178,7 @@ public class VectorPmtilesManager {
     String layerId = event.layerName();
     closeLayer(layerId);
     Layer layer = layerStore.getLayers().get(layerId);
-    if (layer != null && layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) {
+    if (layer != null && layer.sourceType() == Layer.SourceType.PMTILES) {
       initLayer(layer);
     }
   }
@@ -179,20 +200,98 @@ public class VectorPmtilesManager {
     caches.clear();
   }
 
-  private void openLocalReaders(String layerId, List<Path> paths) {
-    List<PmtilesReader> readers = new ArrayList<>();
+  /**
+   * Opens every readable archive, settles the layer's tile type, and drops the ones that disagree.
+   *
+   * <p>{@code authoritative} is the layer's configured source archive when it is a local file. Its
+   * type wins, so a stray archive left in the layer directory cannot redefine what the layer
+   * serves. Without one — a remote-backed layer, or a layer with no source — the first archive
+   * opened settles it.
+   */
+  private void openLocalReaders(String layerId, List<Path> paths, Path authoritative) {
+    List<PmtilesReader> opened = new ArrayList<>();
     for (Path path : paths) {
       try {
-        readers.add(new PmtilesReader(path));
-        LOGGER.info("Opened local PMTiles reader for layer '{}': {}", layerId, path);
+        opened.add(new PmtilesReader(path));
       } catch (IOException | IllegalArgumentException e) {
         LOGGER.warn(
             "Could not open PMTiles for layer '{}' at {}: {}", layerId, path, e.getMessage());
       }
     }
-    if (!readers.isEmpty()) {
-      localReaders.put(layerId, readers);
+    if (opened.isEmpty()) {
+      return;
     }
+
+    PmtilesTileType layerType = settleTileType(layerId, opened, authoritative);
+
+    List<PmtilesReader> kept = new ArrayList<>();
+    for (PmtilesReader reader : opened) {
+      if (reader.tileType() == layerType) {
+        kept.add(reader);
+        LOGGER.info(
+            "Opened local PMTiles reader for layer '{}' ({} tiles): {}",
+            layerId,
+            reader.tileType(),
+            reader.getLocalFile());
+      } else {
+        LOGGER.error(
+            "Refusing PMTiles archive {} for layer '{}': it holds {} tiles but the layer serves"
+                + " {}. A layer carries one tile type; give this archive its own layer.",
+            reader.getLocalFile(),
+            layerId,
+            reader.tileType(),
+            layerType);
+        closeReaderSilently(reader);
+      }
+    }
+    if (!kept.isEmpty()) {
+      localReaders.put(layerId, kept);
+    }
+  }
+
+  /**
+   * The type the layer will serve: the configured source's if it opened, else the first archive's.
+   */
+  private PmtilesTileType settleTileType(
+      String layerId, List<PmtilesReader> opened, Path authoritative) {
+    PmtilesTileType layerType =
+        opened.stream()
+            .filter(r -> authoritative != null && sameFile(r.getLocalFile(), authoritative))
+            .findFirst()
+            .orElse(opened.get(0))
+            .tileType();
+    layerTileTypes.put(layerId, layerType);
+    return layerType;
+  }
+
+  private static boolean sameFile(Path a, Path b) {
+    return a.toAbsolutePath().normalize().equals(b.toAbsolutePath().normalize());
+  }
+
+  /**
+   * The tile type this layer serves, if known. Local archives settle it when they open; a remote
+   * archive only once its header has been fetched. Empty means nothing has reported yet, and
+   * callers should fall back rather than guess.
+   */
+  public Optional<PmtilesTileType> tileType(String layerId) {
+    PmtilesTileType known = layerTileTypes.get(layerId);
+    if (known != null) {
+      return Optional.of(known);
+    }
+    RemotePmtilesReader remote = remoteReaders.get(layerId);
+    if (remote == null) {
+      return Optional.empty();
+    }
+    Optional<PmtilesTileType> remoteType = remote.tileType();
+    // Remember it so later callers skip the lookup, and so a downloaded extract from this same
+    // source is checked against it.
+    remoteType.ifPresent(type -> layerTileTypes.putIfAbsent(layerId, type));
+    return remoteType;
+  }
+
+  /** Extension for individually cached tiles of {@code layerId}, defaulting to vector. */
+  public String cachedTileExtension(String layerId) {
+    return tileType(layerId).orElse(PmtilesTileType.MVT).extension();
   }
 
   private void openRemoteReader(String layerId, String sourceUrl) {

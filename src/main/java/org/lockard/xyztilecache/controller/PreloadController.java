@@ -131,21 +131,21 @@ public class PreloadController {
   }
 
   private PreloadInfo toInfo(Preload p) {
-    Layer vectorLayer =
+    Layer pmtilesLayer =
         p.getLayers().stream()
             .map(layerStore.getLayers()::get)
             .filter(Objects::nonNull)
-            .filter(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES)
+            .filter(l -> l.sourceType() == Layer.SourceType.PMTILES)
             .findFirst()
             .orElse(null);
 
     String pmtilesFilename =
-        vectorLayer != null ? PmtilesDownloader.outputFilename(p.getName()) : null;
+        pmtilesLayer != null ? PmtilesDownloader.outputFilename(p.getName()) : null;
     Long sizeBytes = null;
     if (pmtilesFilename != null) {
       Path path =
           Path.of(
-              xyzConfiguration.getBaseTileDirectory(), vectorLayer.effectiveId(), pmtilesFilename);
+              xyzConfiguration.getBaseTileDirectory(), pmtilesLayer.effectiveId(), pmtilesFilename);
       if (Files.exists(path)) {
         try {
           sizeBytes = Files.size(path);

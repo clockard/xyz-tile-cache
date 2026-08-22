@@ -5,7 +5,7 @@ import java.util.Map;
 import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LocalLayer;
-import org.lockard.xyztilecache.model.VectorPmtilesLayer;
+import org.lockard.xyztilecache.model.PmtilesLayer;
 import org.lockard.xyztilecache.model.WmtsKvpLayer;
 import org.lockard.xyztilecache.model.WmtsRestLayer;
 import org.lockard.xyztilecache.model.XyzLayer;
@@ -47,8 +47,8 @@ public final class TestLayers {
     return new LocalLayer(id, id, null, 22, 0, 0, List.of(), List.of());
   }
 
-  public static VectorPmtilesLayer vectorPmtiles(String id, String urlTemplate) {
-    return new VectorPmtilesLayer(id, id, urlTemplate, null, 22, 0, 0, List.of(), List.of());
+  public static PmtilesLayer vectorPmtiles(String id, String urlTemplate) {
+    return new PmtilesLayer(id, id, urlTemplate, null, 22, 0, 0, List.of(), List.of());
   }
 
   /**

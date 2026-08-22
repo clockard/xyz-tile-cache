@@ -161,7 +161,7 @@ class TileController {
     Layer.SourceType type = layer.sourceType();
     int expirationMinutes = layer.tileExpirationMinutes();
     if (expirationMinutes == 0
-        && (type == Layer.SourceType.LOCAL || type == Layer.SourceType.VECTOR_PMTILES)) {
+        && (type == Layer.SourceType.LOCAL || type == Layer.SourceType.PMTILES)) {
       return visibility + ", immutable, max-age=" + IMMUTABLE_MAX_AGE_SECONDS;
     }
     long maxAge =

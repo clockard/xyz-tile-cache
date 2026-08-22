@@ -3,6 +3,7 @@ package org.lockard.xyztilecache.service;
 import java.util.Collection;
 import java.util.Locale;
 import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.pmtiles.PmtilesTileType;
 import org.springframework.stereotype.Service;
 
 /**
@@ -23,6 +24,12 @@ public class WmtsCapabilitiesBuilder {
 
   /** Max zoom level emitted in the TileMatrixSet. */
   private static final int MATRIX_MAX_ZOOM = 22;
+
+  private final PmtilesManager pmtilesManager;
+
+  public WmtsCapabilitiesBuilder(PmtilesManager pmtilesManager) {
+    this.pmtilesManager = pmtilesManager;
+  }
 
   public String build(Collection<Layer> layers, String baseUrl) {
     StringBuilder sb = new StringBuilder(4096);
@@ -70,8 +77,7 @@ public class WmtsCapabilitiesBuilder {
     String id = layer.effectiveId();
     String title = layer.name() != null ? layer.name() : id;
     String mime = mimeFor(layer);
-    String ext =
-        layer.sourceType() == Layer.SourceType.VECTOR_PMTILES ? "pbf" : layer.tileFileExtension();
+    String ext = tileExtensionFor(layer);
     int maxZoom = Math.min(layer.maxZoom(), MATRIX_MAX_ZOOM);
 
     sb.append("    <Layer>\n")
@@ -166,9 +172,24 @@ public class WmtsCapabilitiesBuilder {
     sb.append("    </TileMatrixSet>\n");
   }
 
-  private static String mimeFor(Layer layer) {
-    if (layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) {
-      return "application/vnd.mapbox-vector-tile";
+  /** Extension advertised for a layer; a PMTiles layer's comes from its archive's header. */
+  private String tileExtensionFor(Layer layer) {
+    if (layer.sourceType() == Layer.SourceType.PMTILES) {
+      return pmtilesType(layer).extension();
+    }
+    return layer.tileFileExtension();
+  }
+
+  private PmtilesTileType pmtilesType(Layer layer) {
+    return pmtilesManager.tileType(layer.effectiveId()).orElse(PmtilesTileType.MVT);
+  }
+
+  private String mimeFor(Layer layer) {
+    if (layer.sourceType() == Layer.SourceType.PMTILES) {
+      PmtilesTileType type = pmtilesType(layer);
+      // The registered vector-tile type is the right thing to advertise in capabilities, even
+      // though tiles are served as application/x-protobuf for client compatibility.
+      return type.isVector() ? "application/vnd.mapbox-vector-tile" : type.contentType();
     }
     return switch (layer.tileFileExtension()) {
       case "jpg" -> "image/jpeg";

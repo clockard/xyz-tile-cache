@@ -24,10 +24,14 @@ import java.util.Map;
   @JsonSubTypes.Type(value = WmtsKvpLayer.class, name = "WMTS_KVP"),
   @JsonSubTypes.Type(value = WmsLayer.class, name = "WMS"),
   @JsonSubTypes.Type(value = LocalLayer.class, name = "LOCAL"),
-  @JsonSubTypes.Type(value = VectorPmtilesLayer.class, name = "VECTOR_PMTILES"),
+  // Two names for one type: PMTILES is what this writes, VECTOR_PMTILES is what layers.json files
+  // and configs written before raster archives were supported still say.
+  @JsonSubTypes.Type(
+      value = PmtilesLayer.class,
+      names = {"PMTILES", "VECTOR_PMTILES"}),
 })
 public sealed interface Layer
-    permits XyzLayer, WmtsRestLayer, WmtsKvpLayer, WmsLayer, LocalLayer, VectorPmtilesLayer {
+    permits XyzLayer, WmtsRestLayer, WmtsKvpLayer, WmsLayer, LocalLayer, PmtilesLayer {
 
   enum SourceType {
     XYZ,
@@ -35,7 +39,8 @@ public sealed interface Layer
     WMTS_KVP,
     WMS,
     LOCAL,
-    VECTOR_PMTILES
+    /** A PMTiles archive, holding vector or raster tiles as its header declares. */
+    PMTILES
   }
 
   enum RequestStrategy {

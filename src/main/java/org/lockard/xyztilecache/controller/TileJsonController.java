@@ -4,7 +4,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.lockard.xyztilecache.model.Layer;
+import org.lockard.xyztilecache.pmtiles.PmtilesTileType;
 import org.lockard.xyztilecache.service.LayerAccessService;
+import org.lockard.xyztilecache.service.PmtilesManager;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -24,10 +26,13 @@ class TileJsonController {
 
   private final LayerStore layerStore;
   private final LayerAccessService layerAccessService;
+  private final PmtilesManager pmtilesManager;
 
-  TileJsonController(LayerStore layerStore, LayerAccessService layerAccessService) {
+  TileJsonController(
+      LayerStore layerStore, LayerAccessService layerAccessService, PmtilesManager pmtilesManager) {
     this.layerStore = layerStore;
     this.layerAccessService = layerAccessService;
+    this.pmtilesManager = pmtilesManager;
   }
 
   @GetMapping(value = "/layers/{id}/tilejson", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -44,8 +49,13 @@ class TileJsonController {
       return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
-    boolean vector = layer.sourceType() == Layer.SourceType.VECTOR_PMTILES;
-    String ext = vector ? "pbf" : layer.tileFileExtension();
+    // A PMTiles layer's format comes from the archive's header, not from the source type: the same
+    // container holds vector or raster tiles.
+    boolean pmtiles = layer.sourceType() == Layer.SourceType.PMTILES;
+    PmtilesTileType pmtilesType =
+        pmtiles ? pmtilesManager.tileType(id).orElse(PmtilesTileType.MVT) : PmtilesTileType.UNKNOWN;
+    boolean vector = pmtiles && pmtilesType.isVector();
+    String ext = pmtiles ? pmtilesType.extension() : layer.tileFileExtension();
     String base = ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
     String tileUrl = base + "/tilesZXY/" + id + "/{z}/{x}/{y}." + ext;
 
