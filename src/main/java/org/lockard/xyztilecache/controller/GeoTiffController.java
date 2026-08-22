@@ -9,9 +9,9 @@ import java.util.List;
 import java.util.regex.Pattern;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Layer;
-import org.lockard.xyztilecache.model.LayerRuntimeState;
 import org.lockard.xyztilecache.service.GeoTiffTiler;
 import org.lockard.xyztilecache.store.LayerStore;
+import org.lockard.xyztilecache.store.TileInventoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -31,11 +31,17 @@ class GeoTiffController {
   private final XyzConfiguration configuration;
   private final LayerStore layerStore;
   private final GeoTiffTiler tiler;
+  private final TileInventoryStore inventory;
 
-  GeoTiffController(XyzConfiguration configuration, LayerStore layerStore, GeoTiffTiler tiler) {
+  GeoTiffController(
+      XyzConfiguration configuration,
+      LayerStore layerStore,
+      GeoTiffTiler tiler,
+      TileInventoryStore inventory) {
     this.configuration = configuration;
     this.layerStore = layerStore;
     this.tiler = tiler;
+    this.inventory = inventory;
   }
 
   @PostMapping(value = "/layers/geotiff", consumes = "multipart/form-data")
@@ -121,9 +127,9 @@ class GeoTiffController {
 
     Layer registered = layerStore.getLayers().get(name);
     if (registered != null) {
-      LayerRuntimeState state = layerStore.getRuntimeState(name);
-      state.setCachedTiles(tilingResult.tileCount());
-      state.setCachedTilesSize(tilingResult.totalBytes());
+      // gdal2tiles wrote the whole pyramid outside the TileWriter path, so report the totals it
+      // measured rather than a delta.
+      inventory.recordAbsolute(name, tilingResult.tileCount(), tilingResult.totalBytes());
     }
     return ResponseEntity.status(HttpStatus.CREATED).body(registered);
   }

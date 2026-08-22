@@ -26,6 +26,7 @@ import org.lockard.xyztilecache.pmtiles.PmtilesReader;
 import org.lockard.xyztilecache.pmtiles.RemotePmtilesReader;
 import org.lockard.xyztilecache.pmtiles.VectorTileCache;
 import org.lockard.xyztilecache.store.LayerStore;
+import org.lockard.xyztilecache.store.TileInventoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -47,9 +48,13 @@ public class VectorPmtilesManager {
 
   private final ExecutorService cacheWriter = Executors.newVirtualThreadPerTaskExecutor();
 
-  public VectorPmtilesManager(LayerStore layerStore, XyzConfiguration xyzConfig) {
+  private final TileInventoryStore inventory;
+
+  public VectorPmtilesManager(
+      LayerStore layerStore, XyzConfiguration xyzConfig, TileInventoryStore inventory) {
     this.layerStore = layerStore;
     this.xyzConfig = xyzConfig;
+    this.inventory = inventory;
   }
 
   @PostConstruct
@@ -65,7 +70,7 @@ public class VectorPmtilesManager {
 
     Path layerDir = layerDir(layerId);
     List<Path> pmtilesFiles = new ArrayList<>(findAllPmtiles(layerDir));
-    caches.put(layerId, new VectorTileCache(layerDir, xyzConfig));
+    caches.put(layerId, new VectorTileCache(layerDir, xyzConfig, layerId, inventory));
 
     if (source == null || source.isBlank()) {
       openLocalReaders(layerId, pmtilesFiles);

@@ -10,6 +10,7 @@ import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.LayerChangedEvent;
 import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.store.LayerStore;
+import org.lockard.xyztilecache.store.TileInventoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.DependsOn;
@@ -24,14 +25,24 @@ public class TileWriter {
 
   private final XyzConfiguration configuration;
   private final LayerStore layerStore;
+  private final TileInventoryStore inventory;
 
-  public TileWriter(final XyzConfiguration configuration, final LayerStore layerStore) {
+  public TileWriter(
+      final XyzConfiguration configuration,
+      final LayerStore layerStore,
+      final TileInventoryStore inventory) {
     this.configuration = configuration;
     this.layerStore = layerStore;
+    this.inventory = inventory;
   }
 
+  /**
+   * Creates each configured layer's tile directory. This used to also walk every file to count it;
+   * the totals now come from {@link TileInventoryStore}, which is maintained as tiles are written
+   * and persisted across restarts, so startup no longer costs a pass over the whole cache.
+   */
   @PostConstruct
-  void inventoryExistingTiles() {
+  void createLayerDirectories() {
     layerStore
         .getLayers()
         .values()
@@ -40,17 +51,8 @@ public class TileWriter {
               Path tileDir = Paths.get(configuration.getBaseTileDirectory(), layer.effectiveId());
               try {
                 Files.createDirectories(tileDir);
-                try (var paths = Files.walk(tileDir)) {
-                  paths
-                      .filter(Files::isRegularFile)
-                      .forEach(
-                          f ->
-                              layerStore
-                                  .getRuntimeState(layer.effectiveId())
-                                  .addTileStats(f.toFile().length()));
-                }
               } catch (IOException e) {
-                LOGGER.error("Failed to inventory tile directory for {}.", layer.effectiveId(), e);
+                LOGGER.error("Failed to create tile directory for {}.", layer.effectiveId(), e);
               }
             });
   }
@@ -79,8 +81,13 @@ public class TileWriter {
     Path output = toPath(tile);
     try {
       Files.createDirectories(output.getParent());
+      // Refreshing an expired tile overwrites a file that is already counted. Recording it as a
+      // second tile would inflate the count on every refresh, which for a layer with a short
+      // tileExpirationMinutes (weather radar) grows without bound.
+      long previousSize = TileInventoryStore.sizeOrMissing(output);
       Files.write(output, data);
-      layerStore.getRuntimeState(tile.layerId()).addTileStats(data.length);
+      inventory.recordWrite(
+          tile.layerId(), previousSize < 0 ? 1 : 0, data.length - Math.max(previousSize, 0));
       LOGGER.debug("Wrote tile {} to {}.", tile, output);
     } catch (IOException e) {
       LOGGER.debug("Failed to write tile {} to {}.", tile, output, e);
@@ -115,9 +122,9 @@ public class TileWriter {
       }
     }
     if (event.kind() == LayerChangedEvent.Kind.UPDATED_SOURCE) {
-      var state = layerStore.getRuntimeState(event.layerName());
-      state.setCachedTiles(0);
-      state.setCachedTilesSize(0);
+      inventory.recordReset(event.layerName());
+    } else {
+      inventory.recordRemoved(event.layerName());
     }
   }
 

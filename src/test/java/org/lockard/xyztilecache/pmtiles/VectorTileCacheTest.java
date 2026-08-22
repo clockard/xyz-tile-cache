@@ -6,19 +6,38 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.TileResult;
+import org.lockard.xyztilecache.store.TileInventoryStore;
 
 class VectorTileCacheTest {
 
   @TempDir Path tempDir;
 
+  private TileInventoryStore inventory;
+
+  @BeforeEach
+  void setUpInventory() throws Exception {
+    XyzConfiguration inventoryConfig = new XyzConfiguration();
+    inventoryConfig.setBaseTileDirectory(tempDir.toString());
+    inventory =
+        new TileInventoryStore(inventoryConfig, new com.fasterxml.jackson.databind.ObjectMapper());
+    inventory.init();
+  }
+
+  @AfterEach
+  void closeInventory() throws Exception {
+    inventory.close();
+  }
+
   private VectorTileCache cache(Path dir, long minFreeBytes) {
     XyzConfiguration xConfig = new XyzConfiguration();
     xConfig.setMinFreeDiskBytes(minFreeBytes);
-    return new VectorTileCache(dir, xConfig);
+    return new VectorTileCache(dir, xConfig, "vec", inventory);
   }
 
   // ── get() ─────────────────────────────────────────────────────────────────
@@ -89,6 +108,54 @@ class VectorTileCacheTest {
     c.store(
         3, 3, 3, new TileResult(data, PmtilesHeader.COMPRESSION_NONE, "application/x-protobuf"));
     assertThat(c.cachePath(3, 3, 3)).exists();
+  }
+
+  @Test
+  void store_reportsTileToInventory() {
+    VectorTileCache c = cache(tempDir, 0);
+    byte[] data = {0x0a, 0x0b};
+
+    c.store(
+        3, 3, 3, new TileResult(data, PmtilesHeader.COMPRESSION_NONE, "application/x-protobuf"));
+
+    assertThat(inventory.tiles("vec")).isEqualTo(1);
+    assertThat(inventory.bytes("vec")).isEqualTo(2);
+  }
+
+  @Test
+  void store_overwritingCachedTileReportsSizeDeltaOnly() {
+    VectorTileCache c = cache(tempDir, 0);
+
+    c.store(
+        3,
+        3,
+        3,
+        new TileResult(
+            new byte[] {1, 2}, PmtilesHeader.COMPRESSION_NONE, "application/x-protobuf"));
+    c.store(
+        3,
+        3,
+        3,
+        new TileResult(
+            new byte[] {1, 2, 3, 4}, PmtilesHeader.COMPRESSION_NONE, "application/x-protobuf"));
+
+    assertThat(inventory.tiles("vec")).isEqualTo(1);
+    assertThat(inventory.bytes("vec")).isEqualTo(4);
+  }
+
+  @Test
+  void store_diskSpaceBelowMinimum_reportsNothing() {
+    VectorTileCache c = cache(tempDir, Long.MAX_VALUE);
+
+    c.store(
+        3,
+        3,
+        3,
+        new TileResult(
+            new byte[] {1, 2}, PmtilesHeader.COMPRESSION_NONE, "application/x-protobuf"));
+
+    assertThat(inventory.tiles("vec")).isZero();
+    assertThat(inventory.bytes("vec")).isZero();
   }
 
   // ── cachePath() ────────────────────────────────────────────────────────────

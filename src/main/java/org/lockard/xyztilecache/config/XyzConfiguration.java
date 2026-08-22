@@ -35,6 +35,12 @@ public class XyzConfiguration {
 
   private int preloadConcurrency = 4;
 
+  /** How often the tile inventory is written to disk, when anything changed. */
+  private int inventoryFlushSeconds = 30;
+
+  /** Force an inventory flush once this many tiles have been reported since the last one. */
+  private long inventoryFlushTiles = 10_000L;
+
   private boolean uiEnabled = true;
 
   private String adminRole = "admin";
@@ -115,6 +121,22 @@ public class XyzConfiguration {
 
   public void setTileCacheBytes(long tileCacheBytes) {
     this.tileCacheBytes = tileCacheBytes;
+  }
+
+  public int getInventoryFlushSeconds() {
+    return inventoryFlushSeconds;
+  }
+
+  public void setInventoryFlushSeconds(int inventoryFlushSeconds) {
+    this.inventoryFlushSeconds = inventoryFlushSeconds;
+  }
+
+  public long getInventoryFlushTiles() {
+    return inventoryFlushTiles;
+  }
+
+  public void setInventoryFlushTiles(long inventoryFlushTiles) {
+    this.inventoryFlushTiles = inventoryFlushTiles;
   }
 
   public int getPreloadConcurrency() {

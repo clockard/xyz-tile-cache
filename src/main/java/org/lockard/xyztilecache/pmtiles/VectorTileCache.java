@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.TileResult;
+import org.lockard.xyztilecache.store.TileInventoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,10 +16,15 @@ public class VectorTileCache {
 
   private final Path cacheDir;
   private final XyzConfiguration xyzConfig;
+  private final String layerId;
+  private final TileInventoryStore inventory;
 
-  public VectorTileCache(Path cacheDir, XyzConfiguration xyzConfig) {
+  public VectorTileCache(
+      Path cacheDir, XyzConfiguration xyzConfig, String layerId, TileInventoryStore inventory) {
     this.cacheDir = cacheDir;
     this.xyzConfig = xyzConfig;
+    this.layerId = layerId;
+    this.inventory = inventory;
   }
 
   public Optional<TileResult> get(int z, int x, int y) {
@@ -56,7 +62,10 @@ public class VectorTileCache {
     Path path = cachePath(z, x, y);
     try {
       Files.createDirectories(path.getParent());
+      long previous = TileInventoryStore.sizeOrMissing(path);
       Files.write(path, result.data());
+      inventory.recordWrite(
+          layerId, previous < 0 ? 1 : 0, result.data().length - Math.max(previous, 0));
       LOGGER.debug("Cached remote vector tile {}/{}/{}", z, x, y);
     } catch (IOException e) {
       LOGGER.debug("Failed to cache vector tile {}/{}/{}: {}", z, x, y, e.getMessage());

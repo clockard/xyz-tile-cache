@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.lockard.xyztilecache.model.LayerChangedEvent;
 import org.lockard.xyztilecache.model.LayerRuntimeState;
 import org.lockard.xyztilecache.store.LayerStore;
+import org.lockard.xyztilecache.store.TileInventoryStore;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -18,8 +19,9 @@ import org.springframework.stereotype.Component;
 /**
  * Per-layer cache and circuit-breaker gauges, exported through Micrometer.
  *
- * <p>All gauges read from {@link LayerRuntimeState} AtomicLongs that are already maintained on the
- * write path — Prometheus scrapes are O(1), independent of how many tile files exist on disk.
+ * <p>All gauges read AtomicLongs that are already maintained on the write path — request counters
+ * and breaker state from {@link LayerRuntimeState}, disk totals from {@link TileInventoryStore}.
+ * Prometheus scrapes are O(1), independent of how many tile files exist on disk.
  */
 @Component
 @DependsOn("layerStore")
@@ -33,11 +35,14 @@ public class TileCacheMetrics {
 
   private final MeterRegistry registry;
   private final LayerStore layerStore;
+  private final TileInventoryStore inventory;
   private final Map<String, List<Meter.Id>> perLayerMeters = new ConcurrentHashMap<>();
 
-  public TileCacheMetrics(MeterRegistry registry, LayerStore layerStore) {
+  public TileCacheMetrics(
+      MeterRegistry registry, LayerStore layerStore, TileInventoryStore inventory) {
     this.registry = registry;
     this.layerStore = layerStore;
+    this.inventory = inventory;
   }
 
   @PostConstruct
@@ -63,13 +68,13 @@ public class TileCacheMetrics {
           LayerRuntimeState state = layerStore.getRuntimeState(id);
           List<Meter.Id> ids = new ArrayList<>(4);
           ids.add(
-              Gauge.builder(CACHED_TILES, state, LayerRuntimeState::getCachedTiles)
+              Gauge.builder(CACHED_TILES, inventory, inv -> inv.tiles(id))
                   .description("Number of tiles cached on disk for this layer.")
                   .tag(LAYER_TAG, id)
                   .register(registry)
                   .getId());
           ids.add(
-              Gauge.builder(CACHED_BYTES, state, LayerRuntimeState::getCachedTilesSize)
+              Gauge.builder(CACHED_BYTES, inventory, inv -> inv.bytes(id))
                   .description("Total bytes occupied on disk by cached tiles for this layer.")
                   .baseUnit("bytes")
                   .tag(LAYER_TAG, id)

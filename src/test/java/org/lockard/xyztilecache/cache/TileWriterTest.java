@@ -14,10 +14,10 @@ import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LayerChangedEvent;
-import org.lockard.xyztilecache.model.LayerRuntimeState;
 import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.model.XyzLayer;
 import org.lockard.xyztilecache.store.LayerStore;
+import org.lockard.xyztilecache.store.TileInventoryStore;
 
 class TileWriterTest {
 
@@ -25,6 +25,7 @@ class TileWriterTest {
 
   private XyzConfiguration configuration;
   private LayerStore layerStore;
+  private TileInventoryStore inventory;
   private Layer layer;
 
   @BeforeEach
@@ -49,10 +50,15 @@ class TileWriterTest {
 
     layerStore = new LayerStore(configuration, new ObjectMapper(), event -> {});
     layerStore.init();
+    inventory = new TileInventoryStore(configuration, new ObjectMapper());
+    inventory.init();
   }
 
   @AfterEach
   void tearDown() throws Exception {
+    if (inventory != null) {
+      inventory.close();
+    }
     if (layerStore != null) {
       layerStore.close();
     }
@@ -60,14 +66,14 @@ class TileWriterTest {
 
   @Test
   void toPath_constructsLayerZXYPath() {
-    TileWriter writer = new TileWriter(configuration, layerStore);
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
     Tile tile = new Tile("test", 1, 2, 3);
     assertThat(writer.toPath(tile)).isEqualTo(tempDir.resolve(Path.of("test", "3", "1", "2.png")));
   }
 
   @Test
   void storeTile_writesBytesToDisk() throws IOException {
-    TileWriter writer = new TileWriter(configuration, layerStore);
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
     Tile tile = new Tile("test", 1, 2, 3);
     byte[] data = {10, 20, 30};
 
@@ -79,22 +85,45 @@ class TileWriterTest {
 
   @Test
   void storeTile_updatesLayerStats() {
-    TileWriter writer = new TileWriter(configuration, layerStore);
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
     Tile tile = new Tile("test", 1, 2, 3);
     byte[] data = {10, 20, 30};
 
     writer.storeTile(tile, data);
 
-    LayerRuntimeState state = layerStore.getRuntimeState(layer.effectiveId());
-    assertThat(state.getCachedTiles()).isEqualTo(1);
-    assertThat(state.getCachedTilesSize()).isEqualTo(data.length);
+    assertThat(inventory.tiles(layer.effectiveId())).isEqualTo(1);
+    assertThat(inventory.bytes(layer.effectiveId())).isEqualTo(data.length);
+  }
+
+  @Test
+  void storeTile_overwritingExistingTileDoesNotIncrementCount() {
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
+    Tile tile = new Tile("test", 1, 2, 3);
+
+    writer.storeTile(tile, new byte[] {10, 20, 30});
+    writer.storeTile(tile, new byte[] {10, 20, 30, 40, 50});
+
+    assertThat(inventory.tiles(layer.effectiveId())).isEqualTo(1);
+    assertThat(inventory.bytes(layer.effectiveId())).isEqualTo(5);
+  }
+
+  @Test
+  void storeTile_overwritingWithSmallerTileShrinksCachedSize() {
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
+    Tile tile = new Tile("test", 1, 2, 3);
+
+    writer.storeTile(tile, new byte[] {10, 20, 30, 40, 50});
+    writer.storeTile(tile, new byte[] {10, 20});
+
+    assertThat(inventory.tiles(layer.effectiveId())).isEqualTo(1);
+    assertThat(inventory.bytes(layer.effectiveId())).isEqualTo(2);
   }
 
   @Test
   void storeTile_writesToPreexistingDirectory() throws IOException {
     Path dir = tempDir.resolve(Path.of("test", "3", "1"));
     Files.createDirectories(dir);
-    TileWriter writer = new TileWriter(configuration, layerStore);
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
     Tile tile = new Tile("test", 1, 2, 3);
     byte[] data = {7, 8, 9};
 
@@ -105,25 +134,34 @@ class TileWriterTest {
   }
 
   @Test
-  void inventoryExistingTiles_countsPreExistingTilesInLayerStats() throws IOException {
+  void createLayerDirectories_createsADirectoryPerConfiguredLayer() {
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
+
+    writer.createLayerDirectories();
+
+    assertThat(tempDir.resolve("test")).isDirectory();
+  }
+
+  @Test
+  void createLayerDirectories_doesNotWalkExistingTiles() throws IOException {
     Path tileFile = tempDir.resolve(Path.of("test", "3", "1", "2.png"));
     Files.createDirectories(tileFile.getParent());
-    byte[] existing = {1, 2, 3, 4, 5};
-    Files.write(tileFile, existing);
+    Files.write(tileFile, new byte[] {1, 2, 3, 4, 5});
 
-    TileWriter writer = new TileWriter(configuration, layerStore);
-    writer.inventoryExistingTiles();
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
+    writer.createLayerDirectories();
 
-    LayerRuntimeState state = layerStore.getRuntimeState(layer.effectiveId());
-    assertThat(state.getCachedTiles()).isEqualTo(1);
-    assertThat(state.getCachedTilesSize()).isEqualTo(existing.length);
+    // Counting pre-existing tiles is the scanner's job, and only when the inventory needs
+    // rebuilding -- startup must not pay for a pass over the cache.
+    assertThat(inventory.tiles(layer.effectiveId())).isZero();
+    assertThat(inventory.bytes(layer.effectiveId())).isZero();
   }
 
   @Test
   void storeTile_skipsWhenFreeDiskBelowMinimum() {
     // Setting minFreeDiskBytes to Long.MAX_VALUE guarantees the threshold is never met
     configuration.setMinFreeDiskBytes(Long.MAX_VALUE);
-    TileWriter writer = new TileWriter(configuration, layerStore);
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
     Tile tile = new Tile("test", 1, 2, 3);
 
     writer.storeTile(tile, new byte[] {1, 2, 3});
@@ -138,10 +176,14 @@ class TileWriterTest {
     Files.createDirectories(tileFile.getParent());
     Files.write(tileFile, new byte[] {1, 2, 3});
 
-    TileWriter writer = new TileWriter(configuration, layerStore);
+    inventory.recordWrite("ghost", 1, 3);
+
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
     writer.onLayerChanged(new LayerChangedEvent("ghost", LayerChangedEvent.Kind.REMOVED));
 
     assertThat(layerDir).doesNotExist();
+    assertThat(inventory.tiles("ghost")).isZero();
+    assertThat(inventory.bytes("ghost")).isZero();
   }
 
   @Test
@@ -150,15 +192,14 @@ class TileWriterTest {
     Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
     Files.createDirectories(tileFile.getParent());
     Files.write(tileFile, new byte[] {1, 2, 3});
-    LayerRuntimeState state = layerStore.getRuntimeState("test");
-    state.addTileStats(3);
+    inventory.recordWrite("test", 1, 3);
 
-    TileWriter writer = new TileWriter(configuration, layerStore);
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
     writer.onLayerChanged(new LayerChangedEvent("test", LayerChangedEvent.Kind.UPDATED_SOURCE));
 
     assertThat(layerDir).doesNotExist();
-    assertThat(state.getCachedTiles()).isZero();
-    assertThat(state.getCachedTilesSize()).isZero();
+    assertThat(inventory.tiles("test")).isZero();
+    assertThat(inventory.bytes("test")).isZero();
   }
 
   @Test
@@ -167,15 +208,14 @@ class TileWriterTest {
     Path tileFile = layerDir.resolve(Path.of("1", "0", "0.png"));
     Files.createDirectories(tileFile.getParent());
     Files.write(tileFile, new byte[] {1, 2, 3});
-    LayerRuntimeState state = layerStore.getRuntimeState("test");
-    state.addTileStats(3);
+    inventory.recordWrite("test", 1, 3);
 
-    TileWriter writer = new TileWriter(configuration, layerStore);
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
     writer.onLayerChanged(new LayerChangedEvent("test", LayerChangedEvent.Kind.UPDATED_ACL));
 
     assertThat(tileFile).exists();
-    assertThat(state.getCachedTiles()).isEqualTo(1);
-    assertThat(state.getCachedTilesSize()).isEqualTo(3);
+    assertThat(inventory.tiles("test")).isEqualTo(1);
+    assertThat(inventory.bytes("test")).isEqualTo(3);
   }
 
   @Test
@@ -185,7 +225,7 @@ class TileWriterTest {
     Files.createDirectories(tileFile.getParent());
     Files.write(tileFile, new byte[] {1, 2, 3});
 
-    TileWriter writer = new TileWriter(configuration, layerStore);
+    TileWriter writer = new TileWriter(configuration, layerStore, inventory);
     writer.onLayerChanged(new LayerChangedEvent("test", LayerChangedEvent.Kind.ADDED));
 
     assertThat(tileFile).exists();

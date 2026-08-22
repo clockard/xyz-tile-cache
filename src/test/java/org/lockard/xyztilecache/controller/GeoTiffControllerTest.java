@@ -1,5 +1,6 @@
 package org.lockard.xyztilecache.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -161,6 +162,23 @@ class GeoTiffControllerTest {
         .andExpect(jsonPath("$.name").value("uploaded"))
         .andExpect(jsonPath("$.sourceType").value("LOCAL"))
         .andExpect(jsonPath("$.maxZoom").value(0));
+  }
+
+  @Test
+  void uploadGeoTiff_happyPath_reportsPyramidToInventory(
+      @Autowired MockMvc mvc,
+      @Autowired org.lockard.xyztilecache.store.TileInventoryStore inventory)
+      throws Exception {
+    MockMultipartFile file =
+        new MockMultipartFile("file", "input.tif", "image/tiff", new byte[] {1, 2, 3, 4});
+
+    mvc.perform(multipart("/layers/geotiff").file(file).param("name", "counted").with(userJwt()))
+        .andExpect(status().isCreated());
+
+    // gdal2tiles writes the pyramid outside the TileWriter path, so the controller reports the
+    // totals the tiler measured.
+    assertThat(inventory.tiles("counted")).isEqualTo(1);
+    assertThat(inventory.bytes("counted")).isEqualTo(2);
   }
 
   @Test

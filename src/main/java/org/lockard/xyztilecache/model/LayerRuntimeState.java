@@ -6,33 +6,20 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Holds in-memory-only runtime state for a layer: statistics and circuit-breaker. */
+/**
+ * Holds in-memory-only runtime state for a layer: request statistics and circuit-breaker.
+ *
+ * <p>What a layer holds <em>on disk</em> is not here — that outlives the process and belongs to
+ * {@link org.lockard.xyztilecache.store.TileInventoryStore}.
+ */
 public class LayerRuntimeState {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(LayerRuntimeState.class);
 
-  private final AtomicLong cachedTiles = new AtomicLong();
-  private final AtomicLong cachedTilesSize = new AtomicLong();
   private final AtomicLong tilesServed = new AtomicLong();
   private final AtomicReference<Block> sourceBlock = new AtomicReference<>();
 
   // ── Stats ─────────────────────────────────────────────────────────────────
-
-  public long getCachedTiles() {
-    return cachedTiles.get();
-  }
-
-  public void setCachedTiles(long value) {
-    cachedTiles.set(value);
-  }
-
-  public long getCachedTilesSize() {
-    return cachedTilesSize.get();
-  }
-
-  public void setCachedTilesSize(long value) {
-    cachedTilesSize.set(value);
-  }
 
   public long getTilesServed() {
     return tilesServed.get();
@@ -40,11 +27,6 @@ public class LayerRuntimeState {
 
   public void incrementTilesServed() {
     tilesServed.incrementAndGet();
-  }
-
-  public void addTileStats(long tileSize) {
-    cachedTiles.incrementAndGet();
-    cachedTilesSize.addAndGet(tileSize);
   }
 
   // ── Circuit breaker ───────────────────────────────────────────────────────
