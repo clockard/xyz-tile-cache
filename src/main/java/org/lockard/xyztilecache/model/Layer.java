@@ -22,16 +22,18 @@ import java.util.Map;
   @JsonSubTypes.Type(value = XyzLayer.class, name = "XYZ"),
   @JsonSubTypes.Type(value = WmtsRestLayer.class, name = "WMTS_REST"),
   @JsonSubTypes.Type(value = WmtsKvpLayer.class, name = "WMTS_KVP"),
+  @JsonSubTypes.Type(value = WmsLayer.class, name = "WMS"),
   @JsonSubTypes.Type(value = LocalLayer.class, name = "LOCAL"),
   @JsonSubTypes.Type(value = VectorPmtilesLayer.class, name = "VECTOR_PMTILES"),
 })
 public sealed interface Layer
-    permits XyzLayer, WmtsRestLayer, WmtsKvpLayer, LocalLayer, VectorPmtilesLayer {
+    permits XyzLayer, WmtsRestLayer, WmtsKvpLayer, WmsLayer, LocalLayer, VectorPmtilesLayer {
 
   enum SourceType {
     XYZ,
     WMTS_REST,
     WMTS_KVP,
+    WMS,
     LOCAL,
     VECTOR_PMTILES
   }

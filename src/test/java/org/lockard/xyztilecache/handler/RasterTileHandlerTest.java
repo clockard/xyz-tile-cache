@@ -125,6 +125,7 @@ class RasterTileHandlerTest {
             Layer.SourceType.XYZ,
             Layer.SourceType.WMTS_REST,
             Layer.SourceType.WMTS_KVP,
+            Layer.SourceType.WMS,
             Layer.SourceType.LOCAL);
   }
 

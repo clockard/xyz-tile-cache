@@ -75,6 +75,29 @@ public class XyzUtil {
     return new Point(xtile, ytile);
   }
 
+  /**
+   * Half the width of the Web Mercator world in metres: the projected x of longitude 180. The
+   * EPSG:3857 extent is this value negated through positive on both axes.
+   */
+  public static final double ORIGIN_SHIFT = Math.PI * 6378137.0;
+
+  /** A tile's extent in EPSG:3857 metres, ordered as a WMS {@code BBOX}. */
+  public record Bounds3857(double minX, double minY, double maxX, double maxY) {}
+
+  /**
+   * Projected extent of an XYZ tile in EPSG:3857 metres.
+   *
+   * <p>Computed directly from the tile grid rather than by projecting {@link #tile2lat}/{@link
+   * #tile2lon} degrees, so it is exact at every zoom: the Web Mercator tile grid is a plain
+   * quadtree over the projected extent, with y increasing downward from the north-west origin.
+   */
+  public static Bounds3857 tileBounds3857(int x, int y, int z) {
+    double span = 2 * ORIGIN_SHIFT / (1 << z);
+    double minX = -ORIGIN_SHIFT + x * span;
+    double maxY = ORIGIN_SHIFT - y * span;
+    return new Bounds3857(minX, maxY - span, minX + span, maxY);
+  }
+
   public static double tile2lon(int x, int z) {
     return x / Math.pow(2.0, z) * 360.0 - 180;
   }
