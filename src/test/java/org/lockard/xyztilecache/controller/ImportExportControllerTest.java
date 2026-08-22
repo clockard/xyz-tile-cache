@@ -64,20 +64,20 @@ class ImportExportControllerTest {
           aliceOnly.setAllowedUsers(List.of("alice"));
           aliceOnly.setMaxZoom(5);
 
-          LayerProperties vectorLayer = new LayerProperties();
-          vectorLayer.setName("vector-layer");
-          vectorLayer.setUrlTemplate("https://example.com/vec/{z}/{x}/{y}.pbf");
-          vectorLayer.setMaxZoom(5);
+          LayerProperties pmtilesLayer = new LayerProperties();
+          pmtilesLayer.setName("vector-layer");
+          pmtilesLayer.setUrlTemplate("https://example.com/vec/{z}/{x}/{y}.pbf");
+          pmtilesLayer.setMaxZoom(5);
 
           LayerProperties vectorPmtiles = new LayerProperties();
           vectorPmtiles.setId("vector-pmtiles");
           vectorPmtiles.setName("Vector PMTiles");
-          vectorPmtiles.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+          vectorPmtiles.setSourceType(Layer.SourceType.PMTILES);
           vectorPmtiles.setUrlTemplate(
               tileDir.getAbsolutePath() + "/vector-pmtiles/basemap.pmtiles");
           vectorPmtiles.setMaxZoom(14);
 
-          return List.of(pub, aliceOnly, vectorLayer, vectorPmtiles);
+          return List.of(pub, aliceOnly, pmtilesLayer, vectorPmtiles);
         });
   }
 
@@ -109,7 +109,7 @@ class ImportExportControllerTest {
   }
 
   @AfterEach
-  void cleanVectorPmtilesDir() throws Exception {
+  void cleanPmtilesDir() throws Exception {
     Path vecDir = Paths.get(tileDir.getAbsolutePath(), "vector-pmtiles");
     if (!Files.isDirectory(vecDir)) return;
     try (var walk = Files.walk(vecDir)) {
@@ -643,7 +643,7 @@ class ImportExportControllerTest {
         .andExpect(jsonPath("$.tilesWritten").value(1));
   }
 
-  // ── VECTOR_PMTILES layer export ───────────────────────────────────────────
+  // ── PMTILES layer export ───────────────────────────────────────────
 
   @Test
   void export_vectorPmtilesLayer_includesPmtilesFile() throws Exception {
@@ -665,7 +665,7 @@ class ImportExportControllerTest {
     assertThat(entries.keySet()).containsExactly("vector-pmtiles/layer.json");
   }
 
-  // ── VECTOR_PMTILES layer import ───────────────────────────────────────────
+  // ── PMTILES layer import ───────────────────────────────────────────
 
   @Test
   void importZip_vectorPmtiles_writesToLayerDir() throws Exception {

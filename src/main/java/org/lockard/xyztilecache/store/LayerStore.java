@@ -184,7 +184,7 @@ public class LayerStore extends JsonFileStore<Layer> {
               + "(starting with a letter or digit).");
     }
     if (layer.sourceType() != Layer.SourceType.LOCAL
-        && layer.sourceType() != Layer.SourceType.VECTOR_PMTILES
+        && layer.sourceType() != Layer.SourceType.PMTILES
         && (layer.urlTemplate() == null || layer.urlTemplate().isBlank())) {
       throw new IllegalArgumentException("Layer urlTemplate must not be blank.");
     }

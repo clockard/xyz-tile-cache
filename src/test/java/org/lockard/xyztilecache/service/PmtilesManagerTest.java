@@ -28,7 +28,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class VectorPmtilesManagerTest {
+class PmtilesManagerTest {
 
   @TempDir static File tileDir;
 
@@ -36,8 +36,7 @@ class VectorPmtilesManagerTest {
 
   private static byte[] loadFixtureBytes() {
     try {
-      URL url =
-          VectorPmtilesManagerTest.class.getClassLoader().getResource("test_fixture_1.pmtiles");
+      URL url = PmtilesManagerTest.class.getClassLoader().getResource("test_fixture_1.pmtiles");
       return Files.readAllBytes(Path.of(url.toURI()));
     } catch (Exception e) {
       throw new RuntimeException(e);
@@ -59,10 +58,10 @@ class VectorPmtilesManagerTest {
     registry.add("xyz.layers", () -> List.of());
   }
 
-  @Autowired VectorPmtilesManager manager;
+  @Autowired PmtilesManager manager;
 
   private static Path fixturePath() {
-    URL url = VectorPmtilesManagerTest.class.getClassLoader().getResource("test_fixture_1.pmtiles");
+    URL url = PmtilesManagerTest.class.getClassLoader().getResource("test_fixture_1.pmtiles");
     assertThat(url).isNotNull();
     return Paths.get(url.getPath());
   }
@@ -77,7 +76,7 @@ class VectorPmtilesManagerTest {
     LayerProperties layer = new LayerProperties();
     layer.setId("local-test");
     layer.setName("Local Test");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
     layer.setUrlTemplate(fixturePath().toString());
 
     manager.initLayer(layer.toLayer());
@@ -91,7 +90,7 @@ class VectorPmtilesManagerTest {
     LayerProperties layer = new LayerProperties();
     layer.setId("missing-file");
     layer.setName("Missing");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
     layer.setUrlTemplate("/nonexistent/path/file.pmtiles");
 
     manager.initLayer(layer.toLayer());
@@ -104,7 +103,7 @@ class VectorPmtilesManagerTest {
     LayerProperties layer = new LayerProperties();
     layer.setId("blank-url");
     layer.setName("Blank URL");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
 
     manager.initLayer(layer.toLayer());
 
@@ -116,7 +115,7 @@ class VectorPmtilesManagerTest {
     LayerProperties layer = new LayerProperties();
     layer.setId("close-test");
     layer.setName("Close Test");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
     layer.setUrlTemplate(fixturePath().toString());
 
     manager.initLayer(layer.toLayer());
@@ -131,7 +130,7 @@ class VectorPmtilesManagerTest {
     LayerProperties layer = new LayerProperties();
     layer.setId("event-close-test");
     layer.setName("Event Close Test");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
     layer.setUrlTemplate(fixturePath().toString());
 
     manager.initLayer(layer.toLayer());
@@ -151,7 +150,7 @@ class VectorPmtilesManagerTest {
     LayerProperties layer = new LayerProperties();
     layer.setId("notify-test");
     layer.setName("Notify Test");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
     layer.setUrlTemplate(dest.toAbsolutePath().normalize().toString());
 
     manager.initLayer(layer.toLayer());
@@ -170,7 +169,7 @@ class VectorPmtilesManagerTest {
     LayerProperties layer = new LayerProperties();
     layer.setId("absent-tile-test");
     layer.setName("Absent Tile");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
     layer.setUrlTemplate(fixturePath().toString());
 
     manager.initLayer(layer.toLayer());
@@ -190,7 +189,7 @@ class VectorPmtilesManagerTest {
     LayerProperties layer = new LayerProperties();
     layer.setId("http-online-test");
     layer.setName("HTTP Online");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
     layer.setUrlTemplate(wireMock.baseUrl() + "/tiles.pmtiles");
 
     manager.initLayer(layer.toLayer());
@@ -208,7 +207,7 @@ class VectorPmtilesManagerTest {
     LayerProperties layer = new LayerProperties();
     layer.setId("http-cache-test");
     layer.setName("HTTP Cache");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
     layer.setUrlTemplate(wireMock.baseUrl() + "/tiles-cache.pmtiles");
 
     manager.initLayer(layer.toLayer());
@@ -229,7 +228,7 @@ class VectorPmtilesManagerTest {
     LayerProperties layer = new LayerProperties();
     layer.setId(layerId);
     layer.setName("Offline Cache Test");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
     layer.setUrlTemplate("http://example.com/tiles.pmtiles");
 
     manager.initLayer(layer.toLayer());

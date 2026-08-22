@@ -291,7 +291,7 @@
               <option value="WMTS_REST">WMTS REST</option>
               <option value="WMTS_KVP">WMTS KVP</option>
               <option value="WMS">WMS</option>
-              <option value="VECTOR_PMTILES">PMTiles Vector</option>
+              <option value="PMTILES">PMTiles</option>
               <option value="LOCAL">Local</option>
             </select>
           </div>
@@ -320,6 +320,19 @@
               <label class="checkbox-label">
                 <input type="checkbox" id="lf-wmts-time"> Has time dimension
               </label>
+            </div>
+          </div>
+          <div id="lf-pmtiles-section" class="hidden">
+            <div class="form-row">
+              <label for="lf-pmtiles-files">Upload Archives <span class="field-hint">(.pmtiles or .mbtiles; select more than one to combine)</span></label>
+              <input type="file" id="lf-pmtiles-files" accept=".pmtiles,.mbtiles" multiple>
+            </div>
+            <div class="form-row">
+              <div class="field-hint" id="lf-pmtiles-hint">
+                Upload archives, or leave empty and point the URL Template at a file path or HTTPS URL.
+                MBTiles are converted to PMTiles on upload. All archives in a layer must hold the
+                same kind of tile &mdash; put a raster archive in its own layer.
+              </div>
             </div>
           </div>
           <div id="lf-wms-section" class="hidden">

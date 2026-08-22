@@ -114,28 +114,27 @@ public class PreloadService {
       return null;
     }
 
-    Layer vectorLayer =
+    Layer pmtilesLayer =
         validLayers.stream()
             .map(layerStore.getLayers()::get)
-            .filter(l -> l.sourceType() == Layer.SourceType.VECTOR_PMTILES)
+            .filter(l -> l.sourceType() == Layer.SourceType.PMTILES)
             .findFirst()
             .orElse(null);
 
     Set<String> rasterLayers =
         validLayers.stream()
-            .filter(
-                l -> layerStore.getLayers().get(l).sourceType() != Layer.SourceType.VECTOR_PMTILES)
+            .filter(l -> layerStore.getLayers().get(l).sourceType() != Layer.SourceType.PMTILES)
             .collect(Collectors.toSet());
 
-    if (vectorLayer != null) {
-      if (vectorLayer.urlTemplate() == null || vectorLayer.urlTemplate().isBlank()) {
+    if (pmtilesLayer != null) {
+      if (pmtilesLayer.urlTemplate() == null || pmtilesLayer.urlTemplate().isBlank()) {
         throw new IllegalArgumentException(
             "VECTOR_PMTILES layer '"
-                + vectorLayer.effectiveId()
+                + pmtilesLayer.effectiveId()
                 + "' has no urlTemplate configured");
       }
       if (pmtilesDownloader.isDownloadInProgress()) {
-        throw new IllegalStateException("A vector download is already in progress");
+        throw new IllegalStateException("A PMTiles download is already in progress");
       }
       // Fail fast on input the pmtiles extract would reject; validating here (before the preload
       // is persisted) keeps a doomed download from ever showing up as RUNNING.
@@ -159,7 +158,7 @@ public class PreloadService {
 
     // A mixed job has two independent halves; it is only finished when both of them are.
     JobTracker tracker =
-        new JobTracker(preload, (rasterLayers.isEmpty() ? 0 : 1) + (vectorLayer == null ? 0 : 1));
+        new JobTracker(preload, (rasterLayers.isEmpty() ? 0 : 1) + (pmtilesLayer == null ? 0 : 1));
     AtomicBoolean cancelled = new AtomicBoolean();
     cancelFlags.put(preload.getId(), cancelled);
 
@@ -170,8 +169,8 @@ public class PreloadService {
       progressById.put(preload.getId(), new ProgressCounter());
       submitXyz(preload, rasterLayers, boundingBox, tracker, cancelled);
     }
-    if (vectorLayer != null) {
-      startVectorDownload(preload, vectorLayer, tracker);
+    if (pmtilesLayer != null) {
+      startVectorDownload(preload, pmtilesLayer, tracker);
     }
     return preload;
   }
@@ -200,10 +199,10 @@ public class PreloadService {
     return cancelled;
   }
 
-  private void startVectorDownload(Preload preload, Layer vectorLayer, JobTracker tracker) {
+  private void startVectorDownload(Preload preload, Layer pmtilesLayer, JobTracker tracker) {
     try {
       pmtilesDownloader
-          .startDownload(preload, vectorLayer, false)
+          .startDownload(preload, pmtilesLayer, false)
           .whenComplete((ignored, error) -> tracker.partFinished(errorMessage(error)));
     } catch (RuntimeException e) {
       LOGGER.error("Failed to start vector download for preload {}", preload.getId(), e);
@@ -332,7 +331,7 @@ public class PreloadService {
       List<Layer> targets =
           layers.stream()
               .map(layerStore.getLayers()::get)
-              .filter(l -> l != null && l.sourceType() != Layer.SourceType.VECTOR_PMTILES)
+              .filter(l -> l != null && l.sourceType() != Layer.SourceType.PMTILES)
               .toList();
       if (counter != null) {
         long perLayer = ranges.stream().mapToLong(XyzUtil.TileRange::count).sum();

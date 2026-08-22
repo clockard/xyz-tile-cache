@@ -14,7 +14,7 @@ import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.TileResult;
 import org.lockard.xyztilecache.store.TileInventoryStore;
 
-class VectorTileCacheTest {
+class PmtilesTileCacheTest {
 
   @TempDir Path tempDir;
 
@@ -34,10 +34,14 @@ class VectorTileCacheTest {
     inventory.close();
   }
 
-  private VectorTileCache cache(Path dir, long minFreeBytes) {
+  private PmtilesTileCache cache(Path dir, long minFreeBytes) {
+    return cache(dir, minFreeBytes, PmtilesTileType.MVT);
+  }
+
+  private PmtilesTileCache cache(Path dir, long minFreeBytes, PmtilesTileType tileType) {
     XyzConfiguration xConfig = new XyzConfiguration();
     xConfig.setMinFreeDiskBytes(minFreeBytes);
-    return new VectorTileCache(dir, xConfig, "vec", inventory);
+    return new PmtilesTileCache(dir, xConfig, "vec", inventory, () -> tileType);
   }
 
   // ── get() ─────────────────────────────────────────────────────────────────
@@ -49,7 +53,7 @@ class VectorTileCacheTest {
 
   @Test
   void get_regularData_returnsWithNoCompression() throws IOException {
-    VectorTileCache c = cache(tempDir, 0);
+    PmtilesTileCache c = cache(tempDir, 0);
     byte[] data = {0x0a, 0x0b, 0x0c};
     Path path = c.cachePath(0, 0, 0);
     Files.createDirectories(path.getParent());
@@ -63,7 +67,7 @@ class VectorTileCacheTest {
 
   @Test
   void get_gzipMagicBytes_returnsWithGzipCompression() throws IOException {
-    VectorTileCache c = cache(tempDir, 0);
+    PmtilesTileCache c = cache(tempDir, 0);
     byte[] data = {0x1f, (byte) 0x8b, 0x08, 0x00};
     Path path = c.cachePath(1, 1, 1);
     Files.createDirectories(path.getParent());
@@ -76,7 +80,7 @@ class VectorTileCacheTest {
 
   @Test
   void get_singleByteData_treatedAsNoCompression() throws IOException {
-    VectorTileCache c = cache(tempDir, 0);
+    PmtilesTileCache c = cache(tempDir, 0);
     byte[] data = {0x1f}; // only 1 byte — isGzip requires >= 2
     Path path = c.cachePath(2, 2, 2);
     Files.createDirectories(path.getParent());
@@ -91,7 +95,7 @@ class VectorTileCacheTest {
 
   @Test
   void store_diskSpaceBelowMinimum_doesNotWrite() {
-    VectorTileCache c = cache(tempDir, Long.MAX_VALUE);
+    PmtilesTileCache c = cache(tempDir, Long.MAX_VALUE);
     c.store(
         5,
         5,
@@ -103,7 +107,7 @@ class VectorTileCacheTest {
 
   @Test
   void store_writesFileToDisk() {
-    VectorTileCache c = cache(tempDir, 0);
+    PmtilesTileCache c = cache(tempDir, 0);
     byte[] data = {0x0a, 0x0b};
     c.store(
         3, 3, 3, new TileResult(data, PmtilesHeader.COMPRESSION_NONE, "application/x-protobuf"));
@@ -112,7 +116,7 @@ class VectorTileCacheTest {
 
   @Test
   void store_reportsTileToInventory() {
-    VectorTileCache c = cache(tempDir, 0);
+    PmtilesTileCache c = cache(tempDir, 0);
     byte[] data = {0x0a, 0x0b};
 
     c.store(
@@ -124,7 +128,7 @@ class VectorTileCacheTest {
 
   @Test
   void store_overwritingCachedTileReportsSizeDeltaOnly() {
-    VectorTileCache c = cache(tempDir, 0);
+    PmtilesTileCache c = cache(tempDir, 0);
 
     c.store(
         3,
@@ -145,7 +149,7 @@ class VectorTileCacheTest {
 
   @Test
   void store_diskSpaceBelowMinimum_reportsNothing() {
-    VectorTileCache c = cache(tempDir, Long.MAX_VALUE);
+    PmtilesTileCache c = cache(tempDir, Long.MAX_VALUE);
 
     c.store(
         3,
@@ -162,8 +166,38 @@ class VectorTileCacheTest {
 
   @Test
   void cachePath_returnsExpectedPath() {
-    VectorTileCache c = cache(tempDir, 0);
+    PmtilesTileCache c = cache(tempDir, 0);
     Path expected = tempDir.resolve("4").resolve("5").resolve("6.pbf");
     assertThat(c.cachePath(4, 5, 6)).isEqualTo(expected);
+  }
+
+  // ── Tile type ─────────────────────────────────────────────────────────────
+
+  @Test
+  void cachePath_usesTheExtensionOfTheLayersTileType() {
+    assertThat(cache(tempDir, 0, PmtilesTileType.MVT).cachePath(1, 2, 3)).hasFileName("3.pbf");
+    assertThat(cache(tempDir, 0, PmtilesTileType.PNG).cachePath(1, 2, 3)).hasFileName("3.png");
+    assertThat(cache(tempDir, 0, PmtilesTileType.JPEG).cachePath(1, 2, 3)).hasFileName("3.jpg");
+  }
+
+  @Test
+  void get_returnsTheContentTypeOfTheLayersTileType() throws IOException {
+    PmtilesTileCache raster = cache(tempDir, 0, PmtilesTileType.PNG);
+    Path path = raster.cachePath(4, 4, 4);
+    Files.createDirectories(path.getParent());
+    Files.write(path, new byte[] {1, 2, 3});
+
+    Optional<TileResult> result = raster.get(4, 4, 4);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().contentType()).isEqualTo("image/png");
+  }
+
+  @Test
+  void rasterAndVectorTilesDoNotCollideOnDisk() {
+    // The same coordinates under different tile types are different files, so a layer switching
+    // type cannot serve a stale tile of the wrong kind.
+    assertThat(cache(tempDir, 0, PmtilesTileType.MVT).cachePath(1, 2, 3))
+        .isNotEqualTo(cache(tempDir, 0, PmtilesTileType.PNG).cachePath(1, 2, 3));
   }
 }

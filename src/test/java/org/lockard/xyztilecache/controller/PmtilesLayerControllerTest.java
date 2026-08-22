@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class VectorPmtilesLayerControllerTest {
+class PmtilesLayerControllerTest {
 
   @TempDir static File tileDir;
 
@@ -33,40 +33,36 @@ class VectorPmtilesLayerControllerTest {
     registry.add("xyz.baseTileDirectory", () -> tileDir.getAbsolutePath());
 
     URL fixture =
-        VectorPmtilesLayerControllerTest.class
-            .getClassLoader()
-            .getResource("test_fixture_1.pmtiles");
+        PmtilesLayerControllerTest.class.getClassLoader().getResource("test_fixture_1.pmtiles");
     URL gzipFixture =
-        VectorPmtilesLayerControllerTest.class
-            .getClassLoader()
-            .getResource("test_fixture_gzip.pmtiles");
+        PmtilesLayerControllerTest.class.getClassLoader().getResource("test_fixture_gzip.pmtiles");
 
     registry.add(
         "xyz.layers",
         () -> {
-          LayerProperties vectorLayer = new LayerProperties();
-          vectorLayer.setId("vector-test");
-          vectorLayer.setName("Vector Test");
-          vectorLayer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
-          vectorLayer.setUrlTemplate(Paths.get(fixture.getPath()).toString());
-          vectorLayer.setMaxZoom(14);
+          LayerProperties pmtilesLayer = new LayerProperties();
+          pmtilesLayer.setId("vector-test");
+          pmtilesLayer.setName("Vector Test");
+          pmtilesLayer.setSourceType(Layer.SourceType.PMTILES);
+          pmtilesLayer.setUrlTemplate(Paths.get(fixture.getPath()).toString());
+          pmtilesLayer.setMaxZoom(14);
 
           LayerProperties gzipLayer = new LayerProperties();
           gzipLayer.setId("vector-gzip");
           gzipLayer.setName("Vector Gzip");
-          gzipLayer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+          gzipLayer.setSourceType(Layer.SourceType.PMTILES);
           gzipLayer.setUrlTemplate(Paths.get(gzipFixture.getPath()).toString());
           gzipLayer.setMaxZoom(14);
 
           LayerProperties privateLayer = new LayerProperties();
           privateLayer.setId("vector-private");
           privateLayer.setName("Vector Private");
-          privateLayer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+          privateLayer.setSourceType(Layer.SourceType.PMTILES);
           privateLayer.setUrlTemplate(Paths.get(fixture.getPath()).toString());
           privateLayer.setMaxZoom(14);
           privateLayer.setAllowedUsers(List.of("alice"));
 
-          return List.of(vectorLayer, gzipLayer, privateLayer);
+          return List.of(pmtilesLayer, gzipLayer, privateLayer);
         });
   }
 
@@ -83,24 +79,28 @@ class VectorPmtilesLayerControllerTest {
   // ── tilesZYX .mvt ────────────────────────────────────────────────────────
 
   @Test
-  void getTile_presentTile_returns200WithProtobufType(@Autowired MockMvc mvc) throws Exception {
-    // z=0, x=0, y=0 is present in test_fixture_1.pmtiles
+  void getTile_presentTile_returnsTheArchivesOwnContentType(@Autowired MockMvc mvc)
+      throws Exception {
+    // z=0, x=0, y=0 is present in test_fixture_1.pmtiles, whose header declares tile_type 2 (PNG).
+    // Every PMTiles response used to be labelled application/x-protobuf regardless of what the
+    // archive held, so this fixture was served as protobuf despite containing raster tiles.
     // CORS headers now come from the global CorsFilter, which only engages when an Origin is
     // present, so send one rather than expecting the header on a same-origin request.
     mvc.perform(
             MockMvcRequestBuilders.get("/tilesZYX/vector-test/0/0/0.mvt")
                 .header("Origin", "http://example.com"))
         .andExpect(MockMvcResultMatchers.status().isOk())
-        .andExpect(MockMvcResultMatchers.header().string("Content-Type", "application/x-protobuf"))
+        .andExpect(MockMvcResultMatchers.header().string("Content-Type", "image/png"))
         .andExpect(MockMvcResultMatchers.header().string("Access-Control-Allow-Origin", "*"))
         .andExpect(result -> assertThat(result.getResponse().getContentAsByteArray()).isNotEmpty());
   }
 
   @Test
   void getTile_pbfAlias_returns200(@Autowired MockMvc mvc) throws Exception {
+    // The extension in the request path is decorative: the content type comes from the archive.
     mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/vector-test/0/0/0.pbf"))
         .andExpect(MockMvcResultMatchers.status().isOk())
-        .andExpect(MockMvcResultMatchers.header().string("Content-Type", "application/x-protobuf"));
+        .andExpect(MockMvcResultMatchers.header().string("Content-Type", "image/png"));
   }
 
   @Test
@@ -130,6 +130,7 @@ class VectorPmtilesLayerControllerTest {
 
   @Test
   void getTile_gzipCompressed_setsContentEncoding(@Autowired MockMvc mvc) throws Exception {
+    // test_fixture_gzip.pmtiles declares tile_type 1 (MVT), so this one really is vector.
     mvc.perform(MockMvcRequestBuilders.get("/tilesZYX/vector-gzip/0/0/0.mvt"))
         .andExpect(MockMvcResultMatchers.status().isOk())
         .andExpect(MockMvcResultMatchers.header().string("Content-Encoding", "gzip"))

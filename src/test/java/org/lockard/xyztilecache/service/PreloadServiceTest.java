@@ -81,11 +81,11 @@ class PreloadServiceTest {
     return l.toLayer();
   }
 
-  private static Layer vectorLayer(String id, String url) {
+  private static Layer pmtilesLayer(String id, String url) {
     LayerProperties l = new LayerProperties();
     l.setId(id);
     l.setName(id);
-    l.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    l.setSourceType(Layer.SourceType.PMTILES);
     l.setUrlTemplate(url);
     return l.toLayer();
   }
@@ -94,7 +94,7 @@ class PreloadServiceTest {
 
   @Test
   void submit_vectorLayer_noUrlTemplate_throwsIllegalArgument() {
-    Layer vec = vectorLayer("vec", null);
+    Layer vec = pmtilesLayer("vec", null);
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
     assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of("vec"), null, null))
         .isInstanceOf(IllegalArgumentException.class)
@@ -103,7 +103,7 @@ class PreloadServiceTest {
 
   @Test
   void submit_vectorLayer_blankUrlTemplate_throwsIllegalArgument() {
-    Layer vec = vectorLayer("vec", "  ");
+    Layer vec = pmtilesLayer("vec", "  ");
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
     assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of("vec"), null, null))
         .isInstanceOf(IllegalArgumentException.class)
@@ -112,7 +112,7 @@ class PreloadServiceTest {
 
   @Test
   void submit_vectorLayer_downloadAlreadyInProgress_throwsIllegalState() {
-    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    Layer vec = pmtilesLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
     when(pmtilesDownloader.isDownloadInProgress()).thenReturn(true);
     assertThatThrownBy(() -> service.submit("t", bbox(), 5, Set.of("vec"), null, null))
@@ -122,7 +122,7 @@ class PreloadServiceTest {
 
   @Test
   void submit_vectorLayer_invalidBbox_throwsWithoutPersisting() {
-    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    Layer vec = pmtilesLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
     BoundingBox bad = bbox();
     bad.setWest(10);
@@ -135,7 +135,7 @@ class PreloadServiceTest {
 
   @Test
   void submit_vectorOnly_skipsRasterPreloadPass() throws Exception {
-    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    Layer vec = pmtilesLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
 
     Preload result = service.submit("t", bbox(), 5, Set.of("vec"), null, null);
@@ -183,7 +183,7 @@ class PreloadServiceTest {
 
   @Test
   void submit_validVectorLayer_returnsPreloadAndStartsDownload() throws Exception {
-    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    Layer vec = pmtilesLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
     when(pmtilesDownloader.isDownloadInProgress()).thenReturn(false);
 
@@ -287,7 +287,7 @@ class PreloadServiceTest {
   @Test
   void mixedPreload_vectorFinishesFirst_staysRunningUntilRasterDone() throws Exception {
     Layer raster = xyzLayer("test");
-    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    Layer vec = pmtilesLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("test", raster, "vec", vec));
     // Vector download is already complete when submit returns; the raster pass is still blocked.
     CountDownLatch releaseRaster = new CountDownLatch(1);
@@ -314,7 +314,7 @@ class PreloadServiceTest {
   @Test
   void mixedPreload_rasterFinishesFirst_staysRunningUntilVectorDone() throws Exception {
     Layer raster = xyzLayer("test");
-    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    Layer vec = pmtilesLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("test", raster, "vec", vec));
     when(tileCache.get(any())).thenReturn(new byte[] {1});
     CompletableFuture<Void> download = new CompletableFuture<>();
@@ -333,7 +333,7 @@ class PreloadServiceTest {
   @Test
   void mixedPreload_vectorFails_wholeJobFails() throws Exception {
     Layer raster = xyzLayer("test");
-    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    Layer vec = pmtilesLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("test", raster, "vec", vec));
     when(tileCache.get(any())).thenReturn(new byte[] {1});
     when(pmtilesDownloader.startDownload(any(), eq(vec), eq(false)))
@@ -352,7 +352,7 @@ class PreloadServiceTest {
   @Test
   void mixedPreload_vectorDownloadRefused_doesNotLeaveJobRunning() throws Exception {
     Layer raster = xyzLayer("test");
-    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    Layer vec = pmtilesLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("test", raster, "vec", vec));
     when(tileCache.get(any())).thenReturn(new byte[] {1});
     // Racy path: nothing was downloading at validation time, but something is by the time the
@@ -390,7 +390,7 @@ class PreloadServiceTest {
 
   @Test
   void progressFor_vectorOnlyPreload_isNull() throws Exception {
-    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    Layer vec = pmtilesLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
 
     Preload result = service.submit("t", bbox(), 5, Set.of("vec"), null, null);
@@ -473,7 +473,7 @@ class PreloadServiceTest {
 
   @Test
   void cancel_runningVectorPreload_killsTheDownload() throws Exception {
-    Layer vec = vectorLayer("vec", "https://example.com/tiles.pmtiles");
+    Layer vec = pmtilesLayer("vec", "https://example.com/tiles.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
     CompletableFuture<Void> download = new CompletableFuture<>();
     when(pmtilesDownloader.startDownload(any(), eq(vec), eq(false))).thenReturn(download);
@@ -515,7 +515,7 @@ class PreloadServiceTest {
 
   @Test
   void preloadXyzTiles_vectorPmtilesLayer_skipped() {
-    Layer vec = vectorLayer("vec", "/some/file.pmtiles");
+    Layer vec = pmtilesLayer("vec", "/some/file.pmtiles");
     when(layerStore.getLayers()).thenReturn(Map.of("vec", vec));
     service.preloadXyzTiles(Set.of("vec"), bbox());
     verifyNoInteractions(tileCache);

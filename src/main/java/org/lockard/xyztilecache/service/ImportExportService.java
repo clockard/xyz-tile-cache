@@ -37,8 +37,8 @@ import org.springframework.stereotype.Service;
 /**
  * Streams layer tiles into a zip for download and ingests an uploaded zip back into the cache. Each
  * layer is laid out as {@code <layerId>/layer.json} plus tile files. Raster layers use {@code
- * <layerId>/<z>/<x>/<y>.png}; VECTOR_PMTILES layers use {@code <layerId>/<name>.pmtiles} for
- * pmtiles files and {@code <layerId>/<z>/<x>/<y>.pbf} for individually cached tiles.
+ * <layerId>/<z>/<x>/<y>.png}; PMTILES layers use {@code <layerId>/<name>.pmtiles} for pmtiles files
+ * and {@code <layerId>/<z>/<x>/<y>.pbf} for individually cached tiles.
  */
 @Service
 public class ImportExportService {
@@ -53,7 +53,7 @@ public class ImportExportService {
   private static final Set<String> RASTER_TILE_EXTS = Set.of("png", "jpg", "jpeg", "webp", "gif");
 
   private final XyzConfiguration configuration;
-  private final VectorPmtilesManager vectorPmtilesManager;
+  private final PmtilesManager pmtilesManager;
   private final LayerStore layerStore;
   private final ObjectMapper objectMapper;
   private final LayerAccessService layerAccessService;
@@ -61,13 +61,13 @@ public class ImportExportService {
 
   public ImportExportService(
       XyzConfiguration configuration,
-      VectorPmtilesManager vectorPmtilesManager,
+      PmtilesManager pmtilesManager,
       LayerStore layerStore,
       ObjectMapper objectMapper,
       LayerAccessService layerAccessService,
       TileInventoryStore inventory) {
     this.configuration = configuration;
-    this.vectorPmtilesManager = vectorPmtilesManager;
+    this.pmtilesManager = pmtilesManager;
     this.layerStore = layerStore;
     this.objectMapper = objectMapper;
     this.layerAccessService = layerAccessService;
@@ -76,8 +76,8 @@ public class ImportExportService {
 
   /**
    * Writes a zip containing each layer's {@code layer.json} and tile files. For raster layers, tile
-   * files are {@code <layerId>/<z>/<x>/<y>.png}. For VECTOR_PMTILES layers, pmtiles files are
-   * included as {@code <layerId>/<name>.pmtiles} and individually cached tiles as {@code
+   * files are {@code <layerId>/<z>/<x>/<y>.png}. For PMTILES layers, pmtiles files are included as
+   * {@code <layerId>/<name>.pmtiles} and individually cached tiles as {@code
    * <layerId>/<z>/<x>/<y>.pbf}. If {@code bbox} is null, all files are included in full; if {@code
    * bbox} is non-null, the {@code pmtiles extract} CLI is used to produce a bbox-cropped pmtiles
    * file (skipped with a warning if the CLI is unavailable or fails), and cached tile selection is
@@ -101,7 +101,7 @@ public class ImportExportService {
           continue;
         }
 
-        if (layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) {
+        if (layer.sourceType() == Layer.SourceType.PMTILES) {
           addPmtilesLayer(zos, layerId, layerDir, bbox, minZoom, maxZoom, layer);
         } else if (bbox == null) {
           addAllRasterTiles(zos, layerId, layerDir);
@@ -135,10 +135,11 @@ public class ImportExportService {
       for (Path p : pmtilesFiles) {
         writeEntry(zos, layerId + "/" + p.getFileName().toString(), p);
       }
+      String cachedExt = "." + pmtilesManager.cachedTileExtension(layerId);
       try (var paths = Files.walk(layerDir)) {
         paths
             .filter(Files::isRegularFile)
-            .filter(p -> p.getFileName().toString().endsWith(".pbf"))
+            .filter(p -> p.getFileName().toString().endsWith(cachedExt))
             .forEach(
                 p -> {
                   String rel = layerDir.relativize(p).toString().replace('\\', '/');
@@ -160,7 +161,16 @@ public class ImportExportService {
         extractAndAddPmtiles(zos, layerId, pmtilesPath, bbox, start, effectiveMax);
       }
 
-      addBboxTilesFromDir(zos, layerDir, layerId + "/", ".pbf", bbox, start, effectiveMax);
+      // Individually cached tiles use the archive's own extension, which is .pbf only when the
+      // archive holds vector tiles.
+      addBboxTilesFromDir(
+          zos,
+          layerDir,
+          layerId + "/",
+          "." + pmtilesManager.cachedTileExtension(layerId),
+          bbox,
+          start,
+          effectiveMax);
     }
   }
 
@@ -481,7 +491,7 @@ public class ImportExportService {
           // A pmtiles archive is one file holding many tiles: its bytes count toward the layer's
           // disk usage, but it is not a tile in the count.
           accumulate(written, layerId, 0, bytes);
-          vectorPmtilesManager.notifyFileAvailable(pmtilesTarget);
+          pmtilesManager.notifyFileAvailable(pmtilesTarget);
           pmtilesImported++;
         }
       }

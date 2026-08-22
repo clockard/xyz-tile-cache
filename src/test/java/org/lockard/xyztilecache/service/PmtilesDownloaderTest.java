@@ -46,7 +46,7 @@ class PmtilesDownloaderTest {
     LayerProperties l = new LayerProperties();
     l.setId("test-layer");
     l.setName("Test Layer");
-    l.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    l.setSourceType(Layer.SourceType.PMTILES);
     l.setUrlTemplate(urlTemplate);
     l.setMaxZoom(maxZoom);
     return l.toLayer();
@@ -91,7 +91,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void buildProcess_correctCliArgs() {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/planet.pmtiles", 12);
     Preload p = preload(-74.0, 40.5, -73.5, 41.0, 12);
     PmtilesDownloader downloader =
@@ -109,7 +109,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void buildProcess_bboxUsesUsDotSeparator() {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/planet.pmtiles", 14);
     Preload p = preload(-73.1234, 40.5678, -73.0, 41.0, 14);
     PmtilesDownloader downloader =
@@ -127,7 +127,7 @@ class PmtilesDownloaderTest {
   void buildProcess_capsMaxZoomToLayerMaxZoom() {
     // A mixed raster+vector preload carries a single job maxZoom driven by the raster slider.
     // The vector extract must not be asked past the vector layer's own maxZoom.
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/planet.pmtiles", 15);
     Preload p = preload(-74.0, 40.5, -73.5, 41.0, 20); // slider set to 20 for the raster layers
     PmtilesDownloader downloader =
@@ -143,7 +143,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void buildProcess_jobZoomBelowLayerMax_usesJobZoom() {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/planet.pmtiles", 15);
     Preload p = preload(-74.0, 40.5, -73.5, 41.0, 10);
     PmtilesDownloader downloader =
@@ -171,7 +171,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void buildProcess_rejectsUnsafePath() {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
     Preload p = preload(-1, -1, 1, 1, 5);
     PmtilesDownloader downloader =
@@ -188,7 +188,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void startDownload_inProgress_flagIsTrue() {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
 
     java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
@@ -225,7 +225,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void startDownload_afterCompletion_flagIsFalse() throws Exception {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
 
     PmtilesDownloader downloader =
@@ -246,7 +246,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void startDownload_success_reportsArchiveBytesToInventory() throws Exception {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
     org.lockard.xyztilecache.store.TileInventoryStore inventory = newInventory();
 
@@ -272,7 +272,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void startDownload_failedProcess_reportsNothingToInventory() throws Exception {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
     org.lockard.xyztilecache.store.TileInventoryStore inventory = newInventory();
 
@@ -295,7 +295,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void startDownload_failedProcess_doesNotCallManager() throws Exception {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
 
     PmtilesDownloader downloader =
@@ -316,7 +316,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void startDownload_flagReleasedAfterFailure() throws Exception {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
 
     PmtilesDownloader downloader =
@@ -337,7 +337,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void startDownload_processStartFails_doesNotCallManagerAndReleasesFlag() throws Exception {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
 
     PmtilesDownloader downloader =
@@ -359,7 +359,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void startDownload_concurrentCall_throwsIllegalState() throws Exception {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
 
     java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
@@ -393,7 +393,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void startDownload_runtimeException_marksPreloadFailedAndReleasesFlag() throws Exception {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
     Preload p = preload(-1, -1, 1, 1, 5);
 
@@ -419,7 +419,7 @@ class PmtilesDownloaderTest {
 
   @Test
   void cancelDownload_runningExtract_killsProcessAndFailsAsCancelled() throws Exception {
-    VectorPmtilesManager manager = mock(VectorPmtilesManager.class);
+    PmtilesManager manager = mock(PmtilesManager.class);
     Layer l = layer("https://example.com/tiles.pmtiles", 5);
     Preload p = preload(-1, -1, 1, 1, 5);
 
@@ -457,7 +457,7 @@ class PmtilesDownloaderTest {
     PmtilesDownloader downloader =
         new PmtilesDownloader(
             xyzConfig(),
-            mock(VectorPmtilesManager.class),
+            mock(PmtilesManager.class),
             mock(org.lockard.xyztilecache.store.PreloadStore.class),
             newInventory());
     assertThat(downloader.cancelDownload("anything")).isFalse();
@@ -469,7 +469,7 @@ class PmtilesDownloaderTest {
     PmtilesDownloader downloader =
         new PmtilesDownloader(
             xyzConfig(),
-            mock(VectorPmtilesManager.class),
+            mock(PmtilesManager.class),
             mock(org.lockard.xyztilecache.store.PreloadStore.class),
             newInventory()) {
           @Override

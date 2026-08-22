@@ -18,8 +18,8 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
 /**
- * Tests the initializeLayerDownloads() startup path in XyzTileCacheApplication: - VECTOR_PMTILES
- * layers with initZoom > 0 and various URL configurations - Raster layers with initZoom > 0
+ * Tests the initializeLayerDownloads() startup path in XyzTileCacheApplication: - PMTILES layers
+ * with initZoom > 0 and various URL configurations - Raster layers with initZoom > 0
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -33,14 +33,14 @@ class XyzTileCacheApplicationInitLayerTest {
     registry.add(
         "xyz.layers",
         () -> {
-          // VECTOR_PMTILES with initZoom > 0, blank URL → logs warning, skips
+          // PMTILES with initZoom > 0, blank URL → logs warning, skips
           LayerProperties vecNoUrl = new LayerProperties();
           vecNoUrl.setId("vec-no-url");
           vecNoUrl.setName("Vec No URL");
-          vecNoUrl.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+          vecNoUrl.setSourceType(Layer.SourceType.PMTILES);
           vecNoUrl.setInitZoom(3);
 
-          // VECTOR_PMTILES with initZoom > 0, local file URL → logs info, skips download
+          // PMTILES with initZoom > 0, local file URL → logs info, skips download
           URL fixture =
               XyzTileCacheApplicationInitLayerTest.class
                   .getClassLoader()
@@ -48,15 +48,15 @@ class XyzTileCacheApplicationInitLayerTest {
           LayerProperties vecLocal = new LayerProperties();
           vecLocal.setId("vec-local");
           vecLocal.setName("Vec Local");
-          vecLocal.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+          vecLocal.setSourceType(Layer.SourceType.PMTILES);
           vecLocal.setInitZoom(1);
           vecLocal.setUrlTemplate(Paths.get(fixture.getPath()).toString());
 
-          // VECTOR_PMTILES with initZoom > 0, HTTP URL → attempts download (fails gracefully)
+          // PMTILES with initZoom > 0, HTTP URL → attempts download (fails gracefully)
           LayerProperties vecHttp = new LayerProperties();
           vecHttp.setId("vec-http");
           vecHttp.setName("Vec HTTP");
-          vecHttp.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+          vecHttp.setSourceType(Layer.SourceType.PMTILES);
           vecHttp.setInitZoom(1);
           vecHttp.setUrlTemplate("https://example.invalid/tiles.pmtiles");
 
@@ -74,7 +74,7 @@ class XyzTileCacheApplicationInitLayerTest {
 
   @Test
   void contextStartsAndServesRequests(@Autowired MockMvc mvc) throws Exception {
-    // Verifies the application started successfully despite initVectorLayerDownload running on all
+    // Verifies the application started successfully despite initPmtilesLayerDownload running on all
     // three URL configurations (null, local, http) and a raster init-zoom preload.
     mvc.perform(MockMvcRequestBuilders.get("/layers"))
         .andExpect(MockMvcResultMatchers.status().isOk());

@@ -126,8 +126,8 @@ public class XyzTileCacheApplication {
     LOGGER.info("Starting init downloads for {} layer(s)...", initLayers.size());
     for (Layer layer : initLayers) {
       String layerId = layer.effectiveId();
-      if (layer.sourceType() == Layer.SourceType.VECTOR_PMTILES) {
-        Thread.ofVirtual().name("init-vec-" + layerId).start(() -> initVectorLayerDownload(layer));
+      if (layer.sourceType() == Layer.SourceType.PMTILES) {
+        Thread.ofVirtual().name("init-vec-" + layerId).start(() -> initPmtilesLayerDownload(layer));
       } else {
         BoundingBox world = worldBbox(layer.initZoom());
         Thread.ofVirtual()
@@ -137,7 +137,7 @@ public class XyzTileCacheApplication {
     }
   }
 
-  private void initVectorLayerDownload(Layer layer) {
+  private void initPmtilesLayerDownload(Layer layer) {
     String url = layer.urlTemplate();
     if (url == null || url.isBlank()) {
       LOGGER.warn(
@@ -161,7 +161,7 @@ public class XyzTileCacheApplication {
             .resolve(PmtilesDownloader.outputFilename(preloadName));
     if (Files.exists(outputPath)) {
       LOGGER.info(
-          "Init file already exists for vector layer '{}' at zoom {}; skipping download",
+          "Init file already exists for PMTiles layer '{}' at zoom {}; skipping download",
           layerId,
           zoom);
       return;
@@ -173,9 +173,9 @@ public class XyzTileCacheApplication {
     preload.setMaxZoom(zoom);
     try {
       pmtilesDownloader.startDownload(preload, layer);
-      LOGGER.info("Started init download for vector layer '{}' up to zoom {}", layerId, zoom);
+      LOGGER.info("Started init download for PMTiles layer '{}' up to zoom {}", layerId, zoom);
     } catch (Exception e) {
-      LOGGER.error("Failed to start init download for vector layer '{}'", layerId, e);
+      LOGGER.error("Failed to start init download for PMTiles layer '{}'", layerId, e);
     }
   }
 

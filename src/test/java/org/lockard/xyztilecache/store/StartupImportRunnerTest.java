@@ -180,7 +180,7 @@ class StartupImportRunnerTest {
   void runStartupImports_zipWithPmtilesInLayerDir_importsCorrectly() throws Exception {
     LayerProperties layer = new LayerProperties();
     layer.setName("startup-vector-layer");
-    layer.setSourceType(Layer.SourceType.VECTOR_PMTILES);
+    layer.setSourceType(Layer.SourceType.PMTILES);
     layer.setUrlTemplate(tileDir.getAbsolutePath() + "/startup-vector-layer/basemap.pmtiles");
     layer.setMaxZoom(14);
 

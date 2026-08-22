@@ -152,13 +152,13 @@ class LayerRecordsTest {
     assertThat(layer.withId("renamed").id()).isEqualTo("renamed");
   }
 
-  // ── VectorPmtilesLayer ────────────────────────────────────────────────────
+  // ── PmtilesLayer ────────────────────────────────────────────────────
 
   @Test
   void vectorPmtilesLayer_propertiesAndWithId() {
-    VectorPmtilesLayer layer =
-        new VectorPmtilesLayer("v", "V", "f.pmtiles", null, 10, 0, 0, List.of(), List.of());
-    assertThat(layer.sourceType()).isEqualTo(Layer.SourceType.VECTOR_PMTILES);
+    PmtilesLayer layer =
+        new PmtilesLayer("v", "V", "f.pmtiles", null, 10, 0, 0, List.of(), List.of());
+    assertThat(layer.sourceType()).isEqualTo(Layer.SourceType.PMTILES);
     assertThat(layer.tileFileExtension()).isEqualTo("pbf");
     assertThat(layer.isPublic()).isTrue();
     assertThat(layer.withId("renamed").id()).isEqualTo("renamed");

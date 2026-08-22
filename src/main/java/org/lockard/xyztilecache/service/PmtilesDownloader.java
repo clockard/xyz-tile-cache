@@ -26,7 +26,7 @@ public class PmtilesDownloader {
   private static final Logger LOGGER = LoggerFactory.getLogger(PmtilesDownloader.class);
 
   private final XyzConfiguration xyzConfig;
-  private final VectorPmtilesManager vectorPmtilesManager;
+  private final PmtilesManager pmtilesManager;
   private final PreloadStore preloadStore;
   private final TileInventoryStore inventory;
 
@@ -37,11 +37,11 @@ public class PmtilesDownloader {
 
   public PmtilesDownloader(
       XyzConfiguration xyzConfig,
-      VectorPmtilesManager vectorPmtilesManager,
+      PmtilesManager pmtilesManager,
       PreloadStore preloadStore,
       TileInventoryStore inventory) {
     this.xyzConfig = xyzConfig;
-    this.vectorPmtilesManager = vectorPmtilesManager;
+    this.pmtilesManager = pmtilesManager;
     this.preloadStore = preloadStore;
     this.inventory = inventory;
   }
@@ -189,8 +189,8 @@ public class PmtilesDownloader {
     } else {
       discardArchive(layerId, previousSize);
     }
-    vectorPmtilesManager.closeLayer(layerId);
-    vectorPmtilesManager.initLayer(layer);
+    pmtilesManager.closeLayer(layerId);
+    pmtilesManager.initLayer(layer);
   }
 
   /** Removes a deleted archive's bytes from the layer total, if it had been counted. */

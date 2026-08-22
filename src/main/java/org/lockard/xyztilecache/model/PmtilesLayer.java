@@ -5,7 +5,7 @@ import java.util.List;
 
 /** Vector PMTiles layer: serves MVT tiles from a local or remote {@code .pmtiles} archive. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record VectorPmtilesLayer(
+public record PmtilesLayer(
     String id,
     String name,
     String urlTemplate,
@@ -17,7 +17,7 @@ public record VectorPmtilesLayer(
     List<String> allowedGroups)
     implements Layer {
 
-  public VectorPmtilesLayer {
+  public PmtilesLayer {
     // JSON API callers may omit maxZoom (primitive default 0), which would 404 every z>0 tile.
     if (maxZoom <= 0) maxZoom = 15;
     allowedUsers = allowedUsers == null ? List.of() : List.copyOf(allowedUsers);
@@ -26,7 +26,7 @@ public record VectorPmtilesLayer(
 
   @Override
   public SourceType sourceType() {
-    return SourceType.VECTOR_PMTILES;
+    return SourceType.PMTILES;
   }
 
   @Override
@@ -35,8 +35,8 @@ public record VectorPmtilesLayer(
   }
 
   @Override
-  public VectorPmtilesLayer withId(String newId) {
-    return new VectorPmtilesLayer(
+  public PmtilesLayer withId(String newId) {
+    return new PmtilesLayer(
         newId,
         name,
         urlTemplate,

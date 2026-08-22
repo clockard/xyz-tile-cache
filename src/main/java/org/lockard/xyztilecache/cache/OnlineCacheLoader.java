@@ -21,8 +21,8 @@ import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.LayerRuntimeState;
 import org.lockard.xyztilecache.model.LocalLayer;
+import org.lockard.xyztilecache.model.PmtilesLayer;
 import org.lockard.xyztilecache.model.Tile;
-import org.lockard.xyztilecache.model.VectorPmtilesLayer;
 import org.lockard.xyztilecache.model.WmsLayer;
 import org.lockard.xyztilecache.model.WmtsKvpLayer;
 import org.lockard.xyztilecache.model.WmtsRestLayer;
@@ -95,10 +95,9 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
       throw new IOException("Tile %s not present for LOCAL layer.".formatted(tile));
     }
 
-    if (layer instanceof VectorPmtilesLayer) {
+    if (layer instanceof PmtilesLayer) {
       throw new IOException(
-          "VECTOR_PMTILES layers are not served through the raster tile cache: %s"
-              .formatted(layer));
+          "PMTILES layers are not served through the raster tile cache: %s".formatted(layer));
     }
 
     if (configuration.isOffline()) {
@@ -216,9 +215,9 @@ public class OnlineCacheLoader implements CacheLoader<Tile, byte[]> {
       case WmsLayer wms -> wms.buildUrl(tile.z(), tile.x(), tile.y(), timeStr);
       case LocalLayer ignored ->
           throw new IllegalStateException("LOCAL layers should not reach buildTileUrl: " + layer);
-      case VectorPmtilesLayer ignored ->
+      case PmtilesLayer ignored ->
           throw new IllegalStateException(
-              "VECTOR_PMTILES layers are not served through the raster tile cache: " + layer);
+              "PMTILES layers are not served through the raster tile cache: " + layer);
     };
   }
 

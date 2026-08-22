@@ -53,6 +53,7 @@ let offlineToggleBtn;
 let layerManagerOverlay, layerManagerTitle, lmListView, lmLayerList, lmFormView;
 let lfId, lfName, lfSourceType, lfUrl, lfUrlRow, lfWmtsSection;
 let lfWmtsLayer, lfWmtsMatrix, lfWmtsStyle, lfWmtsFormat, lfWmtsTime;
+let lfPmtilesSection, lfPmtilesFiles, lfPmtilesHint;
 let lfWmsSection, lfWmsLayers, lfWmsStyles, lfWmsFormat, lfWmsVersion;
 let lfWmsTileSize, lfWmsTransparent, lfWmsTime;
 let lfAttribution, lfMaxZoom, lfExpiration, lfAllowedUsers, lfAllowedGroups;
@@ -126,6 +127,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   lfWmtsStyle         = document.getElementById('lf-wmts-style');
   lfWmtsFormat        = document.getElementById('lf-wmts-format');
   lfWmtsTime          = document.getElementById('lf-wmts-time');
+  lfPmtilesSection    = document.getElementById('lf-pmtiles-section');
+  lfPmtilesFiles      = document.getElementById('lf-pmtiles-files');
+  lfPmtilesHint       = document.getElementById('lf-pmtiles-hint');
   lfWmsSection        = document.getElementById('lf-wms-section');
   lfWmsLayers         = document.getElementById('lf-wms-layers');
   lfWmsStyles         = document.getElementById('lf-wms-styles');
@@ -847,6 +851,8 @@ async function loadLayers() {
     layerSelect.appendChild(opt);
   });
 
+  await Promise.all(layers.filter(isPmtilesLayer).map(resolvePmtilesFormat));
+
   if (previous && layerMap[previous]) {
     layerSelect.value = previous;
     switchLayer(previous);
@@ -857,10 +863,36 @@ async function loadLayers() {
   }
 }
 
+/**
+ * Learns what a PMTiles layer holds. A PMTiles archive can carry vector or raster tiles, and only
+ * the archive's header says which; the server reports it as the TileJSON `format`. Without this the
+ * map would hand raster tiles to the MVT parser and draw nothing.
+ */
+async function resolvePmtilesFormat(layer) {
+  const id = layer.id || layer.name;
+  try {
+    const resp = await authFetch(apiPath(`/layers/${encodeURIComponent(id)}/tilejson`));
+    if (resp.ok) {
+      const doc = await resp.json();
+      layer.tileFormat = doc.format || 'pbf';
+      return;
+    }
+  } catch (e) {
+    // fall through
+  }
+  // Unreadable TileJSON (no archive open yet, or a permission problem): assume vector, which is
+  // what every PMTiles layer was before raster archives were supported.
+  layer.tileFormat = 'pbf';
+}
+
 function switchLayer(name) {
   const layer = layerMap[name] || {};
-  if (layer.sourceType === 'VECTOR_PMTILES') {
-    switchToVectorPmtiles(name, layer);
+  if (isPmtilesLayer(layer)) {
+    if ((layer.tileFormat || 'pbf') === 'pbf') {
+      switchToVectorPmtiles(name, layer);
+    } else {
+      switchToRasterPmtiles(name, layer);
+    }
   } else {
     setMapTileLayer(
       new ol.layer.Tile({
@@ -873,6 +905,21 @@ function switchLayer(name) {
     );
   }
   updateAttribution(layer.attribution || '');
+}
+
+/** A PMTiles layer whose archive holds raster tiles is drawn like any other raster source. */
+function switchToRasterPmtiles(name, layer) {
+  const ext = layer.tileFormat || 'png';
+  setMapTileLayer(
+    new ol.layer.Tile({
+      source: new ol.source.XYZ({
+        url: apiPath(`/tilesZYX/${encodeURIComponent(name)}/{z}/{y}/{x}.${ext}`),
+        crossOrigin: 'anonymous',
+        maxZoom: layer.maxZoom || 15,
+        tileLoadFunction: authTileLoadFunction
+      })
+    })
+  );
 }
 
 function switchToVectorPmtiles(name, layer) {
@@ -1344,17 +1391,27 @@ function hidePreloadModal() {
 
 function buildPreloadLayerCheckboxes() {
   preloadLayersContainer.innerHTML = '';
-  const vectorIds = Object.keys(layerMap).filter((id) => layerMap[id].sourceType === 'VECTOR_PMTILES');
+  const vectorIds = Object.keys(layerMap).filter((id) => isPmtilesLayer(layerMap[id]));
   vectorIds.forEach((id) => {
     appendPreloadLayerRow(id, layerMap[id].name || id, { recommended: true, checked: vectorIds.length === 1 });
   });
   Object.keys(layerMap).forEach((id) => {
     const layer = layerMap[id];
-    if (layer.sourceType === 'VECTOR_PMTILES') return;
+    if (isPmtilesLayer(layer)) return;
     if (layer.sourceType === 'LOCAL') return;
     if (layerHasTimeComponent(layer)) return;
     appendPreloadLayerRow(id, layer.name || id, { recommended: false, checked: false });
   });
+}
+
+/**
+ * True for a PMTiles-backed layer. The source type was renamed from VECTOR_PMTILES to PMTILES when
+ * raster archives became supported; both are accepted so a layer list served by an older instance,
+ * or read from a layers.json not yet rewritten, still classifies correctly.
+ */
+function isPmtilesLayer(layer) {
+  const type = layer && layer.sourceType;
+  return type === 'PMTILES' || type === 'VECTOR_PMTILES';
 }
 
 function layerHasTimeComponent(layer) {
@@ -1393,7 +1450,7 @@ function updatePreloadEstimates() {
     const checked = row.querySelector('input').checked;
     const estimateEl = row.querySelector('.tile-estimate');
 
-    if (layerMap[key] && layerMap[key].sourceType === 'VECTOR_PMTILES') {
+    if (isPmtilesLayer(layerMap[key])) {
       estimateEl.textContent = '';
       return;
     }
@@ -1466,8 +1523,8 @@ async function submitPreload() {
   const bbox = { ...pendingBbox };
   const name = preloadNameInput.value.trim() || null;
 
-  const vectorKeys = selected.filter((k) => layerMap[k] && layerMap[k].sourceType === 'VECTOR_PMTILES');
-  const xyzLayers = selected.filter((k) => !layerMap[k] || layerMap[k].sourceType !== 'VECTOR_PMTILES');
+  const vectorKeys = selected.filter((k) => isPmtilesLayer(layerMap[k]));
+  const xyzLayers = selected.filter((k) => !isPmtilesLayer(layerMap[k]));
   const vectorLayerId = vectorKeys.length > 0 ? vectorKeys[0] : null;
   const vectorMaxZoom = vectorLayerId && layerMap[vectorLayerId]
     ? (layerMap[vectorLayerId].maxZoom || VECTOR_MAX_ZOOM)
@@ -2080,6 +2137,9 @@ function populateLayerForm(layer) {
   // Transparency defaults on: a WMS layer is most often an overlay.
   lfWmsTransparent.checked = layer ? layer.wmsTransparent !== false : true;
   lfWmsTime.checked = layer ? (layer.wmsTime || false) : false;
+  // A file input keeps its selection across form opens; clearing it stops the previous layer's
+  // archive being uploaded again to the next one.
+  lfPmtilesFiles.value = '';
   onSourceTypeChange();
 }
 
@@ -2087,10 +2147,27 @@ function onSourceTypeChange() {
   const type = lfSourceType.value;
   lfWmtsSection.classList.toggle('hidden', type !== 'WMTS_KVP');
   lfWmsSection.classList.toggle('hidden', type !== 'WMS');
+  lfPmtilesSection.classList.toggle('hidden', type !== 'PMTILES');
   lfUrlRow.classList.toggle('hidden', type === 'LOCAL');
-  lfUrl.placeholder = type === 'VECTOR_PMTILES'
+  lfUrl.placeholder = type === 'PMTILES'
     ? '/path/to/tiles.pmtiles or https://example.com/tiles.pmtiles'
     : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  if (type === 'PMTILES') {
+    lfPmtilesHint.textContent = editingLayerName
+      ? 'Archives you select are added to this layer. They must hold the same kind of tile as the'
+        + ' ones already in it \u2014 put a raster archive in its own layer. MBTiles are converted'
+        + ' to PMTiles on upload.'
+      : 'Upload archives, or leave empty and point the URL Template at a file path or HTTPS URL.'
+        + ' MBTiles are converted to PMTiles on upload. Max Zoom is taken from the archive.'
+        + ' All archives in a layer must hold the same kind of tile \u2014 put a raster archive in'
+        + ' its own layer.';
+  }
+}
+
+/** Files chosen in the PMTiles section, if any. */
+function selectedPmtilesFiles() {
+  if (lfSourceType.value !== 'PMTILES' || !lfPmtilesFiles || !lfPmtilesFiles.files) return [];
+  return Array.from(lfPmtilesFiles.files);
 }
 
 function readLayerForm() {
@@ -2102,8 +2179,15 @@ function readLayerForm() {
   const name = lfName.value.trim() || id;
   const sourceType = lfSourceType.value;
   const urlTemplate = lfUrl.value.trim();
-  if (sourceType !== 'LOCAL' && !urlTemplate) {
-    showToast('URL Template is required', 'error');
+  // A PMTiles layer can be served entirely from uploaded archives, so it needs no source URL.
+  const servedByUpload = sourceType === 'PMTILES' && selectedPmtilesFiles().length > 0;
+  if (sourceType !== 'LOCAL' && !urlTemplate && !servedByUpload) {
+    showToast(
+      sourceType === 'PMTILES'
+        ? 'Choose an archive to upload, or enter a URL Template'
+        : 'URL Template is required',
+      'error'
+    );
     return null;
   }
   const layer = {
@@ -2142,11 +2226,42 @@ function readLayerForm() {
   return layer;
 }
 
+/** Uploads archives to /layers/{id}/pmtiles. Returns an error message, or null on success. */
+async function uploadPmtilesArchives(layerId, files) {
+  const form = new FormData();
+  files.forEach((f) => form.append('files', f));
+  const resp = await authFetch(apiPath(`/layers/${encodeURIComponent(layerId)}/pmtiles`), {
+    method: 'POST',
+    body: form
+  });
+  if (resp.ok) return null;
+  if (resp.status === 401 || resp.status === 403) return 'Admin role required';
+  return (await resp.text()) || `Upload failed (${resp.status})`;
+}
+
+/** Creates a PMTiles layer and its archives in one multipart request. */
+async function createLayerFromUpload(layer, files) {
+  const form = new FormData();
+  files.forEach((f) => form.append('files', f));
+  form.append('id', layer.id);
+  form.append('name', layer.name);
+  // maxZoom is deliberately not sent: the server reads how deep the archive actually goes from
+  // its header, which beats the form's generic default. It stays editable afterwards.
+  if (layer.attribution) form.append('attribution', layer.attribution);
+  if (layer.allowedUsers.length) form.append('allowedUsers', layer.allowedUsers.join(','));
+  if (layer.allowedGroups.length) form.append('allowedGroups', layer.allowedGroups.join(','));
+  return authFetch(apiPath('/layers/pmtiles'), { method: 'POST', body: form });
+}
+
 async function saveLayer() {
   const layer = readLayerForm();
   if (!layer) return;
+  const files = selectedPmtilesFiles();
   const saveBtn = document.getElementById('lm-save-btn');
   saveBtn.disabled = true;
+  const busyLabel = files.length ? 'Uploading\u2026' : saveBtn.textContent;
+  const originalLabel = saveBtn.textContent;
+  saveBtn.textContent = busyLabel;
   try {
     let resp;
     if (editingLayerName) {
@@ -2155,6 +2270,20 @@ async function saveLayer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(layer)
       });
+      // Archives are a separate endpoint: the layer's own fields are saved first so a rejected
+      // upload does not discard the edits made alongside it.
+      if (resp.status === 200 && files.length) {
+        const error = await uploadPmtilesArchives(editingLayerName, files);
+        if (error) {
+          showToast(error, 'error');
+          await loadLayers();
+          await loadStats();
+          return;
+        }
+        showToast(`Added ${files.length} archive(s) to '${layer.name || layer.id}'`, 'success');
+      }
+    } else if (files.length) {
+      resp = await createLayerFromUpload(layer, files);
     } else {
       resp = await authFetch(apiPath('/layers'), {
         method: 'POST',
@@ -2180,6 +2309,7 @@ async function saveLayer() {
     showToast('Network error saving layer', 'error');
   } finally {
     saveBtn.disabled = false;
+    saveBtn.textContent = originalLabel;
   }
 }
 
