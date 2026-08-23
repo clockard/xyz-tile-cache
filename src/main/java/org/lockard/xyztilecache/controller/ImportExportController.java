@@ -141,11 +141,19 @@ class ImportExportController {
       writeError(response, HttpStatus.CONFLICT, "Export not ready: " + job.getStatus());
       return;
     }
-    Path tempFile = exportService.claimDownload(id);
-    if (tempFile == null) {
-      writeError(response, HttpStatus.NOT_FOUND, "Export job not found");
+    Path tempFile = job.getTempFile();
+    long size;
+    try {
+      size = Files.size(tempFile);
+    } catch (IOException e) {
+      // Measured before a single header is written. Doing it afterwards leaves the response
+      // committed with a 200 and no way to report the problem, so the connection simply dies and
+      // the client reports a failed transfer against a successful status.
+      LOGGER.warn("Export file for job {} is missing: {}", id, tempFile);
+      writeError(response, HttpStatus.NOT_FOUND, "Export file is no longer available");
       return;
     }
+
     response.setStatus(HttpServletResponse.SC_OK);
     response.setContentType("application/zip");
     response.setHeader(
@@ -153,15 +161,23 @@ class ImportExportController {
     // Declare the length so the response is fixed-length rather than chunked; chunked attachment
     // bodies are prone to being reset by intermediary proxies/AV scanners, and a known length also
     // gives clients a real download progress bar.
-    response.setContentLengthLong(Files.size(tempFile));
+    response.setContentLengthLong(size);
     try {
       Files.copy(tempFile, response.getOutputStream());
-    } finally {
-      try {
-        Files.deleteIfExists(tempFile);
-      } catch (IOException e) {
-        LOGGER.warn("Failed to delete export temp file {}", tempFile, e);
-      }
+    } catch (IOException e) {
+      // A transfer that dies partway used to take the export with it: the job was already claimed
+      // and the file deleted in a finally, so every retry answered 404. Leave both in place and
+      // let the caller try again; the sweeper still clears it at its expiry.
+      LOGGER.warn("Export download for job {} did not complete; keeping it for a retry.", id, e);
+      return;
+    }
+
+    // Consumed only once the bytes are actually out.
+    exportService.claimDownload(id);
+    try {
+      Files.deleteIfExists(tempFile);
+    } catch (IOException e) {
+      LOGGER.warn("Failed to delete export temp file {}", tempFile, e);
     }
   }
 
