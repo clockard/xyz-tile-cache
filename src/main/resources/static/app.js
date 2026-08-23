@@ -1389,16 +1389,30 @@ function hidePreloadModal() {
   preloadAllowedGroups.value = '';
 }
 
+/**
+ * True when a layer has an upstream to fetch more tiles from.
+ *
+ * <p>A layer with no source URL is already complete: an uploaded PMTiles archive holds what it
+ * holds, and a tiled GeoTIFF has nowhere to go for more. Offering either for preload asks the
+ * server for something it will refuse.
+ */
+function canPreload(layer) {
+  return !!(layer && typeof layer.urlTemplate === 'string' && layer.urlTemplate.trim());
+}
+
 function buildPreloadLayerCheckboxes() {
   preloadLayersContainer.innerHTML = '';
-  const vectorIds = Object.keys(layerMap).filter((id) => isPmtilesLayer(layerMap[id]));
+  const vectorIds = Object.keys(layerMap).filter(
+    (id) => isPmtilesLayer(layerMap[id]) && canPreload(layerMap[id])
+  );
   vectorIds.forEach((id) => {
     appendPreloadLayerRow(id, layerMap[id].name || id, { recommended: true, checked: vectorIds.length === 1 });
   });
   Object.keys(layerMap).forEach((id) => {
     const layer = layerMap[id];
     if (isPmtilesLayer(layer)) return;
-    if (layer.sourceType === 'LOCAL') return;
+    // Covers LOCAL, whose urlTemplate is always null, as well as any other source-less layer.
+    if (!canPreload(layer)) return;
     if (layerHasTimeComponent(layer)) return;
     appendPreloadLayerRow(id, layer.name || id, { recommended: false, checked: false });
   });
@@ -1668,22 +1682,48 @@ function renderExportJobs(jobs) {
   }).join('');
 }
 
+// Exports run past 100 MB. Reading one into a Blob puts the whole archive in the page before any
+// of it reaches disk, and past a certain size the browser abandons the response -- a 200 in the
+// network log followed by ERR_FAILED. The bytes themselves arrive fine, so piping the body to a
+// file handle instead keeps the page's memory flat whatever the size. Browsers without the File
+// System Access API still take the Blob path, which holds up at the sizes it can manage.
 async function downloadExportJob(jobId, filename) {
+  const name = filename || ('tile-export-' + Date.now() + '.zip');
+  let handle = null;
+  if (window.showSaveFilePicker) {
+    try {
+      // Asked for before the fetch: the picker needs the click's user activation, and an awaited
+      // request would have outlived it by the time it returned.
+      handle = await window.showSaveFilePicker({
+        suggestedName: name,
+        types: [{ description: 'Zip archive', accept: { 'application/zip': ['.zip'] } }]
+      });
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      handle = null;
+    }
+  }
   try {
     const dlResp = await authFetch(apiPath('/exports/' + jobId + '/download'));
     if (!dlResp.ok) {
       showToast(`Download failed (${dlResp.status})`, 'error');
       return;
     }
-    const blob = await dlResp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename || ('tile-export-' + Date.now() + '.zip');
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    if (handle) {
+      await dlResp.body.pipeTo(await handle.createWritable());
+    } else {
+      const blob = await dlResp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Revoked on a later tick: browsers start reading the object URL asynchronously after the
+      // click, and tearing it down in the same tick can cancel the save.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
     loadDownloads();
   } catch (e) {
     showToast('Download failed', 'error');

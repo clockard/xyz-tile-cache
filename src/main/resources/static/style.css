@@ -870,7 +870,13 @@ body {
   letter-spacing: 0.02em;
 }
 
+/*
+ * Its own line under the meta line. Both are spans, so without an explicit block they run
+ * together and the cache figures wrap awkwardly into whatever space is left after the id,
+ * source type and access.
+ */
 .lm-row-stats {
+  display: block;
   font-size: 0.72rem;
   color: #5a6ea8;
   margin-top: 1px;
@@ -1051,6 +1057,7 @@ body {
 }
 
 .lm-row-meta {
+  display: block;
   font-size: 0.72rem;
   color: #777;
   margin-top: 1px;
