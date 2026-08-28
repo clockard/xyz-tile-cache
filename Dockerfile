@@ -35,10 +35,11 @@ RUN apk upgrade --no-cache
 # jpeg covers JPEG-compressed input TIFFs commonly used in remote sensing.
 # py3-gdal pulls in python3; pin it (and its pyc/bytecode-cache split packages) to
 # 3.14.7-r0+ to fix CVE-2026-7210 (expat DoS via crafted XML document).
+# openssl/libcrypto3/libssl3 3.5.8-r0+ fixes CVE-2026-14456 (QUIC server unbounded memory growth DoS).
 RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg\
  && apk add --no-cache "openjdk25-jre-headless>=25.0.4_p7-r0" \
  && apk add --no-cache "libxml2>=2.13.9-r1" \
- && apk add --no-cache "openssl>=3.5.7-r0" "libcrypto3>=3.5.7-r0" "libssl3>=3.5.7-r0" "sqlite>=3.53.2" \
+ && apk add --no-cache "openssl>=3.5.8-r0" "libcrypto3>=3.5.8-r0" "libssl3>=3.5.8-r0" "sqlite>=3.53.2" \
  && apk add --no-cache "c-ares>=1.34.8-r0" "libcurl>=8.21.0-r0" "libexpat>=2.8.2-r0" \
     "p11-kit>=0.26.2-r0" "p11-kit-trust>=0.26.2-r0" \
  && apk add --no-cache "pyc>=3.14.7-r0" "python3>=3.14.7-r0" "python3-pyc>=3.14.7-r0" \
