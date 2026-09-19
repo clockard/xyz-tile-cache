@@ -11,21 +11,18 @@ ARG PMTILES_VERSION=1.30.3
 RUN apk add --no-cache git
 RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
 WORKDIR /src
-# Upgrade golang.org/x/net to 0.55.0+ to fix CVE-2026-25680/25681/27136/39821/42502/42506 (HTML parsing/Render CPU & memory issues, idna Punycode privilege escalation)
-# Upgrade otel/sdk to 1.43.0+ to fix CVE-2026-39883 (PATH hijacking via kenv)
-# Upgrade golang.org/x/text to 0.39.0+ to fix CVE-2026-56852 (norm.Iter infinite loop)
 # Upgrade grpc-go to 1.83.2+ to fix GHSA-hrxh-6v49-42gf (xDS RBAC and HTTP/2 vulnerabilities), CVE-2026-84304,
-# and CVE-2026-84445 (xDS servers DoS via missing :authority/Host headers)
+# and CVE-2026-84445 (xDS servers DoS via missing :authority/Host headers).
 # Upgrade golang.org/x/crypto to 0.55.0+ to fix CVE-2026-39827/39828/39829/39830/39831/39832/39835/42508/46595/46597/56854
 # (ssh client/server/agent/knownhosts issues, auth bypass via unenforced source-address restrictions).
-# x/crypto is only an indirect dependency here, so it must be the LAST go get: `go mod tidy`/subsequent
-# `go get` calls recompute the module graph and drop indirect version pins that aren't backed by a
-# direct requirement, silently reverting to whatever lower version other deps demand.
-RUN go get golang.org/x/net@v0.55.0 \
- && go get go.opentelemetry.io/otel/sdk@v1.43.0 \
- && go get golang.org/x/text@v0.39.0 \
- && go get google.golang.org/grpc@v1.83.2 \
- && go get golang.org/x/crypto@v0.55.0 \
+# grpc and x/crypto are indirect-only dependencies of go-pmtiles, and each pulls in higher transitive
+# requirements of its own (grpc needs otel/sdk 1.44.0+; crypto needs x/net 0.57.0+, which in turn needs
+# x/text 0.40.0+). Pinning both together in a SINGLE `go get` lets MVS resolve every transitive version
+# in one consistent pass; `go mod tidy` then settles the rest of the graph at those (or higher) versions,
+# which also covers the x/net 0.55.0+/x/text 0.39.0+/otel-sdk 1.43.0+ CVE fixes without pinning them
+# explicitly. Splitting this into separate `go get` calls causes each later call to recompute the module
+# graph via MVS and silently drop/revert indirect pins made by earlier calls that lack a direct requirement.
+RUN go get google.golang.org/grpc@v1.83.2 golang.org/x/crypto@v0.55.0 \
  && go mod tidy \
  && CGO_ENABLED=0 go build -o /usr/local/bin/pmtiles .
 
