@@ -14,8 +14,10 @@ WORKDIR /src
 # Upgrade golang.org/x/net to 0.55.0+ to fix CVE-2026-25680/25681/27136/39821/42502/42506 (HTML parsing/Render CPU & memory issues, idna Punycode privilege escalation)
 # Upgrade otel/sdk to 1.43.0+ to fix CVE-2026-39883 (PATH hijacking via kenv)
 # Upgrade golang.org/x/text to 0.39.0+ to fix CVE-2026-56852 (norm.Iter infinite loop)
-# Upgrade grpc-go to 1.83.2+ to fix GHSA-hrxh-6v49-42gf (xDS RBAC and HTTP/2 vulnerabilities), CVE-2026-84304,
-# and CVE-2026-84445 (xDS servers DoS via missing :authority/Host headers)
+# Upgrade grpc-go to 1.83.2 to fix GHSA-hrxh-6v49-42gf (xDS RBAC and HTTP/2 vulnerabilities), CVE-2026-84304,
+# and CVE-2026-84445 (xDS servers DoS via missing :authority/Host headers). Must stay on the 1.83.x line at
+# exactly 1.83.2+: CVE-2026-84445's fix landed on 1.82.x (1.82.2) and 1.83.x (1.83.2) but was NOT backported
+# to 1.84.0 - the next fix only exists in the unreleased 1.85.0-dev prerelease, so 1.84.x is still vulnerable.
 # Upgrade golang.org/x/crypto to 0.55.0+ to fix CVE-2026-39827/39828/39829/39830/39831/39832/39835/42508/46595/46597/56854
 # (ssh client/server/agent/knownhosts issues, auth bypass via unenforced source-address restrictions).
 # x/crypto is only an indirect dependency here, so it must be the LAST go get: `go mod tidy`/subsequent
