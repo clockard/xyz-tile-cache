@@ -1,4 +1,4 @@
-ARG JRE_IMAGE=alpine:3.24.1
+ARG JRE_IMAGE=alpine:3.24.2
 
 # ── Stage 1: build go-pmtiles CLI ─────────────────────────────────────────────
 # golang:1.26-alpine tracks the latest Go 1.26.x patch, ensuring stdlib CVE
@@ -6,26 +6,30 @@ ARG JRE_IMAGE=alpine:3.24.1
 # os.Root symlink-following traversal fixed in 1.26.5; CVE-2026-39821 idna
 # Punycode privilege escalation and CVE-2026-46600 dnsmessage DoS fixed in
 # 1.26.6) are included.
-FROM golang:1.26.6-alpine AS builder
-ARG PMTILES_VERSION=1.30.3
+FROM golang:1.26.8-alpine AS builder
+ARG PMTILES_VERSION=1.31.2
 RUN apk add --no-cache git
 RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
 WORKDIR /src
-# Upgrade golang.org/x/net to 0.55.0+ to fix CVE-2026-25680/25681/27136/39821/42502/42506 (HTML parsing/Render CPU & memory issues, idna Punycode privilege escalation)
-# Upgrade otel/sdk to 1.43.0+ to fix CVE-2026-39883 (PATH hijacking via kenv)
-# Upgrade golang.org/x/text to 0.39.0+ to fix CVE-2026-56852 (norm.Iter infinite loop)
+# Upgrade golang.org/x/net to 0.59.0+ to fix CVE-2026-25680/25681/27136/39821/42502/42506 (HTML parsing/Render CPU & memory issues, idna Punycode privilege escalation)
+# Upgrade otel/sdk to 1.46.0+ to fix CVE-2026-39883 (PATH hijacking via kenv)
+# Upgrade golang.org/x/text to 0.42.0+ to fix CVE-2026-56852 (norm.Iter infinite loop)
 # Upgrade grpc-go to 1.83.2+ to fix GHSA-hrxh-6v49-42gf (xDS RBAC and HTTP/2 vulnerabilities), CVE-2026-84304,
-# and CVE-2026-84445 (xDS servers DoS via missing :authority/Host headers)
-# Upgrade golang.org/x/crypto to 0.55.0+ to fix CVE-2026-39827/39828/39829/39830/39831/39832/39835/42508/46595/46597/56854
-# (ssh client/server/agent/knownhosts issues, auth bypass via unenforced source-address restrictions).
+# and CVE-2026-84445 (xDS servers DoS via missing :authority/Host headers). Held at 1.83.2 deliberately:
+# GO-2026-6443 shows CVE-2026-84445 regressed in v1.84.0 (affected range resumes at v1.84.0-dev, before
+# v1.85.0-dev) — do not bump grpc-go until a fixed 1.84.x or 1.85.0 release ships.
+# Upgrade golang.org/x/crypto to 0.57.0+ to fix CVE-2026-39827/39828/39829/39830/39831/39832/39835/42508/46595/46597/56854
+# (ssh client/server/agent/knownhosts issues, auth bypass via unenforced source-address restrictions), plus
+# CVE-2026-56855/78662 (crafted post- and pre-establishment channel messages deadlocking the ssh connection)
+# fixed in 0.56.0.
 # x/crypto is only an indirect dependency here, so it must be the LAST go get: `go mod tidy`/subsequent
 # `go get` calls recompute the module graph and drop indirect version pins that aren't backed by a
 # direct requirement, silently reverting to whatever lower version other deps demand.
-RUN go get golang.org/x/net@v0.55.0 \
- && go get go.opentelemetry.io/otel/sdk@v1.43.0 \
- && go get golang.org/x/text@v0.39.0 \
+RUN go get golang.org/x/net@v0.59.0 \
+ && go get go.opentelemetry.io/otel/sdk@v1.46.0 \
+ && go get golang.org/x/text@v0.42.0 \
  && go get google.golang.org/grpc@v1.83.2 \
- && go get golang.org/x/crypto@v0.55.0 \
+ && go get golang.org/x/crypto@v0.57.0 \
  && go mod tidy \
  && CGO_ENABLED=0 go build -o /usr/local/bin/pmtiles .
 
