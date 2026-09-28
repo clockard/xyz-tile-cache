@@ -34,7 +34,7 @@ xyz:
     mode: jwt                   # jwt | token. token = single static admin token (no Keycloak)
     adminToken: ""              # used when mode=token; presented as Authorization: Bearer <token>
     clientId: xyz-tile-cache    # OAuth2 client id reported to the UI (jwt mode)
-  baseTileDirectory: "/tmp/tiles"
+  baseTileDirectory: "/app/tiles"
   minFreeDiskBytes: 1073741824  # Stop caching tiles when free disk space drops below this (default 1 GB)
   offline: false
   tileTimeoutSeconds: 5

@@ -19,7 +19,7 @@ services:
     ports:
       - "8383:8383/tcp"
     volumes:
-      - /tmp/tiles:/tmp/tiles
+      - /tmp/tiles:/app/tiles
       - /tmp/imports:/app/imports
     environment:
 #      XYZ_AUTH_MODE: jwt
