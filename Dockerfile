@@ -63,7 +63,7 @@ COPY --from=builder /usr/local/bin/pmtiles /usr/local/bin/pmtiles
 COPY entrypoint.sh /app/entrypoint.sh
 ENV JAVA_HOME=/usr/lib/jvm/java-25-openjdk
 ENV PATH="$JAVA_HOME/bin:$PATH"
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh && mkdir -p /app/tiles && mkdir -p /app/imports
 # Run as non-root (DS-0002). Fixed UID/GID so bind-mounted host dirs (e.g. /tmp/tiles)
 # can be chowned to match from outside the container.
 RUN addgroup -g 1000 xyz && adduser -D -u 1000 -G xyz xyz \
