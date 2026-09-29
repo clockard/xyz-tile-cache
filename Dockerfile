@@ -71,5 +71,5 @@ RUN addgroup -g 1000 xyz && adduser -D -u 1000 -G xyz xyz \
 USER xyz
 EXPOSE 8383
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-    CMD wget -q -O /dev/null http://127.0.0.1:8383/actuator/health || exit 1
+    CMD wget -q --no-check-certificate -O /dev/null https://127.0.0.1:8383/actuator/health || exit 1
 ENTRYPOINT ["/app/entrypoint.sh"]
