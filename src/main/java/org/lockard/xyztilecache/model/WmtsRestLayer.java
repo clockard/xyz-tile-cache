@@ -20,6 +20,8 @@ public record WmtsRestLayer(
     @JsonProperty("headers") Map<String, String> headers,
     @JsonProperty("timeFormat") String timeFormat)
     implements Layer {
+  // Every component is annotated explicitly: Jackson 3 links a record component to its
+  // @JsonIgnore'd legacy alias getter in Layer (getId() etc.) and would drop it on read.
 
   public WmtsRestLayer {
     // JSON API callers may omit maxZoom (primitive default 0), which would 404 every z>0 tile.

@@ -80,7 +80,7 @@ GET /tilesZYX/{layer}/{z}/{y}/{x}.{ext}
 
 - Packages are `tools.jackson.*`; only `jackson-annotations` stays `com.fasterxml.jackson.annotation`. Mapper type is `JsonMapper`; `JacksonException` is unchecked.
 - Stores/import-export wrap `JacksonException` as `IOException` (`JsonFileStore`, `ImportExportService`). Keep that: callers' `catch (IOException)` implements the corrupt-file recovery (e.g. `TileInventoryStore.init`).
-- Layer records carry explicit `@JsonProperty` on every component that has a `@JsonIgnore` legacy alias getter in `Layer` (`getId()` etc.). Without it Jackson 3 drops the property on read. Add it to any new record component that has such an alias.
+- Layer records carry explicit `@JsonProperty` on every component. Jackson 3 links a component to its `@JsonIgnore` legacy alias getter in `Layer` (`getId()` etc.) and drops it on read otherwise. Annotate any new component.
 - Jackson 3 ignores unknown JSON fields and rejects null for primitives by default. `spring.jackson.deserialization.fail-on-null-for-primitives=false` in `application.yml` keeps old files with omitted numbers loading.
 
 ## Authentication

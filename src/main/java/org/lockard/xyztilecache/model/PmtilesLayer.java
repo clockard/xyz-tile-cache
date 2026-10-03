@@ -17,6 +17,8 @@ public record PmtilesLayer(
     @JsonProperty("allowedUsers") List<String> allowedUsers,
     @JsonProperty("allowedGroups") List<String> allowedGroups)
     implements Layer {
+  // Every component is annotated explicitly: Jackson 3 links a record component to its
+  // @JsonIgnore'd legacy alias getter in Layer (getId() etc.) and would drop it on read.
 
   public PmtilesLayer {
     // JSON API callers may omit maxZoom (primitive default 0), which would 404 every z>0 tile.

@@ -35,16 +35,18 @@ public record WmsLayer(
     @JsonProperty("allowedUsers") List<String> allowedUsers,
     @JsonProperty("allowedGroups") List<String> allowedGroups,
     @JsonProperty("headers") Map<String, String> headers,
-    String wmsLayers,
-    String wmsStyles,
-    String wmsFormat,
-    String wmsVersion,
-    boolean wmsTransparent,
-    int wmsTileSize,
-    boolean wmsTime,
-    Map<String, String> wmsExtraParams,
+    @JsonProperty("wmsLayers") String wmsLayers,
+    @JsonProperty("wmsStyles") String wmsStyles,
+    @JsonProperty("wmsFormat") String wmsFormat,
+    @JsonProperty("wmsVersion") String wmsVersion,
+    @JsonProperty("wmsTransparent") boolean wmsTransparent,
+    @JsonProperty("wmsTileSize") int wmsTileSize,
+    @JsonProperty("wmsTime") boolean wmsTime,
+    @JsonProperty("wmsExtraParams") Map<String, String> wmsExtraParams,
     @JsonProperty("timeFormat") String timeFormat)
     implements Layer {
+  // Every component is annotated explicitly: Jackson 3 links a record component to its
+  // @JsonIgnore'd legacy alias getter in Layer (getId() etc.) and would drop it on read.
 
   private static final String CRS = "EPSG:3857";
   private static final String VERSION_1_1_1 = "1.1.1";

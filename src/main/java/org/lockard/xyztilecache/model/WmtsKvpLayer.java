@@ -18,13 +18,15 @@ public record WmtsKvpLayer(
     @JsonProperty("allowedUsers") List<String> allowedUsers,
     @JsonProperty("allowedGroups") List<String> allowedGroups,
     @JsonProperty("headers") Map<String, String> headers,
-    String wmtsLayerName,
-    String wmtsTileMatrixSet,
-    String wmtsStyle,
-    String wmtsFormat,
-    boolean wmtsTime,
+    @JsonProperty("wmtsLayerName") String wmtsLayerName,
+    @JsonProperty("wmtsTileMatrixSet") String wmtsTileMatrixSet,
+    @JsonProperty("wmtsStyle") String wmtsStyle,
+    @JsonProperty("wmtsFormat") String wmtsFormat,
+    @JsonProperty("wmtsTime") boolean wmtsTime,
     @JsonProperty("timeFormat") String timeFormat)
     implements Layer {
+  // Every component is annotated explicitly: Jackson 3 links a record component to its
+  // @JsonIgnore'd legacy alias getter in Layer (getId() etc.) and would drop it on read.
 
   public WmtsKvpLayer {
     // JSON API callers may omit maxZoom (primitive default 0), which would 404 every z>0 tile.

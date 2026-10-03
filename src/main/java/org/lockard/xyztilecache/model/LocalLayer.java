@@ -16,6 +16,8 @@ public record LocalLayer(
     @JsonProperty("allowedUsers") List<String> allowedUsers,
     @JsonProperty("allowedGroups") List<String> allowedGroups)
     implements Layer {
+  // Every component is annotated explicitly: Jackson 3 links a record component to its
+  // @JsonIgnore'd legacy alias getter in Layer (getId() etc.) and would drop it on read.
 
   public LocalLayer {
     allowedUsers = allowedUsers == null ? List.of() : List.copyOf(allowedUsers);
