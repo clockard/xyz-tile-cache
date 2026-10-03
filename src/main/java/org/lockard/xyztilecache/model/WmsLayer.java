@@ -2,6 +2,7 @@ package org.lockard.xyztilecache.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -24,26 +25,28 @@ import org.lockard.xyztilecache.XyzUtil;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record WmsLayer(
-    String id,
-    String name,
-    String urlTemplate,
-    String attribution,
-    int maxZoom,
-    int initZoom,
-    int tileExpirationMinutes,
-    List<String> allowedUsers,
-    List<String> allowedGroups,
-    Map<String, String> headers,
-    String wmsLayers,
-    String wmsStyles,
-    String wmsFormat,
-    String wmsVersion,
-    boolean wmsTransparent,
-    int wmsTileSize,
-    boolean wmsTime,
-    Map<String, String> wmsExtraParams,
-    String timeFormat)
+    @JsonProperty("id") String id,
+    @JsonProperty("name") String name,
+    @JsonProperty("urlTemplate") String urlTemplate,
+    @JsonProperty("attribution") String attribution,
+    @JsonProperty("maxZoom") int maxZoom,
+    @JsonProperty("initZoom") int initZoom,
+    @JsonProperty("tileExpirationMinutes") int tileExpirationMinutes,
+    @JsonProperty("allowedUsers") List<String> allowedUsers,
+    @JsonProperty("allowedGroups") List<String> allowedGroups,
+    @JsonProperty("headers") Map<String, String> headers,
+    @JsonProperty("wmsLayers") String wmsLayers,
+    @JsonProperty("wmsStyles") String wmsStyles,
+    @JsonProperty("wmsFormat") String wmsFormat,
+    @JsonProperty("wmsVersion") String wmsVersion,
+    @JsonProperty("wmsTransparent") boolean wmsTransparent,
+    @JsonProperty("wmsTileSize") int wmsTileSize,
+    @JsonProperty("wmsTime") boolean wmsTime,
+    @JsonProperty("wmsExtraParams") Map<String, String> wmsExtraParams,
+    @JsonProperty("timeFormat") String timeFormat)
     implements Layer {
+  // Every component is annotated explicitly: Jackson 3 links a record component to its
+  // @JsonIgnore'd legacy alias getter in Layer (getId() etc.) and would drop it on read.
 
   private static final String CRS = "EPSG:3857";
   private static final String VERSION_1_1_1 = "1.1.1";

@@ -3,7 +3,6 @@ package org.lockard.xyztilecache.cache;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.File;
 import java.io.IOException;
@@ -18,6 +17,8 @@ import org.lockard.xyztilecache.model.LocalLayer;
 import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.mockito.Mockito;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 class OnlineCacheLoaderTest {
 
@@ -35,7 +36,13 @@ class OnlineCacheLoaderTest {
     configuration.setTileTimeoutSeconds(1);
     configuration.installLayers(List.of(localLayer()));
 
-    layerStore = new LayerStore(configuration, new ObjectMapper(), event -> {});
+    layerStore =
+        new LayerStore(
+            configuration,
+            JsonMapper.builder()
+                .disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+                .build(),
+            event -> {});
     layerStore.init();
 
     tileWriter = Mockito.mock(TileWriter.class);

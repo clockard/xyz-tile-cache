@@ -1,29 +1,32 @@
 package org.lockard.xyztilecache.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.Map;
 
 /** WMTS KVP (key-value-pair) layer. Builds a {@code GetTile} query against the base URL. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record WmtsKvpLayer(
-    String id,
-    String name,
-    String urlTemplate,
-    String attribution,
-    int maxZoom,
-    int initZoom,
-    int tileExpirationMinutes,
-    List<String> allowedUsers,
-    List<String> allowedGroups,
-    Map<String, String> headers,
-    String wmtsLayerName,
-    String wmtsTileMatrixSet,
-    String wmtsStyle,
-    String wmtsFormat,
-    boolean wmtsTime,
-    String timeFormat)
+    @JsonProperty("id") String id,
+    @JsonProperty("name") String name,
+    @JsonProperty("urlTemplate") String urlTemplate,
+    @JsonProperty("attribution") String attribution,
+    @JsonProperty("maxZoom") int maxZoom,
+    @JsonProperty("initZoom") int initZoom,
+    @JsonProperty("tileExpirationMinutes") int tileExpirationMinutes,
+    @JsonProperty("allowedUsers") List<String> allowedUsers,
+    @JsonProperty("allowedGroups") List<String> allowedGroups,
+    @JsonProperty("headers") Map<String, String> headers,
+    @JsonProperty("wmtsLayerName") String wmtsLayerName,
+    @JsonProperty("wmtsTileMatrixSet") String wmtsTileMatrixSet,
+    @JsonProperty("wmtsStyle") String wmtsStyle,
+    @JsonProperty("wmtsFormat") String wmtsFormat,
+    @JsonProperty("wmtsTime") boolean wmtsTime,
+    @JsonProperty("timeFormat") String timeFormat)
     implements Layer {
+  // Every component is annotated explicitly: Jackson 3 links a record component to its
+  // @JsonIgnore'd legacy alias getter in Layer (getId() etc.) and would drop it on read.
 
   public WmtsKvpLayer {
     // JSON API callers may omit maxZoom (primitive default 0), which would 404 every z>0 tile.

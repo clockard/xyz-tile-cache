@@ -3,8 +3,6 @@ package org.lockard.xyztilecache.store;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -17,12 +15,16 @@ import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.BoundingBox;
 import org.lockard.xyztilecache.model.Preload;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 class PreloadStoreTest {
 
   @TempDir Path tempDir;
 
-  private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+  private final ObjectMapper objectMapper =
+      JsonMapper.builder().disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES).build();
   private XyzConfiguration configuration;
   private PreloadStore store;
 

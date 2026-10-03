@@ -52,8 +52,7 @@ class TileCacheMetricsUnitTest {
     org.lockard.xyztilecache.config.XyzConfiguration inventoryConfig =
         new org.lockard.xyztilecache.config.XyzConfiguration();
     inventoryConfig.setBaseTileDirectory(tempDir.toString());
-    inventory =
-        new TileInventoryStore(inventoryConfig, new com.fasterxml.jackson.databind.ObjectMapper());
+    inventory = new TileInventoryStore(inventoryConfig, new tools.jackson.databind.ObjectMapper());
     try {
       inventory.init();
     } catch (java.io.IOException e) {

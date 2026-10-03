@@ -23,7 +23,7 @@ class ConversionFailureMessageTest {
     XyzConfiguration configuration = new XyzConfiguration();
     configuration.setBaseTileDirectory(tempDir.toString());
     TileInventoryStore inventory =
-        new TileInventoryStore(configuration, new com.fasterxml.jackson.databind.ObjectMapper());
+        new TileInventoryStore(configuration, new tools.jackson.databind.ObjectMapper());
     inventory.init();
     return new PmtilesUploadService(configuration, converter, null, inventory);
   }

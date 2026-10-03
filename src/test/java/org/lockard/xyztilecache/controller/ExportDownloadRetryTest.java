@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.List;
@@ -15,13 +14,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.service.ExportService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * What happens to an export when its download does not go through.
@@ -69,7 +69,7 @@ class ExportDownloadRetryTest {
             .andReturn()
             .getResponse()
             .getContentAsString();
-    return objectMapper.readTree(body).get("id").asText();
+    return objectMapper.readTree(body).get("id").asString();
   }
 
   private void awaitDone(String jobId) throws Exception {
@@ -79,7 +79,7 @@ class ExportDownloadRetryTest {
               .andReturn()
               .getResponse()
               .getContentAsString();
-      if ("DONE".equals(objectMapper.readTree(body).get("status").asText())) {
+      if ("DONE".equals(objectMapper.readTree(body).get("status").asString())) {
         return;
       }
       Thread.sleep(50);

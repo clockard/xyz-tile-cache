@@ -3,7 +3,6 @@ package org.lockard.xyztilecache.cache;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.List;
@@ -16,6 +15,8 @@ import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.model.XyzLayer;
 import org.lockard.xyztilecache.store.LayerStore;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 class OfflineCacheLoaderTest {
 
@@ -30,7 +31,13 @@ class OfflineCacheLoaderTest {
     configuration = new XyzConfiguration();
     configuration.setBaseTileDirectory(tempDir.getAbsolutePath());
     configuration.installLayers(List.of(layer(0)));
-    layerStore = new LayerStore(configuration, new ObjectMapper(), event -> {});
+    layerStore =
+        new LayerStore(
+            configuration,
+            JsonMapper.builder()
+                .disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+                .build(),
+            event -> {});
     layerStore.init();
     loader = new OfflineCacheLoader(configuration, layerStore);
   }

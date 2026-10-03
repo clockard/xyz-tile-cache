@@ -28,7 +28,7 @@ class PmtilesDownloaderTest {
     try {
       var store =
           new org.lockard.xyztilecache.store.TileInventoryStore(
-              xyzConfig(), new com.fasterxml.jackson.databind.ObjectMapper());
+              xyzConfig(), new tools.jackson.databind.ObjectMapper());
       store.init();
       return store;
     } catch (java.io.IOException e) {

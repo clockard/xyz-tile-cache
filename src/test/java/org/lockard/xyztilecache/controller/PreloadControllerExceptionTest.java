@@ -15,13 +15,13 @@ import org.lockard.xyztilecache.service.PreloadService;
 import org.lockard.xyztilecache.store.PreloadStore;
 import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
@@ -31,8 +31,8 @@ class PreloadControllerExceptionTest {
 
   @TempDir static File tileDir;
 
-  @MockBean PreloadService preloadService;
-  @MockBean PreloadStore preloadStore;
+  @MockitoBean PreloadService preloadService;
+  @MockitoBean PreloadStore preloadStore;
 
   @DynamicPropertySource
   static void testProperties(DynamicPropertyRegistry registry) {

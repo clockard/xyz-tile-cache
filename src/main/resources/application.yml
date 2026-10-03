@@ -15,13 +15,18 @@ management:
       application: xyz-tile-cache
 
 spring:
+  jackson:
+    deserialization:
+      # Jackson 3 rejects a missing/null value for a primitive; layers.json and the other stores
+      # written by 1.x omit such fields, so keep the Jackson 2 behavior (use the default).
+      fail-on-null-for-primitives: false
   threads:
     virtual:
       enabled: true             # Tomcat + @Async run on virtual threads (Java 21+)
   servlet:
     multipart:
-      max-file-size: 2GB
-      max-request-size: 2GB
+      max-file-size: 10GB
+      max-request-size: 10GB
   security:
     oauth2:
       resourceserver:
@@ -42,6 +47,7 @@ xyz:
   preloadConcurrency: 4         # Parallel tile fetches per preload job
   inventoryFlushSeconds: 30     # How often cached-tile totals are written to tile-inventory.json
   inventoryFlushTiles: 10000    # Also flush once this many tiles have been reported since the last
+  maxImportBytes: 10737418240   # Cap on total decompressed bytes accepted by POST /import (default 10 GiB)
   uiEnabled: true               # Set to false to disable the web UI (all UI paths return 404)
   adminRole: admin              # Keycloak realm role required for write operations
   layers:

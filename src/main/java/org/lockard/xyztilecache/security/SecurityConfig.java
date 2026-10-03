@@ -24,7 +24,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -43,7 +43,10 @@ public class SecurityConfig {
 
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-    http.csrf(csrf -> csrf.ignoringRequestMatchers(AntPathRequestMatcher.antMatcher("/**")))
+    http.csrf(
+            csrf ->
+                csrf.ignoringRequestMatchers(
+                    PathPatternRequestMatcher.withDefaults().matcher("/**")))
         // Spring Security's CorsFilter runs ahead of the authorization filters and answers
         // preflights itself. Without it, the OPTIONS preflight a browser sends before any
         // DELETE/PUT (or JSON POST) falls through to anyRequest().hasRole(...) and is rejected

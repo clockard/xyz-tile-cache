@@ -3,10 +3,12 @@ package org.lockard.xyztilecache.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.PmtilesLayer;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * {@code SourceType.PMTILES} was called {@code VECTOR_PMTILES} before raster archives were
@@ -15,7 +17,8 @@ import org.lockard.xyztilecache.model.PmtilesLayer;
  */
 class LegacySourceTypeNameTest {
 
-  private final ObjectMapper mapper = new ObjectMapper();
+  private final ObjectMapper mapper =
+      JsonMapper.builder().disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES).build();
 
   // ── Configuration binding ─────────────────────────────────────────────────
 

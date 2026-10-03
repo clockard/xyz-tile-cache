@@ -8,8 +8,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.config.LayerProperties;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -30,6 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * GeoTIFF file will result in a 422 response — which is itself a valid E2E signal that the request
  * reached the tiling step.
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
 class GeoTiffEndToEndTest {
@@ -168,7 +170,7 @@ class GeoTiffEndToEndTest {
             geotiffRequest("new-geotiff-layer", STUB_TIFF, adminHeaders()),
             String.class);
 
-    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
   }
 
   @Test

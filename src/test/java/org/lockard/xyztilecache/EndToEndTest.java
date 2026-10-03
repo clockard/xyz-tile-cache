@@ -2,7 +2,6 @@ package org.lockard.xyztilecache;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -21,8 +20,9 @@ import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -38,6 +38,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * End-to-end tests that spin up a WireMock container (TestContainers) as the upstream tile source
@@ -45,6 +46,7 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p>Requires Docker. Auth uses token mode to avoid Keycloak.
  */
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
 class EndToEndTest {
