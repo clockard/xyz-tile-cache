@@ -49,15 +49,17 @@ RUN apk upgrade --no-cache
 # Alpine splits GDAL drivers into separate packages; png is required for gdal2tiles output,
 # jpeg covers JPEG-compressed input TIFFs commonly used in remote sensing.
 # py3-gdal pulls in python3; pin it (and its pyc/bytecode-cache split packages) to
-# 3.14.7-r0+ to fix CVE-2026-7210 (expat DoS via crafted XML document).
+# 3.14.7-r0+ to fix CVE-2026-7210 (expat DoS via crafted XML document), and to
+# 3.14.8-r0+ to fix CVE-2026-19553 (SSLContext.wrap_bio() certificate verification
+# bypass) and CVE-2026-82049 (tarfile module file modification/content disclosure).
 RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg\
  && apk add --no-cache "openjdk25-jre-headless>=25.0.4_p7-r0" \
  && apk add --no-cache "libxml2>=2.13.9-r1" \
  && apk add --no-cache "openssl>=3.5.8-r0" "libcrypto3>=3.5.8-r0" "libssl3>=3.5.8-r0" "sqlite>=3.53.2" \
  && apk add --no-cache "c-ares>=1.34.8-r0" "libcurl>=8.21.0-r0" "libexpat>=2.8.4-r0" "giflib>=5.2.2-r2" \
-    "p11-kit>=0.26.2-r0" "p11-kit-trust>=0.26.2-r0" \
- && apk add --no-cache "pyc>=3.14.7-r0" "python3>=3.14.7-r0" "python3-pyc>=3.14.7-r0" \
-    "python3-pycache-pyc0>=3.14.7-r0"
+    "p11-kit>=0.26.2-r0" "p11-kit-trust>=0.26.2-r0" "pcre2>=10.49-r0" \
+ && apk add --no-cache "pyc>=3.14.8-r0" "python3>=3.14.8-r0" "python3-pyc>=3.14.8-r0" \
+    "python3-pycache-pyc0>=3.14.8-r0"
 COPY target/xyz-tile-cache-${VERSION}.jar /app/xyz-tile-cache.jar
 COPY --from=builder /usr/local/bin/pmtiles /usr/local/bin/pmtiles
 COPY entrypoint.sh /app/entrypoint.sh
