@@ -69,8 +69,8 @@ server:
 spring:
   servlet:
     multipart:
-      max-file-size: 2GB           # cap on GeoTIFF uploads
-      max-request-size: 2GB
+      max-file-size: 10GB          # cap on GeoTIFF/import uploads
+      max-request-size: 10GB
 
 xyz:
   baseTileDirectory: "/tmp/tiles"  # root directory for the tile disk cache
