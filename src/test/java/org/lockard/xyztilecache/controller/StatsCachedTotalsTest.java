@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.config.LayerProperties;
+import org.lockard.xyztilecache.store.TileInventoryScanner;
 import org.lockard.xyztilecache.store.TileInventoryStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,6 +31,7 @@ class StatsCachedTotalsTest {
 
   @Autowired MockMvc mvc;
   @Autowired TileInventoryStore inventory;
+  @Autowired TileInventoryScanner scanner;
 
   @DynamicPropertySource
   static void testProperties(DynamicPropertyRegistry registry) {
@@ -61,7 +63,13 @@ class StatsCachedTotalsTest {
   }
 
   @BeforeEach
-  void seedInventory() {
+  void seedInventory() throws InterruptedException {
+    // The startup bootstrap scan runs in the background and replaces totals with what it walked
+    // (nothing, in an empty temp dir). Let it finish so it cannot overwrite the seeded values.
+    long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+    while (scanner.isScanning() && System.nanoTime() < deadline) {
+      Thread.sleep(10);
+    }
     inventory.recordAbsolute("open", 4, 400L);
     inventory.recordAbsolute("restricted", 6, 600L);
   }
