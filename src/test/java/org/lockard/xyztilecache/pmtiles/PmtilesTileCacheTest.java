@@ -24,8 +24,7 @@ class PmtilesTileCacheTest {
   void setUpInventory() throws Exception {
     XyzConfiguration inventoryConfig = new XyzConfiguration();
     inventoryConfig.setBaseTileDirectory(tempDir.toString());
-    inventory =
-        new TileInventoryStore(inventoryConfig, new com.fasterxml.jackson.databind.ObjectMapper());
+    inventory = new TileInventoryStore(inventoryConfig, new tools.jackson.databind.ObjectMapper());
     inventory.init();
   }
 

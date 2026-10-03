@@ -1,20 +1,21 @@
 package org.lockard.xyztilecache.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /** Vector PMTiles layer: serves MVT tiles from a local or remote {@code .pmtiles} archive. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record PmtilesLayer(
-    String id,
-    String name,
-    String urlTemplate,
-    String attribution,
-    int maxZoom,
-    int initZoom,
-    int tileExpirationMinutes,
-    List<String> allowedUsers,
-    List<String> allowedGroups)
+    @JsonProperty("id") String id,
+    @JsonProperty("name") String name,
+    @JsonProperty("urlTemplate") String urlTemplate,
+    @JsonProperty("attribution") String attribution,
+    @JsonProperty("maxZoom") int maxZoom,
+    @JsonProperty("initZoom") int initZoom,
+    @JsonProperty("tileExpirationMinutes") int tileExpirationMinutes,
+    @JsonProperty("allowedUsers") List<String> allowedUsers,
+    @JsonProperty("allowedGroups") List<String> allowedGroups)
     implements Layer {
 
   public PmtilesLayer {

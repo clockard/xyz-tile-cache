@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.PmtilesLayer;
 import org.lockard.xyztilecache.pmtiles.PmtilesTileType;
@@ -16,7 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -80,7 +80,7 @@ class PmtilesUploadController {
     } catch (PmtilesUploadService.UploadRejectedException e) {
       return ResponseEntity.badRequest().body(e.getMessage());
     } catch (PmtilesUploadService.ConverterUnavailableException e) {
-      return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(e.getMessage());
+      return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT).body(e.getMessage());
     } catch (IOException e) {
       LOGGER.error("Failed to install uploaded archives for layer '{}'.", id, e);
       return ResponseEntity.internalServerError().body("Failed to store the uploaded archives.");
@@ -145,7 +145,7 @@ class PmtilesUploadController {
     } catch (PmtilesUploadService.UploadRejectedException e) {
       return ResponseEntity.badRequest().body(e.getMessage());
     } catch (PmtilesUploadService.ConverterUnavailableException e) {
-      return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(e.getMessage());
+      return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT).body(e.getMessage());
     } catch (IOException e) {
       LOGGER.error("Failed to add archives to layer '{}'.", id, e);
       return ResponseEntity.internalServerError().body("Failed to store the uploaded archives.");

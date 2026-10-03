@@ -1,7 +1,5 @@
 package org.lockard.xyztilecache.store;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -18,6 +16,8 @@ import org.lockard.xyztilecache.model.LayerRuntimeState;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /** Persists the layer list to {@code layers.json} alongside the tile cache. */
 @Component

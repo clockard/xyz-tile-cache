@@ -1,6 +1,5 @@
 package org.lockard.xyztilecache.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.Point;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
@@ -33,6 +32,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Streams layer tiles into a zip for download and ingests an uploaded zip back into the cache. Each
@@ -94,7 +95,11 @@ public class ImportExportService {
 
         ZipEntry meta = new ZipEntry(layerId + "/layer.json");
         zos.putNextEntry(meta);
-        zos.write(objectMapper.writeValueAsBytes(layer));
+        try {
+          zos.write(objectMapper.writeValueAsBytes(layer));
+        } catch (JacksonException e) {
+          throw new IOException(e.getMessage(), e);
+        }
         zos.closeEntry();
 
         if (!Files.isDirectory(layerDir)) {
@@ -519,9 +524,14 @@ public class ImportExportService {
   private void handleLayerJson(
       ZipInputStream zis, String layerId, List<String> added, List<String> skipped)
       throws IOException {
-    org.lockard.xyztilecache.config.LayerProperties props =
-        objectMapper.readValue(
-            zis.readAllBytes(), org.lockard.xyztilecache.config.LayerProperties.class);
+    org.lockard.xyztilecache.config.LayerProperties props;
+    try {
+      props =
+          objectMapper.readValue(
+              zis.readAllBytes(), org.lockard.xyztilecache.config.LayerProperties.class);
+    } catch (JacksonException e) {
+      throw new IOException(e.getMessage(), e);
+    }
     if (props.getId() == null || props.getId().isBlank() || !layerId.equals(props.getId())) {
       props.setId(layerId);
       if (props.getName() == null || props.getName().isBlank()) {

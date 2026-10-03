@@ -2,7 +2,6 @@ package org.lockard.xyztilecache.cache;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +17,8 @@ import org.lockard.xyztilecache.model.Tile;
 import org.lockard.xyztilecache.model.XyzLayer;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.lockard.xyztilecache.store.TileInventoryStore;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 class TileWriterTest {
 
@@ -48,9 +49,20 @@ class TileWriterTest {
     configuration.setBaseTileDirectory(tempDir.toString());
     configuration.installLayers(List.of(layer));
 
-    layerStore = new LayerStore(configuration, new ObjectMapper(), event -> {});
+    layerStore =
+        new LayerStore(
+            configuration,
+            JsonMapper.builder()
+                .disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+                .build(),
+            event -> {});
     layerStore.init();
-    inventory = new TileInventoryStore(configuration, new ObjectMapper());
+    inventory =
+        new TileInventoryStore(
+            configuration,
+            JsonMapper.builder()
+                .disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+                .build());
     inventory.init();
   }
 

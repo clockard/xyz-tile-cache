@@ -15,6 +15,11 @@ management:
       application: xyz-tile-cache
 
 spring:
+  jackson:
+    deserialization:
+      # Jackson 3 rejects a missing/null value for a primitive; layers.json and the other stores
+      # written by 1.x omit such fields, so keep the Jackson 2 behavior (use the default).
+      fail-on-null-for-primitives: false
   threads:
     virtual:
       enabled: true             # Tomcat + @Async run on virtual threads (Java 21+)

@@ -1,7 +1,5 @@
 package org.lockard.xyztilecache.store;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,6 +10,8 @@ import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Preload;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /** Persists the preload list to {@code preloads.json} alongside {@code layers.json}. */
 @Component

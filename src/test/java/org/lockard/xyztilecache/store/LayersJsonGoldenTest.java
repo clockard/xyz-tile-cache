@@ -2,15 +2,17 @@ package org.lockard.xyztilecache.store;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.model.PmtilesLayer;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Pins the on-disk layers.json format. {@code layers-boot35.json} is what the Spring Boot 3.5 /
@@ -21,7 +23,8 @@ class LayersJsonGoldenTest {
   private static final Path DIR = Path.of("src/test/resources/golden");
   private static final TypeReference<List<Layer>> LAYERS = new TypeReference<>() {};
 
-  private final ObjectMapper mapper = new ObjectMapper();
+  private final ObjectMapper mapper =
+      JsonMapper.builder().disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES).build();
 
   @Test
   void hand_written_input_serializes_to_the_golden_output() throws Exception {
@@ -49,7 +52,7 @@ class LayersJsonGoldenTest {
 
     Layer pmtiles = layers.get(5);
     assertThat(pmtiles).isInstanceOf(PmtilesLayer.class);
-    assertThat(mapper.valueToTree(pmtiles).get("sourceType").asText()).isEqualTo("PMTILES");
+    assertThat(mapper.valueToTree(pmtiles).get("sourceType").asString()).isEqualTo("PMTILES");
   }
 
   private JsonNode golden() throws Exception {

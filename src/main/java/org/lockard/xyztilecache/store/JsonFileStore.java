@@ -1,7 +1,5 @@
 package org.lockard.xyztilecache.store;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
@@ -17,6 +15,9 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Base class for JSON-file backed stores that persist a list of {@code T} to a file under the
@@ -121,13 +122,23 @@ public abstract class JsonFileStore<T> {
   }
 
   private void loadFromFile() throws IOException {
-    List<T> loaded = objectMapper.readValue(jsonPath.toFile(), listTypeRef());
+    List<T> loaded;
+    try {
+      loaded = objectMapper.readValue(jsonPath.toFile(), listTypeRef());
+    } catch (JacksonException e) {
+      // Jackson 3 exceptions are unchecked; callers handle an unreadable file as an IOException.
+      throw new IOException(e.getMessage(), e);
+    }
     applyLoaded(loaded);
     lastKnownMtime = Files.getLastModifiedTime(jsonPath);
   }
 
   private void writeFile() throws IOException {
-    objectMapper.writerWithDefaultPrettyPrinter().writeValue(jsonPath.toFile(), snapshot());
+    try {
+      objectMapper.writerWithDefaultPrettyPrinter().writeValue(jsonPath.toFile(), snapshot());
+    } catch (JacksonException e) {
+      throw new IOException(e.getMessage(), e);
+    }
     lastKnownMtime = Files.getLastModifiedTime(jsonPath);
   }
 

@@ -1,23 +1,24 @@
 package org.lockard.xyztilecache.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.Map;
 
 /** WMTS RESTful layer: substitutes {@code {TileMatrix}/{TileRow}/{TileCol}}. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record WmtsRestLayer(
-    String id,
-    String name,
-    String urlTemplate,
-    String attribution,
-    int maxZoom,
-    int initZoom,
-    int tileExpirationMinutes,
-    List<String> allowedUsers,
-    List<String> allowedGroups,
-    Map<String, String> headers,
-    String timeFormat)
+    @JsonProperty("id") String id,
+    @JsonProperty("name") String name,
+    @JsonProperty("urlTemplate") String urlTemplate,
+    @JsonProperty("attribution") String attribution,
+    @JsonProperty("maxZoom") int maxZoom,
+    @JsonProperty("initZoom") int initZoom,
+    @JsonProperty("tileExpirationMinutes") int tileExpirationMinutes,
+    @JsonProperty("allowedUsers") List<String> allowedUsers,
+    @JsonProperty("allowedGroups") List<String> allowedGroups,
+    @JsonProperty("headers") Map<String, String> headers,
+    @JsonProperty("timeFormat") String timeFormat)
     implements Layer {
 
   public WmtsRestLayer {

@@ -2,7 +2,6 @@ package org.lockard.xyztilecache.store;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.AfterEach;
@@ -10,6 +9,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lockard.xyztilecache.config.XyzConfiguration;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 class TileInventoryScannerTest {
 
@@ -34,7 +35,12 @@ class TileInventoryScannerTest {
   }
 
   private void openStore() throws Exception {
-    inventory = new TileInventoryStore(configuration, new ObjectMapper());
+    inventory =
+        new TileInventoryStore(
+            configuration,
+            JsonMapper.builder()
+                .disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+                .build());
     inventory.init();
     scanner = new TileInventoryScanner(configuration, inventory);
   }

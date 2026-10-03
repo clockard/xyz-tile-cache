@@ -24,7 +24,7 @@ class AdminTokenAuthFilterTest {
   @Test
   void filter_noAuthHeader_passesThrough() throws Exception {
     AdminTokenAuthFilter f = new AdminTokenAuthFilter("secret", "admin");
-    HttpServletRequest req = mock(HttpServletRequest.class);
+    HttpServletRequest req = mockRequest();
     HttpServletResponse res = mock(HttpServletResponse.class);
     FilterChain chain = mock(FilterChain.class);
     when(req.getHeader("Authorization")).thenReturn(null);
@@ -38,7 +38,7 @@ class AdminTokenAuthFilterTest {
   @Test
   void filter_headerNotBearer_passesThrough() throws Exception {
     AdminTokenAuthFilter f = new AdminTokenAuthFilter("secret", "admin");
-    HttpServletRequest req = mock(HttpServletRequest.class);
+    HttpServletRequest req = mockRequest();
     HttpServletResponse res = mock(HttpServletResponse.class);
     FilterChain chain = mock(FilterChain.class);
     when(req.getHeader("Authorization")).thenReturn("Basic dXNlcjpwYXNz");
@@ -52,7 +52,7 @@ class AdminTokenAuthFilterTest {
   @Test
   void filter_correctToken_setsAdminAuthentication() throws Exception {
     AdminTokenAuthFilter f = new AdminTokenAuthFilter("mytoken", "admin");
-    HttpServletRequest req = mock(HttpServletRequest.class);
+    HttpServletRequest req = mockRequest();
     HttpServletResponse res = mock(HttpServletResponse.class);
     FilterChain chain = mock(FilterChain.class);
     when(req.getHeader("Authorization")).thenReturn("Bearer mytoken");
@@ -68,7 +68,7 @@ class AdminTokenAuthFilterTest {
   @Test
   void filter_wrongToken_rejectsWithoutContinuingChain() throws Exception {
     AdminTokenAuthFilter f = new AdminTokenAuthFilter("secret", "admin");
-    HttpServletRequest req = mock(HttpServletRequest.class);
+    HttpServletRequest req = mockRequest();
     MockHttpServletResponse res = new MockHttpServletResponse();
     FilterChain chain = mock(FilterChain.class);
     when(req.getHeader("Authorization")).thenReturn("Bearer wrongtoken");
@@ -86,7 +86,7 @@ class AdminTokenAuthFilterTest {
   @Test
   void filter_blankExpectedToken_rejects() throws Exception {
     AdminTokenAuthFilter f = new AdminTokenAuthFilter("", "admin");
-    HttpServletRequest req = mock(HttpServletRequest.class);
+    HttpServletRequest req = mockRequest();
     MockHttpServletResponse res = new MockHttpServletResponse();
     FilterChain chain = mock(FilterChain.class);
     when(req.getHeader("Authorization")).thenReturn("Bearer anything");
@@ -103,7 +103,7 @@ class AdminTokenAuthFilterTest {
     // RFC 7235 makes the auth scheme case-insensitive, and jwt mode accepts "bearer"; token mode
     // must not diverge.
     AdminTokenAuthFilter f = new AdminTokenAuthFilter("mytoken", "admin");
-    HttpServletRequest req = mock(HttpServletRequest.class);
+    HttpServletRequest req = mockRequest();
     HttpServletResponse res = mock(HttpServletResponse.class);
     FilterChain chain = mock(FilterChain.class);
     when(req.getHeader("Authorization")).thenReturn("bearer mytoken");
@@ -119,7 +119,7 @@ class AdminTokenAuthFilterTest {
     // HTTP strips trailing whitespace from header values in transit, so an untrimmed configured
     // token could never be reproduced by any client and would reject every request.
     AdminTokenAuthFilter f = new AdminTokenAuthFilter(" mytoken\n", "admin");
-    HttpServletRequest req = mock(HttpServletRequest.class);
+    HttpServletRequest req = mockRequest();
     HttpServletResponse res = mock(HttpServletResponse.class);
     FilterChain chain = mock(FilterChain.class);
     when(req.getHeader("Authorization")).thenReturn("Bearer mytoken");
@@ -133,7 +133,7 @@ class AdminTokenAuthFilterTest {
   @Test
   void filter_nullExpectedToken_rejectsWithoutNpe() throws Exception {
     AdminTokenAuthFilter f = new AdminTokenAuthFilter(null, "admin");
-    HttpServletRequest req = mock(HttpServletRequest.class);
+    HttpServletRequest req = mockRequest();
     MockHttpServletResponse res = new MockHttpServletResponse();
     FilterChain chain = mock(FilterChain.class);
     when(req.getHeader("Authorization")).thenReturn("Bearer anything");
@@ -143,5 +143,14 @@ class AdminTokenAuthFilterTest {
     assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     assertThat(res.getStatus()).isEqualTo(401);
     verifyNoInteractions(chain);
+  }
+
+  /** Security 7's entry point builds the resource-metadata URL, so the request needs a host. */
+  private static HttpServletRequest mockRequest() {
+    HttpServletRequest req = mock(HttpServletRequest.class);
+    when(req.getScheme()).thenReturn("http");
+    when(req.getServerName()).thenReturn("localhost");
+    when(req.getServerPort()).thenReturn(80);
+    return req;
   }
 }

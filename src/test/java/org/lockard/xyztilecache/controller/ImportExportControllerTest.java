@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -30,8 +28,8 @@ import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.store.LayerStore;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -40,6 +38,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -134,7 +134,7 @@ class ImportExportControllerTest {
                 post("/export").with(auth).contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().isAccepted())
             .andReturn();
-    return objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText();
+    return objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asString();
   }
 
   /**
@@ -151,7 +151,7 @@ class ImportExportControllerTest {
               .andReturn()
               .getResponse()
               .getContentAsString();
-      jobStatus = objectMapper.readTree(body).get("status").asText();
+      jobStatus = objectMapper.readTree(body).get("status").asString();
     }
     assertThat(jobStatus).isEqualTo("DONE");
     MvcResult result =
@@ -368,9 +368,9 @@ class ImportExportControllerTest {
             .getResponse()
             .getContentAsString();
     JsonNode node = objectMapper.readTree(body);
-    assertThat(node.get("id").asText()).isEqualTo(jobId);
-    assertThat(node.get("status").asText()).isIn("PENDING", "RUNNING", "DONE");
-    assertThat(node.get("filename").asText()).startsWith("tile-export-");
+    assertThat(node.get("id").asString()).isEqualTo(jobId);
+    assertThat(node.get("status").asString()).isIn("PENDING", "RUNNING", "DONE");
+    assertThat(node.get("filename").asString()).startsWith("tile-export-");
   }
 
   // ── GET /exports/{id}/download ────────────────────────────────────────────
@@ -400,7 +400,7 @@ class ImportExportControllerTest {
               .andReturn()
               .getResponse()
               .getContentAsString();
-      if ("DONE".equals(objectMapper.readTree(s).get("status").asText())) break;
+      if ("DONE".equals(objectMapper.readTree(s).get("status").asString())) break;
     }
     mvc.perform(get("/exports/" + jobId2 + "/download").with(userJwt("dan")))
         .andExpect(status().isForbidden());
@@ -417,7 +417,7 @@ class ImportExportControllerTest {
             .andExpect(status().isAccepted())
             .andReturn();
     String jobId =
-        objectMapper.readTree(submit.getResponse().getContentAsString()).get("id").asText();
+        objectMapper.readTree(submit.getResponse().getContentAsString()).get("id").asString();
 
     // Immediately try to download — may be PENDING/RUNNING (409) or already done (200)
     int sc =

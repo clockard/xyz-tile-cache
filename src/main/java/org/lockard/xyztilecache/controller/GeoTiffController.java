@@ -7,6 +7,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
+import org.jspecify.annotations.Nullable;
 import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.Layer;
 import org.lockard.xyztilecache.service.GeoTiffTiler;
@@ -16,7 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -90,7 +90,7 @@ class GeoTiffController {
     } catch (IOException e) {
       LOGGER.error("gdal2tiles failed for layer '{}'.", name, e);
       deleteRecursively(outputDir);
-      return ResponseEntity.unprocessableEntity().body("Tiling failed: " + e.getMessage());
+      return ResponseEntity.unprocessableContent().body("Tiling failed: " + e.getMessage());
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       deleteRecursively(outputDir);

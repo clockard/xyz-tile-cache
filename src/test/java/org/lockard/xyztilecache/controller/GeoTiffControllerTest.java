@@ -20,9 +20,9 @@ import org.lockard.xyztilecache.config.LayerProperties;
 import org.lockard.xyztilecache.service.GeoTiffTiler;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.mock.web.MockMultipartFile;
@@ -127,7 +127,7 @@ class GeoTiffControllerTest {
         new MockMultipartFile("file", "input.tif", "image/tiff", new byte[] {1, 2, 3});
     mvc.perform(
             multipart("/layers/geotiff").file(file).param("name", "fails-tiling").with(userJwt()))
-        .andExpect(status().isUnprocessableEntity());
+        .andExpect(status().isUnprocessableContent());
     // Output dir should have been cleaned up so a retry doesn't 409 on dir-exists.
     org.assertj.core.api.Assertions.assertThat(Paths.get(tileDir.getAbsolutePath(), "fails-tiling"))
         .doesNotExist();

@@ -1,7 +1,5 @@
 package org.lockard.xyztilecache.store;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,6 +15,8 @@ import org.lockard.xyztilecache.config.XyzConfiguration;
 import org.lockard.xyztilecache.model.TileInventoryEntry;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Tracks what each layer holds on disk — cached tile count and total bytes — and persists it to
