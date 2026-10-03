@@ -1,0 +1,8 @@
+[
+ {"id":"x","name":"X","sourceType":"XYZ","urlTemplate":"https://e.com/{z}/{x}/{y}.png","maxZoom":18,"allowedUsers":["a"],"allowedGroups":["g"]},
+ {"id":"wr","name":"WR","sourceType":"WMTS_REST","urlTemplate":"https://e.com/{z}/{y}/{x}.png"},
+ {"id":"wk","name":"WK","sourceType":"WMTS_KVP","urlTemplate":"https://e.com/wmts","wmtsLayerName":"l","wmtsStyle":"default","wmtsTileMatrixSet":"g","wmtsFormat":"image/png"},
+ {"id":"w","name":"W","sourceType":"WMS","urlTemplate":"https://e.com/wms"},
+ {"id":"l","name":"L","sourceType":"LOCAL"},
+ {"id":"p","name":"P","sourceType":"VECTOR_PMTILES","urlTemplate":"https://e.com/a.pmtiles"}
+]
