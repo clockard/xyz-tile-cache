@@ -5,7 +5,7 @@ Be concise. Skip pleasantries. Use bullet points.
 ## Commands
 
 ```bash
-mvn clean package                           # build
+mvn clean package                           # build (also builds the Docker image; add -Ddocker.skip=true to skip)
 mvn spring-boot:run                         # run locally
 mvn test                                    # all tests
 mvn test -Dtest=ClassName#methodName        # single test
@@ -27,7 +27,7 @@ Release secrets: `DOCKER_USERNAME`, `DOCKER_TOKEN`. If branch protection blocks 
 
 ## Architecture
 
-Spring Boot tile proxy on port 8383. Caches XYZ raster tiles, MVT vector tiles, and ingested GeoTIFFs. Supports XYZ, WMTS-REST, WMTS-KVP, and PMTiles sources.
+Spring Boot 4.1 tile proxy (Spring Framework 7, Security 7, Jackson 3, Tomcat 11, Java 25) on port 8383. Caches XYZ raster tiles, MVT vector tiles, and ingested GeoTIFFs. Supports XYZ, WMTS-REST, WMTS-KVP, and PMTiles sources.
 
 ### Tile request flow
 
@@ -72,6 +72,16 @@ GET /tilesZYX/{layer}/{z}/{y}/{x}.{ext}
 - WireMock mocks tile HTTP sources; `@TempDir` + `@DynamicPropertySource` isolate disk/config.
 - Integration tests use `MockMvc` with full Spring context. `LayerTest` is a pure unit test for blocking strategy.
 - `test` Spring profile (set in `surefire`) loads `src/test/resources/application-test.yml` to stub `spring.security.oauth2.resourceserver.jwt.*` so no Keycloak is needed. Authenticated requests use `SecurityMockMvcRequestPostProcessors.jwt()`.
+- Boot 4 test conventions: `@SpringBootTest` no longer provides `MockMvc`/`TestRestTemplate`. Add `@AutoConfigureMockMvc` (`org.springframework.boot.webmvc.test.autoconfigure`) and, for `TestRestTemplate` (`org.springframework.boot.resttestclient`), `@AutoConfigureTestRestTemplate`. Use `@MockitoBean`, not `@MockBean`.
+- Unit tests that need a mapper use `JsonMapper.builder().disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES).build()` to match `application.yml`.
+- `LayersJsonGoldenTest` + `src/test/resources/golden/` pin the on-disk `layers.json` format written by 1.x. Do not regenerate the golden file to make it pass.
+
+### Jackson 3 gotchas
+
+- Packages are `tools.jackson.*`; only `jackson-annotations` stays `com.fasterxml.jackson.annotation`. Mapper type is `JsonMapper`; `JacksonException` is unchecked.
+- Stores/import-export wrap `JacksonException` as `IOException` (`JsonFileStore`, `ImportExportService`). Keep that: callers' `catch (IOException)` implements the corrupt-file recovery (e.g. `TileInventoryStore.init`).
+- Layer records carry explicit `@JsonProperty` on every component that has a `@JsonIgnore` legacy alias getter in `Layer` (`getId()` etc.). Without it Jackson 3 drops the property on read. Add it to any new record component that has such an alias.
+- Jackson 3 ignores unknown JSON fields and rejects null for primitives by default. `spring.jackson.deserialization.fail-on-null-for-primitives=false` in `application.yml` keeps old files with omitted numbers loading.
 
 ## Authentication
 
