@@ -5,8 +5,9 @@ ARG JRE_IMAGE=alpine:3.24.2
 # fixes (CVE-2026-32280/32281/32283/33810 fixed in 1.26.2; CVE-2026-39822
 # os.Root symlink-following traversal fixed in 1.26.5; CVE-2026-39821 idna
 # Punycode privilege escalation and CVE-2026-46600 dnsmessage DoS fixed in
-# 1.26.6) are included.
-FROM golang:1.26.8-alpine AS builder
+# 1.26.6; CVE-2026-78667 net/http Range-header DoS and CVE-2026-97031
+# crypto/tls ECH outer-extension DoS fixed in 1.26.9) are included.
+FROM golang:1.26.9-alpine AS builder
 ARG PMTILES_VERSION=1.31.2
 RUN apk add --no-cache git
 RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
@@ -53,6 +54,7 @@ RUN apk upgrade --no-cache
 RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg\
  && apk add --no-cache "openjdk25-jre-headless>=25.0.4_p7-r0" \
  && apk add --no-cache "libxml2>=2.13.9-r1" \
+ && apk add --no-cache "tiff>=4.7.2-r0" \
  && apk add --no-cache "openssl>=3.5.8-r0" "libcrypto3>=3.5.8-r0" "libssl3>=3.5.8-r0" "sqlite>=3.53.2" \
  && apk add --no-cache "c-ares>=1.34.8-r0" "libcurl>=8.21.0-r0" "libexpat>=2.8.4-r0" "giflib>=5.2.2-r2" \
     "p11-kit>=0.26.2-r0" "p11-kit-trust>=0.26.2-r0" \
