@@ -1,18 +1,20 @@
 ARG JRE_IMAGE=alpine:3.24.2
 
 # ── Stage 1: build go-pmtiles CLI ─────────────────────────────────────────────
-# golang:1.26-alpine tracks the latest Go 1.26.x patch, ensuring stdlib CVE
+# golang:1.27-alpine tracks the latest Go 1.27.x patch, ensuring stdlib CVE
 # fixes (CVE-2026-32280/32281/32283/33810 fixed in 1.26.2; CVE-2026-39822
 # os.Root symlink-following traversal fixed in 1.26.5; CVE-2026-39821 idna
 # Punycode privilege escalation and CVE-2026-46600 dnsmessage DoS fixed in
-# 1.26.6; CVE-2026-78667 net/http Range-header DoS and CVE-2026-97031
-# crypto/tls ECH outer-extension DoS fixed in 1.26.9) are included.
-FROM golang:1.26.9-alpine AS builder
+# 1.26.6; CVE-2026-78667 net/http Range-header DoS, CVE-2026-78669
+# net/http2 excessive-SETTINGS-frame DoS, and CVE-2026-97031 crypto/tls ECH
+# outer-extension DoS fixed in 1.26.9/1.27.2) are included.
+FROM golang:1.27.2-alpine AS builder
 ARG PMTILES_VERSION=1.31.2
 RUN apk add --no-cache git
 RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
 WORKDIR /src
-# Upgrade golang.org/x/net to 0.59.0+ to fix CVE-2026-25680/25681/27136/39821/42502/42506 (HTML parsing/Render CPU & memory issues, idna Punycode privilege escalation)
+# Upgrade golang.org/x/net to 0.60.0+ to fix CVE-2026-25680/25681/27136/39821/42502/42506 (HTML parsing/Render CPU & memory issues, idna Punycode privilege escalation)
+# and CVE-2026-78669 (http2 excessive SETTINGS-frame DoS)
 # Upgrade otel/sdk to 1.46.0+ to fix CVE-2026-39883 (PATH hijacking via kenv)
 # Upgrade golang.org/x/text to 0.42.0+ to fix CVE-2026-56852 (norm.Iter infinite loop)
 # Upgrade grpc-go to 1.83.2+ to fix GHSA-hrxh-6v49-42gf (xDS RBAC and HTTP/2 vulnerabilities), CVE-2026-84304,
@@ -29,7 +31,7 @@ WORKDIR /src
 # x/crypto is only an indirect dependency here, so it must be the LAST go get: `go mod tidy`/subsequent
 # `go get` calls recompute the module graph and drop indirect version pins that aren't backed by a
 # direct requirement, silently reverting to whatever lower version other deps demand.
-RUN go get golang.org/x/net@v0.59.0 \
+RUN go get golang.org/x/net@v0.60.0 \
  && go get go.opentelemetry.io/otel/sdk@v1.46.0 \
  && go get golang.org/x/text@v0.42.0 \
  && go get google.golang.org/grpc@v1.83.2 \
