@@ -6,8 +6,10 @@ ARG JRE_IMAGE=alpine:3.24.2
 # os.Root symlink-following traversal fixed in 1.26.5; CVE-2026-39821 idna
 # Punycode privilege escalation and CVE-2026-46600 dnsmessage DoS fixed in
 # 1.26.6; CVE-2026-78667 net/http Range-header DoS and CVE-2026-97031
-# crypto/tls ECH outer-extension DoS fixed in 1.26.9) are included.
-FROM golang:1.26.9-alpine AS builder
+# crypto/tls ECH outer-extension DoS fixed in 1.26.9; CVE-2026-111943
+# crypto/x509 MITM via untrusted intermediate certificates fixed in
+# 1.26.10) are included.
+FROM golang:1.26.10-alpine AS builder
 ARG PMTILES_VERSION=1.31.2
 RUN apk add --no-cache git
 RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
