@@ -62,7 +62,7 @@ RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg
  && apk add --no-cache "libxml2>=2.13.9-r1" \
  && apk add --no-cache "tiff>=4.7.2-r0" \
  && apk add --no-cache "openssl>=3.5.8-r0" "libcrypto3>=3.5.8-r0" "libssl3>=3.5.8-r0" "sqlite>=3.53.2" \
- && apk add --no-cache "c-ares>=1.34.8-r0" "libcurl>=8.21.0-r0" "libexpat>=2.9.0-r0" "giflib>=5.2.2-r2" \
+ && apk add --no-cache "c-ares>=1.34.8-r0" "libcurl>=8.23.0-r0" "libexpat>=2.9.0-r0" "giflib>=5.2.2-r2" \
     "p11-kit>=0.26.2-r0" "p11-kit-trust>=0.26.2-r0" \
  && apk add --no-cache "libx11>=1.8.14-r0" "libxrender>=0.9.13-r0" \
  && apk add --no-cache "pyc>=3.14.7-r0" "python3>=3.14.7-r0" "python3-pyc>=3.14.7-r0" \
