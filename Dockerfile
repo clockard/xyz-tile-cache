@@ -28,9 +28,10 @@ WORKDIR /src
 # Upgrade aws-sdk-go-v2 eventstream/s3 to fix GHSA-xmrv-pmrh-hhx2 (DoS panic decoding
 # malformed event-stream messages).
 # Upgrade mongo-driver to 1.17.7+ to fix CVE-2026-2303.
-# x/crypto is only an indirect dependency here, so it must be the LAST go get: `go mod tidy`/subsequent
-# `go get` calls recompute the module graph and drop indirect version pins that aren't backed by a
-# direct requirement, silently reverting to whatever lower version other deps demand.
+# Upgrade go-jose/v4 to 4.1.6+ to fix CVE-2026-116587 (DoS when parsing JWKs that contain RSA keys).
+# x/crypto and go-jose/v4 are only indirect dependencies here, so they must be the LAST go gets:
+# `go mod tidy`/subsequent `go get` calls recompute the module graph and drop indirect version pins
+# that aren't backed by a direct requirement, silently reverting to whatever lower version other deps demand.
 RUN go get golang.org/x/net@v0.60.0 \
  && go get go.opentelemetry.io/otel/sdk@v1.46.0 \
  && go get golang.org/x/text@v0.42.0 \
@@ -39,6 +40,7 @@ RUN go get golang.org/x/net@v0.60.0 \
  && go get github.com/aws/aws-sdk-go-v2/service/s3@v1.97.3 \
  && go get go.mongodb.org/mongo-driver@v1.17.7 \
  && go get golang.org/x/crypto@v0.57.0 \
+ && go get github.com/go-jose/go-jose/v4@v4.1.6 \
  && go mod tidy \
  && CGO_ENABLED=0 go build -o /usr/local/bin/pmtiles .
 
@@ -52,21 +54,23 @@ RUN apk upgrade --no-cache
 # Alpine splits GDAL drivers into separate packages; png is required for gdal2tiles output,
 # jpeg covers JPEG-compressed input TIFFs commonly used in remote sensing.
 # py3-gdal pulls in python3; pin it (and its pyc/bytecode-cache split packages) to
-# 3.14.7-r0+ to fix CVE-2026-7210 (expat DoS via crafted XML document).
+# 3.14.10-r0+ to fix CVE-2026-7210 (expat DoS via crafted XML document) and
+# CVE-2026-115557 (denylist for known compromised certificates).
 # libexpat>=2.9.0-r0 fixes CVE-2026-77214 (heap buffer over-read in XML_ParseBuffer).
 # libx11/libxrender are transitive deps of gdal-tools/py3-gdal; pin to fix
 # CVE-2026-88806 (libX11 heap overflow) and CVE-2026-88807 (libXrender heap
 # overflow in RenderQueryPictFormats).
+# libcurl>=8.23.0-r0 fixes CVE-2026-92392 (HTTP/2 upload use-after-free).
 RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg\
  && apk add --no-cache "openjdk25-jre-headless>=25.0.4_p7-r0" \
  && apk add --no-cache "libxml2>=2.13.9-r1" \
  && apk add --no-cache "tiff>=4.7.2-r0" \
  && apk add --no-cache "openssl>=3.5.8-r0" "libcrypto3>=3.5.8-r0" "libssl3>=3.5.8-r0" "sqlite>=3.53.2" \
- && apk add --no-cache "c-ares>=1.34.8-r0" "libcurl>=8.21.0-r0" "libexpat>=2.9.0-r0" "giflib>=5.2.2-r2" \
+ && apk add --no-cache "c-ares>=1.34.8-r0" "libcurl>=8.23.0-r0" "libexpat>=2.9.0-r0" "giflib>=5.2.2-r2" \
     "p11-kit>=0.26.2-r0" "p11-kit-trust>=0.26.2-r0" \
  && apk add --no-cache "libx11>=1.8.14-r0" "libxrender>=0.9.13-r0" \
- && apk add --no-cache "pyc>=3.14.7-r0" "python3>=3.14.7-r0" "python3-pyc>=3.14.7-r0" \
-    "python3-pycache-pyc0>=3.14.7-r0"
+ && apk add --no-cache "pyc>=3.14.10-r0" "python3>=3.14.10-r0" "python3-pyc>=3.14.10-r0" \
+    "python3-pycache-pyc0>=3.14.10-r0"
 COPY target/xyz-tile-cache-${VERSION}.jar /app/xyz-tile-cache.jar
 COPY --from=builder /usr/local/bin/pmtiles /usr/local/bin/pmtiles
 COPY entrypoint.sh /app/entrypoint.sh
