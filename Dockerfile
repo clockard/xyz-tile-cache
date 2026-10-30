@@ -1,4 +1,4 @@
-ARG JRE_IMAGE=alpine:3.24.2
+ARG JRE_IMAGE=alpine:3.24.3
 
 # ── Stage 1: build go-pmtiles CLI ─────────────────────────────────────────────
 # golang:1.26-alpine tracks the latest Go 1.26.x patch, ensuring stdlib CVE
