@@ -28,6 +28,7 @@ WORKDIR /src
 # Upgrade aws-sdk-go-v2 eventstream/s3 to fix GHSA-xmrv-pmrh-hhx2 (DoS panic decoding
 # malformed event-stream messages).
 # Upgrade mongo-driver to 1.17.7+ to fix CVE-2026-2303.
+# Upgrade go-jose/v4 to 4.1.6+ to fix CVE-2026-116587 (DoS via crafted RSA parameters in JWKs).
 # x/crypto is only an indirect dependency here, so it must be the LAST go get: `go mod tidy`/subsequent
 # `go get` calls recompute the module graph and drop indirect version pins that aren't backed by a
 # direct requirement, silently reverting to whatever lower version other deps demand.
@@ -38,6 +39,7 @@ RUN go get golang.org/x/net@v0.60.0 \
  && go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 \
  && go get github.com/aws/aws-sdk-go-v2/service/s3@v1.97.3 \
  && go get go.mongodb.org/mongo-driver@v1.17.7 \
+ && go get github.com/go-jose/go-jose/v4@v4.1.6 \
  && go get golang.org/x/crypto@v0.57.0 \
  && go mod tidy \
  && CGO_ENABLED=0 go build -o /usr/local/bin/pmtiles .
