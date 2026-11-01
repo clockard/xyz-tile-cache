@@ -28,6 +28,7 @@ WORKDIR /src
 # Upgrade aws-sdk-go-v2 eventstream/s3 to fix GHSA-xmrv-pmrh-hhx2 (DoS panic decoding
 # malformed event-stream messages).
 # Upgrade mongo-driver to 1.17.7+ to fix CVE-2026-2303.
+# Upgrade go-jose to 4.1.6+ to fix CVE-2026-116587 (DoS via crafted RSA parameters in JWKs).
 # x/crypto is only an indirect dependency here, so it must be the LAST go get: `go mod tidy`/subsequent
 # `go get` calls recompute the module graph and drop indirect version pins that aren't backed by a
 # direct requirement, silently reverting to whatever lower version other deps demand.
@@ -38,6 +39,7 @@ RUN go get golang.org/x/net@v0.60.0 \
  && go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 \
  && go get github.com/aws/aws-sdk-go-v2/service/s3@v1.97.3 \
  && go get go.mongodb.org/mongo-driver@v1.17.7 \
+ && go get github.com/go-jose/go-jose/v4@v4.1.6 \
  && go get golang.org/x/crypto@v0.57.0 \
  && go mod tidy \
  && CGO_ENABLED=0 go build -o /usr/local/bin/pmtiles .
@@ -58,7 +60,7 @@ RUN apk upgrade --no-cache
 # CVE-2026-88806 (libX11 heap overflow) and CVE-2026-88807 (libXrender heap
 # overflow in RenderQueryPictFormats).
 RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg\
- && apk add --no-cache "openjdk25-jre-headless>=25.0.4_p7-r0" \
+ && apk add --no-cache "openjdk25-jre-headless>=25.0.5.0.3_p1-r0" \
  && apk add --no-cache "libxml2>=2.13.9-r1" \
  && apk add --no-cache "tiff>=4.7.2-r0" \
  && apk add --no-cache "openssl>=3.5.8-r0" "libcrypto3>=3.5.8-r0" "libssl3>=3.5.8-r0" "sqlite>=3.53.2" \
