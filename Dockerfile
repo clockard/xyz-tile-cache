@@ -29,11 +29,12 @@ WORKDIR /src
 # malformed event-stream messages).
 # Upgrade mongo-driver to 1.17.7+ to fix CVE-2026-2303.
 # Upgrade go-jose/v4 to 4.1.6+ to fix CVE-2026-116587 (DoS via crafted RSA parameters in JWKs).
-# x/crypto is only an indirect dependency here, so it must be the LAST go get: `go mod tidy`/subsequent
-# `go get` calls recompute the module graph and drop indirect version pins that aren't backed by a
-# direct requirement, silently reverting to whatever lower version other deps demand.
-RUN go get golang.org/x/net@v0.62.0 \
- && go get go.opentelemetry.io/otel/sdk@v1.46.0 \
+# x/crypto and x/net are only indirect dependencies here, so they must be the LAST go gets
+# (x/net last of all): `go mod tidy`/subsequent `go get` calls recompute the module graph and
+# drop indirect version pins that aren't backed by a direct requirement, silently reverting to
+# whatever lower version other deps demand. grpc-go@v1.83.2 in particular pulls x/net back down
+# to v0.60.0 (CVE-2026-78661) if x/net isn't fetched after it.
+RUN go get go.opentelemetry.io/otel/sdk@v1.46.0 \
  && go get golang.org/x/text@v0.42.0 \
  && go get google.golang.org/grpc@v1.83.2 \
  && go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 \
@@ -41,6 +42,7 @@ RUN go get golang.org/x/net@v0.62.0 \
  && go get go.mongodb.org/mongo-driver@v1.17.7 \
  && go get github.com/go-jose/go-jose/v4@v4.1.6 \
  && go get golang.org/x/crypto@v0.57.0 \
+ && go get golang.org/x/net@v0.62.0 \
  && go mod tidy \
  && CGO_ENABLED=0 go build -o /usr/local/bin/pmtiles .
 
