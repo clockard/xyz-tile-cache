@@ -13,10 +13,26 @@ jobs:
     outputs:
       has_findings: ${{ steps.check.outputs.has_findings }}
     steps:
-      - name: Scan published image with Trivy (SARIF)
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - name: Build JAR
+        run: mvn --no-transfer-progress clean package -DskipTests -Ddocker.skip=true
+
+      - name: Build image from main
+        run: |
+          PROJECT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout --no-transfer-progress)
+          docker build --build-arg VERSION="$PROJECT_VERSION" -t xyz-tile-cache:scan .
+
+      - name: Scan image with Trivy (SARIF)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ secrets.DOCKER_USERNAME }}/xyz-tile-cache:latest
+          image-ref: xyz-tile-cache:scan
           format: sarif
           output: trivy-results.sarif
           exit-code: '0'
@@ -24,14 +40,14 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
 
-      - name: Scan published image with Trivy (JSON)
+      - name: Scan image with Trivy (JSON)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ secrets.DOCKER_USERNAME }}/xyz-tile-cache:latest
+          image-ref: xyz-tile-cache:scan
           format: json
           output: trivy-results.json
           exit-code: '0'
@@ -51,7 +67,7 @@ jobs:
 
       - name: Upload findings artifact
         if: steps.check.outputs.has_findings == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-findings
           path: trivy-results.json
@@ -65,19 +81,19 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           java-version: '25'
           distribution: temurin
           cache: maven
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
@@ -85,7 +101,7 @@ jobs:
         run: npm install -g @anthropic-ai/claude-code
 
       - name: Download Trivy findings
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: trivy-findings
 

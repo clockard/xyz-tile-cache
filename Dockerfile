@@ -1,14 +1,14 @@
-ARG JRE_IMAGE=alpine:3.24.3
+ARG JRE_IMAGE=alpine:3.24.4
 
 # ── Stage 1: build go-pmtiles CLI ─────────────────────────────────────────────
-# golang:1.26-alpine tracks the latest Go 1.26.x patch, ensuring stdlib CVE
+# golang:1.27-alpine tracks the latest Go 1.27.x patch, ensuring stdlib CVE
 # fixes (CVE-2026-32280/32281/32283/33810 fixed in 1.26.2; CVE-2026-39822
 # os.Root symlink-following traversal fixed in 1.26.5; CVE-2026-39821 idna
 # Punycode privilege escalation and CVE-2026-46600 dnsmessage DoS fixed in
 # 1.26.6; CVE-2026-78667 net/http Range-header DoS and CVE-2026-97031
 # crypto/tls ECH outer-extension DoS fixed in 1.26.9; CVE-2026-111943
 # crypto/x509 CA mitigation fixed in 1.26.10) are included.
-FROM golang:1.26.10-alpine AS builder
+FROM golang:1.27.4-alpine AS builder
 ARG PMTILES_VERSION=1.31.2
 RUN apk add --no-cache git
 RUN git clone --depth=1 --branch v${PMTILES_VERSION} https://github.com/protomaps/go-pmtiles /src
@@ -61,7 +61,7 @@ RUN apk upgrade --no-cache
 # CVE-2026-88806 (libX11 heap overflow) and CVE-2026-88807 (libXrender heap
 # overflow in RenderQueryPictFormats).
 RUN apk add --no-cache gdal gdal-tools py3-gdal gdal-driver-png gdal-driver-jpeg\
- && apk add --no-cache "openjdk25-jre-headless>=25.0.4_p7-r0" \
+ && apk add --no-cache "openjdk25-jre-headless>=25.0.5.1_p2-r0" \
  && apk add --no-cache "libxml2>=2.13.9-r1" \
  && apk add --no-cache "tiff>=4.7.2-r0" \
  && apk add --no-cache "openssl>=3.5.8-r0" "libcrypto3>=3.5.8-r0" "libssl3>=3.5.8-r0" "sqlite>=3.53.2" \
